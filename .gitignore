@@ -132,3 +132,4 @@ dmypy.json
 # custom
 **/data
 */data
+*/.DS_Store
