@@ -18,7 +18,7 @@ from torch.utils.data.dataloader import DataLoader
 
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
-writer = SummaryWriter("/home/antonis/projects/slab/git/slab/transformer_exp/code/transformer_vid3/runs/tensorboard")
+# writer = SummaryWriter("/home/antonis/projects/slab/git/slab/transformer_exp/code/transformer_vid3/runs/tensorboard")
 from datetime import datetime
 logger = logging.getLogger(__name__)
 
@@ -46,6 +46,7 @@ class TrainerConfig:
     num_workers = 0 # for DataLoader
     # plot gradient flow
     show_grads = False
+    shuffle = True
 
 
     def __init__(self, **kwargs):
@@ -76,12 +77,8 @@ class Trainer:
         # DataParallel wrappers keep raw model object in .module attribute
         raw_model = self.model.module if hasattr(self.model, "module") else self.model
         logger.info("saving %s", self.config.ckpt_path)
-        torch.save(raw_model.state_dict(), parent_path + 'code/transformer_vid3/runs/models/{}-e:{}-b:{}-l:{}-h:{}-ne:{}-{}.pt'.format(
-                                   datetime.now().strftime("%m-%d-%y-%H:%M"), 
-                                   epoch + 1, self.mconf.block_size, self.mconf.n_layer, self.mconf.n_head,
-                                   self.mconf.n_embd, self.config.dataset)
-                           )
-    
+        torch.save(raw_model.state_dict(), self.config.ckpt_path)
+                    
     def plot_grad_flow(self, named_parameters):
         '''Plots the gradients flowing through different layers in the net during training.
         Can be used for checking for possible gradient vanishing / exploding problems.
@@ -127,7 +124,7 @@ class Trainer:
             is_train = split == 'train'
             model.train(is_train)
             data = self.train_dataset if is_train else self.test_dataset
-            loader = DataLoader(data, shuffle=False, pin_memory=False,
+            loader = DataLoader(data, shuffle=config.shuffle, pin_memory=False,
                                 batch_size=config.batch_size,
                                 num_workers=config.num_workers)
 
@@ -154,20 +151,20 @@ class Trainer:
                 for key, value in losses.items():
                     av_losses[key] = np.array(value).mean()
                 
-                # tensorboard
-                for key, value in av_losses.items():
-                    writer.add_scalar(f"Loss/{split}_{str(key)}", value, epoch)
+                # # tensorboard
+                # for key, value in av_losses.items():
+                #     writer.add_scalar(f"Loss/{split}_{str(key)}", value, epoch)
             
                 if is_train:
 
                     # backprop and update the parameters
                     model.zero_grad()
-                    if self.config.pretrain_ims:
-                        loss['frames'].backward()
-                    elif self.config.pretrain_ids:
-                        loss['id'].backward()
-                    else:
-                        total_loss.backward()
+                    # if self.config.pretrain_ims:
+                    #     loss['frames'].backward()
+                    # elif self.config.pretrain_ids:
+                    #     loss['id'].backward()
+                    # else:
+                    total_loss.backward()
                     
                     if config.show_grads is True:
                         self.plot_grad_flow(model.named_parameters())
@@ -200,9 +197,8 @@ class Trainer:
                                             batch_size=1, num_workers=4)
                         predict_and_plot_time(model.module, loader, mconf)
                         # true, predicted = predict_raster(model, loader, self.mconf.frame_block_size)
-                    # logger.info(f"frame_test_loss: {av_frame_loss:.5f} id_test_loss: {av_id_loss:.5f} dt_test_loss: {av_dt_loss:.5f} test loss: {av_total_loss:.5f}")
                     logger.info('  '.join([f'{str(key)}_{str(split)}: {value:.5f}  ' for key, value in av_losses.items()]) + f'total_loss: {total_loss:.5f}')
-                    return list(loss.values())[0]
+                    return total_loss.item()
 
         best_loss = float('inf')
         self.tokens = 0 # counter used for learning rate decay

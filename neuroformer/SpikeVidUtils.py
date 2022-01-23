@@ -384,7 +384,7 @@ class SpikeTimeVidData2(Dataset):
         and vice-versa.
         """
 
-        def __init__(self, data, frames, block_size, id_block_size, frame_block_size, id_prev_block_size, window, frame_memory, 
+        def __init__(self, data, frames, block_size, id_block_size, frame_block_size, id_prev_block_size, window, dt, frame_memory, 
                      stoi, itos, neurons, stoi_dt=None, itos_dt=None, frame_feats=None, pred=False):
                 
                 pixels = [i for i in range(frames.min(), frames.max() + 1)] if frames is not None else []
@@ -395,6 +395,8 @@ class SpikeTimeVidData2(Dataset):
                 self.itos = itos
                 self.stoi_dt = stoi_dt
                 self.itos_dt = itos_dt
+
+                self.dt = dt
                 self.dt_max = max(list(stoi_dt.values()))
                                 
                 self.frame_block_size = frame_block_size
@@ -416,7 +418,8 @@ class SpikeTimeVidData2(Dataset):
                 print(f'id block size: {self.id_block_size}')
                 print(f'frames: {frame_block_size}, id: {self.id_block_size}')
                 self.population_size = len([*stoi.keys()])
-                self.id_population_size = id_population_size
+                self.id_population_size = len([*stoi.keys()])
+                self.dt_population_size = len([*stoi_dt.keys()])
 
                 # keep track of which interval we are and how many neurons remain
                 # (i.e did not fit in block)
@@ -430,6 +433,35 @@ class SpikeTimeVidData2(Dataset):
 
         def __len__(self):
                 return len(self.t)
+
+        def get_interval(self, interval, trial):
+                """
+                Returns interval[0] >= data < interval[1].
+                chunk = ID
+                dt_chunk = dt
+                pad_n
+                """
+                # data = self.data[(self.data['Interval'] > interval[0]) & 
+                #                  (self.data['Interval'] <= interval[1]) &
+                #                  (self.data['Trial'] == trial)][-(self.id_prev_block_size - 2):]
+
+                def round_n(x, base=self.dt):
+                        return round(base * (round(float(x)/base)), 2)
+
+                data = self.data[(self.data['Interval'] == interval) & 
+                                 (self.data['Trial'] == trial)][-(self.id_block_size - 2):]               
+                
+                chunk = data['ID']
+                dix = [self.stoi[s] for s in chunk]
+                dix = ([self.stoi['SOS']] + dix + [self.stoi['EOS']])[-self.id_block_size:]
+                pad_n = self.id_block_size - (len(dix) + 1 - 2) # len chunk is 1 unit bigger than x, y
+                dix = dix + [self.stoi['PAD']] * pad_n
+
+                dt_chunk = (data['Time'] - (interval - self.window)).round(2).tolist()
+                dt_chunk = [self.stoi_dt[round_n(dt)] for dt in dt_chunk]
+                dt_chunk = [0] + dt_chunk + [self.dt_max] * (pad_n + 1) # 0 = SOS, max = EOS
+            
+                return dix, dt_chunk, pad_n
 
         def __getitem__(self, idx):
                 """
@@ -453,109 +485,69 @@ class SpikeTimeVidData2(Dataset):
 
                 ## PREV ##
                 # get state history + dt (last 30 seconds)
-                prev_int = t['Interval'] - 0.5
+                prev_int = t['Interval'] # - 0.5
                 prev_int = prev_int if prev_int > 0 else 0  
                 prev_id_interval = prev_int, t['Interval']
-                # data_prev = self.data[(self.data['Interval'] >= prev_id_interval[0]) & 
-                #                       (self.data['Interval'] < prev_id_interval[1]) &
-                #                       (self.data['Trial'] == t['Trial'])][-(self.id_prev_block_size - 2):]
-                # pad_n = self.id_prev_block_size - (len(data_prev) + 1)
-                # pad_n = 0 if pad_n < 0 else pad_n
-                # x['prev_pad'] = pad_n
-                # chunk_prev = data_prev['ID']
-                # prev_dix = [self.stoi['SOS']] + [self.stoi[ch] for ch in chunk_prev]
-                # prev_dix = prev_dix + [self.stoi['PAD']] * pad_n
-                # x['id_prev'] = torch.tensor(prev_dix, dtype=torch.long)
-
-                #  # Time Prev
-                # prev_dt_chunk = data_prev['Time']
-                # prev_dt_chunk = (prev_dt_chunk - prev_dt_chunk.min()).tolist()
-                # prev_dt_chunk = [0] + prev_dt_chunk + [1] * (pad_n)   # padding
-                # x['dt_prev'] = torch.tensor(prev_dt_chunk, dtype=torch.float)
-
-                # prev_dt_chunk = data_prev['Interval_dt']
-                # prev_dt_chunk = [0] + [self.stoi_dt[ch] for ch in prev_dt_chunk]    # [0] for SOS
-                # prev_dt_chunk = prev_dt_chunk + [self.dt_max] * pad_n   # padding
-                # x['dt_prev'] = torch.tensor(prev_dt_chunk, dtype=torch.long)
-
+                id_prev, dt_prev, _ = self.get_interval(prev_int, t['Trial'])
+                x['id_prev'] = torch.tensor(id_prev, dtype=torch.long)
+                x['dt_prev'] = torch.tensor(dt_prev, dtype=torch.float) # + 0.5
                 
                 ## CURRENT ##
                 # data_current = self.data[(self.data['Interval'] == t['Interval']) & (self.data['Trial'] == t['Trial'])][-(self.id_block_size - 2):]
-                data_current = self.data[(self.data['Interval'] >= prev_id_interval[0]) & 
-                                        (self.data['Interval'] <= t['Interval']) &
-                                        (self.data['Trial'] == t['Trial'])][-(self.id_block_size - 2):]
+                current_int = t['Interval']
+                idn, dt, pad = self.get_interval(current_int, t['Trial'])
+                x['id'] = torch.tensor(idn[:-1], dtype=torch.long)
+                x['dt'] = torch.tensor(dt[:-1], dtype=torch.float) # + 1
+                x['pad'] = torch.tensor(pad, dtype=torch.long) # to attend eos
 
-                # encode every character to an integer
-                chunk = data_current['ID']
-                current_dix = [self.stoi[s] for s in chunk]              
-                current_dix = [self.stoi['SOS']] + current_dix + [self.stoi['EOS']]
-
-                # pad x values if needed
-                pad_n = self.id_block_size - (len(current_dix) + 1 - 2)   # len chunk is 1 unit bigger than x, y
-                x['pad'] = pad_n if pad_n > 0 else 0 
-                # # remove one pad in order to add EOS token
-                # x['pad'] = x['pad'] - 1
-                current_dix = current_dix + [self.stoi['PAD']] * x['pad']
-                x['id'] = torch.tensor(current_dix[:-1], dtype=torch.long)
-
-                # add temporal signal
-                dt_chunk = data_current['Time'] - data_current['Time'].min() + 1
-                # zero-out time for sequence
-                # all_dt_chunk = [self.stoi_dt[dt] for dt in dt_chunk] # prev_dt_chunk.append(dt_chunk)
-                # all_dt_chunk_min = all_dt_chunk.min()
-                # all_dt_chunk = all_dt_chunk - all_dt_chunk.min()
-                # all_dt_chunk = [0] + all_dt_chunk + [self.dt_max] * (x['pad'] + 1) # 0 = SOS, max = EOS
+                x['trial'] = torch.tensor(t['Trial'], dtype=torch.long)
                 
-                # all_dt_chunk = prev_dt_chunk + all_dt_chunk
-                dt_chunk = [1] + dt_chunk.tolist() + [1 + 0.2] * (x['pad'] + 1) # 0 = SOS, max = EOS
-                dt_chunk = dt_chunk
-                x['dt'] = torch.tensor(dt_chunk[:-1], dtype=torch.float)
-                
-                # # video encodings
-                # frame_idx = math.ceil((t['Interval'] / self.window) - 1)    # get last 1 second of frames
-                # frame_idx = len(self.frame_feats) - 1 if frame_idx >= len(self.frame_feats) else frame_idx
-                # if self.frames is not None:
-                #     frames = self.frames[frame_idx]
-                #     fdix = [self.stoi[s] for s in frames]
-                #     y_frames = fdix[1:] + [self.stoi['SOS']]
-                #     y['frames'] = torch.tensor(y_frames, dtype=torch.long)
-                
-                # if self.frame_feats is not None:
-                #     x['frames'] = torch.tensor(self.frame_feats[frame_idx], dtype=torch.float32)
-                # else:
-                #     x['frames'] = torch.tensor(fdix, dtype=torch.long)
-                
-                # if self.frames is not None:
-                #     x['frame_codes'] = torch.tensor(fdix, dtype=torch.long)
-
                 # for backbone:
                 if t['Trial'] <= 20: n_stim = 0
                 elif t['Trial'] <= 40: n_stim = 1
                 elif t['Trial'] <= 60: n_stim = 2                
-                frame_idx = get_frame_idx(t['Interval'] + self.window, 1/20)     # get last 1 second of frames
+                frame_idx = get_frame_idx(t['Interval'], 1/20)     # get last 1 second of frames
                 frame_idx = frame_idx if frame_idx >= 20 else 20
                 frame_idx = frame_idx if frame_idx < self.frame_feats.shape[2] else self.frame_feats.shape[2]
                 # x['idx'] = torch.tensor([frame_idx, n_stim], dtype=torch.float16)
                 if self.frame_feats is not None:
                     x['frames'] = self.frame_feats[n_stim, :, frame_idx - 20:frame_idx].type(torch.float16)
                 
-                y['id'] = torch.tensor(current_dix[1:], dtype=torch.long)
-                y['dt'] = torch.tensor(dt_chunk[1:], dtype=torch.float)
+                y['id'] = torch.tensor(idn[1:], dtype=torch.long)
+                y['dt'] = torch.tensor(dt[1:], dtype=torch.long)
                 
-                if self.pred:
-                    dt_real = np.array(dt_chunk[1:]) + data_current['Time'].min()
-                    y['time'] = torch.tensor(dt_real, dtype=torch.float)
+                # if self.pred:
+                #     dt_real = np.array(dt_chunk[1:]) + data_current['Time'].min()
+                #     y['time'] = torch.tensor(dt_real, dtype=torch.float)
 
-                y['indexes'] = torch.linspace(1, len(y['id']), len(y['id'])).long() + self.idx
-                self.idx += len(y['id']) - x['pad']
+                # y['indexes'] = torch.linspace(1, len(y['id']), len(y['id'])).long() + self.idx
+                # self.idx += len(y['id']) - x['pad']
 
                 # x['pad'] += 1   # if +1, EOS is not attended
                 # x['pad'] = 0    # if 0, EOS is attended
-                # x['interval'] = torch.tensor(t)
+                x['interval'] = torch.tensor(t, dtype=torch.float16)
                 # x['frame_token'] = torch.tensor([self.stoi['EOS']], dtype=torch.long)
+                # x['prev_int'] = torch.tensor(len(id_prev), dtype=torch.long)
                 
                 return x, y
 
+
+# # video encodings
+# frame_idx = math.ceil((t['Interval'] / self.window) - 1)    # get last 1 second of frames
+# frame_idx = len(self.frame_feats) - 1 if frame_idx >= len(self.frame_feats) else frame_idx
+# if self.frames is not None:
+#     frames = self.frames[frame_idx]
+#     fdix = [self.stoi[s] for s in frames]
+#     y_frames = fdix[1:] + [self.stoi['SOS']]
+#     y['frames'] = torch.tensor(y_frames, dtype=torch.long)
+
+# if self.frame_feats is not None:
+#     x['frames'] = torch.tensor(self.frame_feats[frame_idx], dtype=torch.float32)
+# else:
+#     x['frames'] = torch.tensor(fdix, dtype=torch.long)
+
+# if self.frames is not None:
+#     x['frame_codes'] = torch.tensor(fdix, dtype=torch.long)
 
 # def top_k_logits(logits, k):
 #     v, ix = torch.topk(logits, k)
