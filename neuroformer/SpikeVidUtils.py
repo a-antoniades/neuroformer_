@@ -448,8 +448,11 @@ class SpikeTimeVidData2(Dataset):
                 def round_n(x, base=self.dt):
                         return round(base * (round(float(x)/base)), 2)
 
-                data = self.data[(self.data['Interval'] == interval) & 
-                                 (self.data['Trial'] == trial)][-(self.id_block_size - 2):]               
+                data = self.data[(self.data['Interval'] > interval[0]) & 
+                                 (self.data['Interval'] <= interval[1]) &
+                                 (self.data['Trial'] == trial)][-(self.id_prev_block_size - 2):]
+                # data = self.data[(self.data['Interval'] == interval) & 
+                #                  (self.data['Trial'] == trial)][-(self.id_block_size - 2):]               
                 
                 chunk = data['ID']
                 dix = [self.stoi[s] for s in chunk]
@@ -457,7 +460,7 @@ class SpikeTimeVidData2(Dataset):
                 pad_n = self.id_block_size - (len(dix) + 1 - 2) # len chunk is 1 unit bigger than x, y
                 dix = dix + [self.stoi['PAD']] * pad_n
 
-                dt_chunk = (data['Time'] - (interval - self.window)).round(2).tolist()
+                dt_chunk = (data['Time'] - interval[0]).round(2).tolist()
                 dt_chunk = [self.stoi_dt[round_n(dt)] for dt in dt_chunk]
                 dt_chunk = [0] + dt_chunk + [self.dt_max] * (pad_n + 1) # 0 = SOS, max = EOS
             
@@ -485,22 +488,20 @@ class SpikeTimeVidData2(Dataset):
 
                 ## PREV ##
                 # get state history + dt (last 30 seconds)
-                prev_int = t['Interval'] # - 0.5
+                prev_int = t['Interval'] - (self.window * 2)
                 prev_int = prev_int if prev_int > 0 else 0  
-                prev_id_interval = prev_int, t['Interval']
-                id_prev, dt_prev, _ = self.get_interval(prev_int, t['Trial'])
+                prev_id_interval = prev_int, prev_int + self.window
+                id_prev, dt_prev, _ = self.get_interval(prev_id_interval, t['Trial'])
                 x['id_prev'] = torch.tensor(id_prev, dtype=torch.long)
                 x['dt_prev'] = torch.tensor(dt_prev, dtype=torch.float) # + 0.5
                 
                 ## CURRENT ##
                 # data_current = self.data[(self.data['Interval'] == t['Interval']) & (self.data['Trial'] == t['Trial'])][-(self.id_block_size - 2):]
-                current_int = t['Interval']
+                current_int = t['Interval'] - self.window, t['Interval']
                 idn, dt, pad = self.get_interval(current_int, t['Trial'])
                 x['id'] = torch.tensor(idn[:-1], dtype=torch.long)
                 x['dt'] = torch.tensor(dt[:-1], dtype=torch.float) # + 1
                 x['pad'] = torch.tensor(pad, dtype=torch.long) # to attend eos
-
-                x['trial'] = torch.tensor(t['Trial'], dtype=torch.long)
                 
                 # for backbone:
                 if t['Trial'] <= 20: n_stim = 0
@@ -526,6 +527,8 @@ class SpikeTimeVidData2(Dataset):
                 # x['pad'] += 1   # if +1, EOS is not attended
                 # x['pad'] = 0    # if 0, EOS is attended
                 x['interval'] = torch.tensor(t, dtype=torch.float16)
+                x['trial'] = torch.tensor(t['Trial'], dtype=torch.long)
+
                 # x['frame_token'] = torch.tensor([self.stoi['EOS']], dtype=torch.long)
                 # x['prev_int'] = torch.tensor(len(id_prev), dtype=torch.long)
                 

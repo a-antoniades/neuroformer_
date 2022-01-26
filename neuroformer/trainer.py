@@ -118,7 +118,7 @@ class Trainer:
         model, config, mconf = self.model, self.config, self.mconf
         raw_model = model.module if hasattr(self.model, "module") else model
         optimizer = raw_model.configure_optimizers(config)
-        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', threshold=1e-3, 
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', threshold=1e-4, 
                                                          factor=0.5, patience=3, verbose=True)
         def run_epoch(split):
             is_train = split == 'train'
@@ -144,12 +144,9 @@ class Trainer:
                     for key, value in loss.items():
                         # print(key)
                         value = value.mean()
+                        loss[key] = value
                         total_loss += value
                         losses[key].append(value.item())
-
-                av_losses = collections.defaultdict(list)
-                for key, value in losses.items():
-                    av_losses[key] = np.array(value).mean()
                 
                 # # tensorboard
                 # for key, value in av_losses.items():
@@ -175,7 +172,7 @@ class Trainer:
                     lr = optimizer.param_groups[0]['lr']
                     # report progress
                     # pbar.set_description(f"epoch {epoch+1} iter {it}: frame_loss: {loss['frames'].item():.5f} id_loss {loss['id'].item():.5f} dt_loss: {loss['dt'].item():.5f}   total_loss: {total_loss.item():.5f}. lr {lr:e}")
-                    pbar.set_description(f'epoch {epoch+1}  ' + ''.join([f'{str(key)}_{str(split)}: {value:.5f}  ' for key, value in av_losses.items()]) + \
+                    pbar.set_description(f'epoch {epoch+1}  ' + ''.join([f'{str(key)}_{str(split)}: {value:.5f}  ' for key, value in loss.items()]) + \
                                          f'total_loss: {total_loss:.5f}' + f' lr {lr:e}')
             
                     #  linear warmup
@@ -196,14 +193,19 @@ class Trainer:
                         loader = DataLoader(data, shuffle=False, pin_memory=False,
                                             batch_size=1, num_workers=4)
                         predict_and_plot_time(model.module, loader, mconf)
-                        # true, predicted = predict_raster(model, loader, self.mconf.frame_block_size)
-                    logger.info('  '.join([f'{str(key)}_{str(split)}: {value:.5f}  ' for key, value in av_losses.items()]) + f'total_loss: {total_loss:.5f}')
-                    return total_loss.item()
+                        # true, predicted = predict_raster(model, loader, self.mconf.frame_block_size)                    
+                    av_losses = collections.defaultdict(list)
+                    total_losses = 0
+                    for key, value in losses.items():
+                        av_losses[key] = np.array(value).mean()
+                        total_losses += av_losses[key]
+                    logger.info('  '.join([f'{str(key)}_{str(split)}: {value:.5f}  ' for key, value in av_losses.items()]) + f'total_loss: {total_losses:.5f}')
+                    return total_losses.item()
 
         best_loss = float('inf')
         self.tokens = 0 # counter used for learning rate decay
         for epoch in range(config.max_epochs):
-            model.module.config.epoch += 1
+            raw_model.config.epoch += 1
             run_epoch('train')
             if self.test_dataset is not None:
                 test_loss = run_epoch('test')
