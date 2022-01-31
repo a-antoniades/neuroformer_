@@ -135,8 +135,6 @@ dmypy.json
 */data
 **/.DS_Store
 **/.history
-<<<<<<< HEAD
 **/models
+**/plots
 
-=======
->>>>>>> ce988dd78f00460dcad76ba2f5e16aad481c76c0
