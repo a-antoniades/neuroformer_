@@ -118,8 +118,8 @@ class Trainer:
         model, config, mconf = self.model, self.config, self.mconf
         raw_model = model.module if hasattr(self.model, "module") else model
         optimizer = raw_model.configure_optimizers(config)
-        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', threshold=1e-4, 
-                                                         factor=0.5, patience=3, verbose=True)
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', threshold=1e-3, 
+                                                         factor=0.3, patience=4, verbose=True)
         def run_epoch(split):
             is_train = split == 'train'
             model.train(is_train)
