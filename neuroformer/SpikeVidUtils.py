@@ -489,7 +489,7 @@ class SpikeTimeVidData2(Dataset):
                 ## PREV ##
                 # get state history + dt (last 30 seconds)
                 prev_int = t['Interval'] - (self.window * 2)
-                prev_int = prev_int if prev_int > 0 else 0  
+                prev_int = prev_int if prev_int > 0 else -0.5
                 prev_id_interval = prev_int, prev_int + self.window
                 id_prev, dt_prev, _ = self.get_interval(prev_id_interval, t['Trial'])
                 x['id_prev'] = torch.tensor(id_prev, dtype=torch.long)
@@ -526,7 +526,7 @@ class SpikeTimeVidData2(Dataset):
 
                 # x['pad'] += 1   # if +1, EOS is not attended
                 # x['pad'] = 0    # if 0, EOS is attended
-                x['interval'] = torch.tensor(t, dtype=torch.float16)
+                x['interval'] = torch.tensor(t['Interval'], dtype=torch.float16)
                 x['trial'] = torch.tensor(t['Trial'], dtype=torch.long)
 
                 # x['frame_token'] = torch.tensor([self.stoi['EOS']], dtype=torch.long)
