@@ -173,7 +173,7 @@ class CausalSelfAttention(nn.Module):
         mask = torch.rand((1, T)) < p
         mask = mask.repeat(T, 1)
         
-        mask[0, 0] = False  # don't mask 1st step
+        mask[0, 0] = True  # don't mask 1st step
         # check if any step is fully masked and umask it
         idx_all_true = (True == torch.all(mask, dim=0)).nonzero()
         for step in idx_all_true:

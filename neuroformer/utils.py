@@ -376,7 +376,7 @@ def predict_raster_recursive_time(model, loader, stoi, itos_dt, get_dt=False, sa
     return data
 
 @torch.no_grad()
-def predict_raster_recursive_time_auto(model, loader, window, stoi, itos_dt, get_dt=False, sample=False, top_k=0, top_p=0, top_p_t=0, frame_end=0, gpu=False):
+def predict_raster_recursive_time_auto(model, loader, window, stoi, itos_dt, get_dt=False, sample=False, top_k=0, top_p=0, top_p_t=0, temp=1, frame_end=0, gpu=False):
     """
     predict both ID and dt recursively
     """
@@ -439,8 +439,8 @@ def predict_raster_recursive_time_auto(model, loader, window, stoi, itos_dt, get
             x['id'] = torch.cat((x['id_full'], t_pad)).unsqueeze(0).long()
             x['dt'] = torch.cat((x['dt_full'], t_pad_dt)).unsqueeze(0).long()
             logits, features, _ = model(x)
-            logits['id'] = logits['id'][:, tf + i]
-            logits['dt'] = logits['dt'][:, tf + i]
+            logits['id'] = logits['id'][:, tf + i] / temp
+            logits['dt'] = logits['dt'][:, tf + i] / temp
             
             # optionally crop probabilities to only the top k / p options
             if top_k or top_p is not 0:

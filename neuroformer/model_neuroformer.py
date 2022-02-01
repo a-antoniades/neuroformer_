@@ -599,6 +599,7 @@ class BlockSequential(nn.Sequential):
 class MultimodalTransformer(nn.Module):
     def __init__(self, config):
         super().__init__()
+        self.config = config
         self.neural_state_block = BlockSequential(*[Block(config) for _ in range(config.n_state_layers)])
         self.neural_state_history_block = BlockSequential(*[Block(config) for _ in range(config.n_state_history_layers)])
         self.neural_state_stimulus = BlockSequential(*[Block(config) for _ in range(config.n_stimulus_layers)])
@@ -612,27 +613,25 @@ class MultimodalTransformer(nn.Module):
                                      ).view(1, 1, block_size, block_size)
         return mask
     
-    def generate_sparse_mask(self, att, p, config):
+    def generate_sparse_mask(self, p, T):
         """
-        Generate a sparse mask according to p.
+        Generate a sparse mask of length T, according to p.
         """
         assert p >= 0 and p <= 1, "p should be in [0, 1]"
-        T = config.block_size
-        mask = torch.rand((1, T)) < p
+        mask = torch.rand((1, T)) < 1 - p
         mask = mask.repeat(T, 1)
         
-        mask[0, 0] = False  # don't mask 1st step
+        mask[0, 0] = True  # don't mask 1st step
         # check if any step is fully masked and umask it
-        idx_all_true = (True == torch.all(mask, dim=0)).nonzero()
+        idx_all_true = (False == torch.all(mask, dim=0)).nonzero()
         for step in idx_all_true:
             sampler = torch.distributions.Uniform(low=0, high=step.item()+1)
             idx_false = sampler.sample((1,1)).long()
-            mask[step, idx_false] = False
+            mask[step, idx_false] = True
 
         # mask = mask.repeat(T, 1)
-        mask = mask.view(1, 1, T, T).cuda() if att.is_cuda else mask.view(1, 1, T, T)
-        att = att.masked_fill(mask, float('-inf'))
-        return att
+        mask = torch.tril(mask.long()).view(1, 1, T, T)
+        return mask.cuda() if self.mask.is_cuda else mask
     
     def forward(self, features):
         """
@@ -641,13 +640,17 @@ class MultimodalTransformer(nn.Module):
             neural_history: [batch_size, seq_len_t, hidden_size]
             stimulus: [batch_size, seq_len_s, hidden_size]
         """
+        if self.config.sparse_mask and self.training:
+            mask = self.generate_sparse_mask(self.config.p_sparse, self.config.id_block_size)
+        else:
+            mask = self.mask
 
         neural_state = features['id']
         neural_history = features['id_prev']
         stimulus = features['frames']
 
         x = neural_state
-        x = self.neural_state_block(x, x, x, self.mask)
+        x = self.neural_state_block(x, x, x, mask)
         x = self.neural_state_history_block(x, neural_history, neural_history)
         x = self.neural_state_stimulus(x, stimulus, stimulus)
         x = self.ln_f(x)
@@ -864,13 +867,13 @@ class GPT(nn.Module):
                 id_logits_ = id_logits[B, tf:tf + t - P]
                 id_targets = targets['id'][B, :t - P]
 
-                loss_id_ = F.cross_entropy(id_logits_.view(-1, id_logits_.size(-1)), id_targets.view(-1), weight=self.class_weights_id)
+                loss_id_ = F.cross_entropy(id_logits_.view(-1, id_logits_.size(-1)), id_targets.view(-1))    # , weight=self.class_weights_id)
                 # if self.config.epoch >= 15:
                     # self.truncated_loss.update_weight(id_logits[None, ...], id_targets[None, ...], id_indexes[None, ...])
                 # loss_id_ = self.truncated_loss(id_logits[None, ...], id_targets[None, ...], id_indexes[None, ...])
                 dt_logits_ = dt_logits[B, :t - P]
                 time_targets = targets['dt'][B, :t - P]
-                loss_time_ = F.cross_entropy(dt_logits_.view(-1, dt_logits_.size(-1)), time_targets.view(-1), weight=self.class_weights_dt)
+                loss_time_ = F.cross_entropy(dt_logits_.view(-1, dt_logits_.size(-1)), time_targets.view(-1))    #, weight=self.class_weights_dt)
                 # loss_time_ = F.mse_loss(time_preds.squeeze(-1), time_targets)
                 # loss_id_ = self.poisson_loss(id_logits.view(-1, id_logits.size(-1)), F.one_hot(id_targets, self.config.vocab_size))
                 # if len(id_targets) > 0:
