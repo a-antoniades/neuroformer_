@@ -118,8 +118,8 @@ class Trainer:
         model, config, mconf = self.model, self.config, self.mconf
         raw_model = model.module if hasattr(self.model, "module") else model
         optimizer = raw_model.configure_optimizers(config)
-        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', threshold=1e-3, 
-                                                         factor=0.3, patience=config.patience, verbose=True)
+        # scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', threshold=1e-3, min_lr=1e-6, 
+                                                        #  factor=0.3, patience=config.patience, verbose=True)
         def run_epoch(split):
             is_train = split == 'train'
             model.train(is_train)
@@ -180,13 +180,14 @@ class Trainer:
                     if self.tokens < config.warmup_tokens:
                         # linear warmup
                         lr_mult = float(self.tokens) / float(max(1, config.warmup_tokens))
-                    # else:
-                    #     # cosine learning rate decay
-                    #     progress = float(self.tokens - config.warmup_tokens) / float(max(1, config.final_tokens - config.warmup_tokens))
-                    #     lr_mult = max(0.1, 0.5 * (1.0 + math.cos(math.pi * progress)))
-                        lr = config.learning_rate * lr_mult
-                        for param_group in optimizer.param_groups:
-                            param_group['lr'] = lr
+                    else:
+                        if config.lr_decay:
+                            # cosine learning rate decay
+                            progress = float(self.tokens - config.warmup_tokens) / float(max(1, config.final_tokens - config.warmup_tokens))
+                            lr_mult = max(0.1, 0.5 * (1.0 + math.cos(math.pi * progress)))
+                    lr = config.learning_rate * lr_mult
+                    for param_group in optimizer.param_groups:
+                        param_group['lr'] = lr
                 
                 if not is_train:
                     if config.plot_raster:
@@ -209,8 +210,8 @@ class Trainer:
             run_epoch('train')
             if self.test_dataset is not None:
                 test_loss = run_epoch('test')
-                if config.lr_decay:
-                    scheduler.step(test_loss)
+                # if config.lr_decay:
+                #     scheduler.step(test_loss)
 
             # supports early stopping based on the test loss, or just save always if no test set is provided
             good_model = self.test_dataset is None or test_loss < best_loss

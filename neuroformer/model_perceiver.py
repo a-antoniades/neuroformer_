@@ -852,13 +852,13 @@ class GPT(nn.Module):
                 id_logits = logits[B, tf:tf + t - P]
                 id_targets = targets['id'][B, :t - P]
 
-                loss_id_ = F.cross_entropy(id_logits.view(-1, id_logits.size(-1)), id_targets.view(-1), weight=self.class_weights_id)
+                loss_id_ = F.cross_entropy(id_logits.view(-1, id_logits.size(-1)), id_targets.view(-1))  # , weight=self.class_weights_id)
                 # if self.config.epoch >= 15:
                     # self.truncated_loss.update_weight(id_logits[None, ...], id_targets[None, ...], id_indexes[None, ...])
                 # loss_id_ = self.truncated_loss(id_logits[None, ...], id_targets[None, ...], id_indexes[None, ...])
                 time_preds = time[B, :t - P]
                 time_targets = targets['dt'][B, :t - P]
-                loss_time_ = F.cross_entropy(time_preds.view(-1, time_preds.size(-1)), time_targets.view(-1), weight=self.class_weights_dt)
+                loss_time_ = F.cross_entropy(time_preds.view(-1, time_preds.size(-1)), time_targets.view(-1))   # weight=self.class_weights_dt)
                 # loss_time_ = F.mse_loss(time_preds.squeeze(-1), time_targets)
                 # loss_id_ = self.poisson_loss(id_logits.view(-1, id_logits.size(-1)), F.one_hot(id_targets, self.config.vocab_size))
                 # if len(id_targets) > 0:

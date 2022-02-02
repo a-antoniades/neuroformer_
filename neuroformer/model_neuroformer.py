@@ -198,6 +198,9 @@ class MultiheadfAttention(nn.Module):
         k = self.key(k).view(Bs, Ts, self.n_head, Cs // self.n_head).transpose(1, 2) # (B, nh, T, hs)
         v = self.value(v).view(Bs, Ts, self.n_head, Cs // self.n_head).transpose(1, 2) # (B, nh, T, hs)
 
+        # Normalize value
+        v = v
+
         # # apply rotary embeddings
         # if dtx is not None:
         #     q, k = self.rotary_embedding(q, k, dtx)
@@ -208,9 +211,9 @@ class MultiheadfAttention(nn.Module):
             att = att.masked_fill(tgt_mask[:,:,:Tt,:Tt] == 0, float('-inf'))
             # if self.training:
             #     att = self.generate_sparse_mask(att, 0.25, self.config)
-            if pad is not None:
-                for idx, i in enumerate(pad):
-                    att[idx, :, :, self.T - i:] = float('-inf')   # only able to see first padding token
+            # if pad is not None and self.training:
+            #     for idx, i in enumerate(pad):
+            #         att[idx, :, :, self.T - i:] = float('-inf')   # only able to see first padding token
         
         att = F.softmax(att, dim=-1)
         att = self.attn_drop(att)
@@ -445,10 +448,6 @@ class PSTHProjection(nn.Module):
 #         return self.mlp_t(x)
 
 
-class TimeRNN(nn.Module):
-    def __init__(self, feat_size, target_size):
-        super().__init__()
-
 
 class DiceLossPSTH(nn.Module):
     def __init__(self, size_average=True, smooth=1):
@@ -529,7 +528,7 @@ class TruncatedLoss(nn.Module):
 #     def forward(self, logits, targets):
 #         total_logits = torch.sum(logits, dim=-2)    # sum over sequence dimension
 #         probs = F.softmax(total_logits, dim=-1)
-#         outptu
+#         outptuts
 
 
 class HungarianMatcher(nn.Module):
@@ -581,11 +580,15 @@ class Block(nn.Module):
             nn.Linear(4 * config.n_embd, config.n_embd),
             nn.Dropout(config.resid_pdrop),
         )
+        self.ln_f = nn.LayerNorm(config.n_embd)
 
     def forward(self, q, k, v, mask=None, pad=None, dtx=None):
-        x = q + self.attn(self.ln1(q), k, v, mask, pad)
+        x = q
+        # x = self.ln1(x + self.attn(x, k, v, mask, pad))
+        # x = self.ln2(x + self.mlp(x))
+        x = x + self.attn(self.ln1(x), k, v, mask, pad)
         x = x + self.mlp(self.ln2(x))
-        return x
+        return self.ln_f(x)
 
 
 class BlockSequential(nn.Sequential):
@@ -602,9 +605,11 @@ class MultimodalTransformer(nn.Module):
         self.config = config
         self.neural_state_block = BlockSequential(*[Block(config) for _ in range(config.n_state_layers)])
         self.neural_state_history_block = BlockSequential(*[Block(config) for _ in range(config.n_state_history_layers)])
+        # self.neural_state_history_self_attention = BlockSequential(*[Block(config) for _ in range(config.n_state_layers)])
         self.neural_state_stimulus = BlockSequential(*[Block(config) for _ in range(config.n_stimulus_layers)])
 
         self.ln_f = nn.LayerNorm(config.n_embd)
+        self.epoch = 0
 
         self.register_buffer("mask", self.build_mask(config.id_block_size))  
     
@@ -640,8 +645,11 @@ class MultimodalTransformer(nn.Module):
             neural_history: [batch_size, seq_len_t, hidden_size]
             stimulus: [batch_size, seq_len_s, hidden_size]
         """
-        if self.config.sparse_mask and self.training:
-            mask = self.generate_sparse_mask(self.config.p_sparse, self.config.id_block_size)
+        self.epoch += 1
+        if self.epoch >= 20 and self.training: # self.config.sparse_mask
+            p = 0.4 / (1 + np.exp( -self.epoch / 20))
+            mask = self.generate_sparse_mask(p, self.config.id_block_size)   # self.config.p_sparse
+            # logger.info(f"p_sparse = {p}")
         else:
             mask = self.mask
 
@@ -692,8 +700,8 @@ class GPT(nn.Module):
         self.neural_visual_transformer = MultimodalTransformer(config)
        
         ## -- ID, dt, Logit Projections -- ##
-        self.head_id = nn.Linear(config.n_embd, config.vocab_size, bias=False)
-        self.head_dt = nn.Linear(config.n_embd, config.n_dt, bias=False)
+        self.head_id = nn.Linear(config.n_embd, config.vocab_size, bias=False)  # ProjectNorm(config.n_embd, config.vocab_size)
+        self.head_dt = nn.Linear(config.n_embd, config.n_dt, bias=False)        # ProjectNorm(config.n_embd, config.n_dt)
         # self.proj_time = TimeProjection(config.block_size, config.id_block_size, config.n_embd, config.n_dt)
         # self.proj_time = ProjectNorm(config.n_embd, config.n_dt)
         # self.proj_time = ProjectNorm(config.n_embd, 1)
@@ -867,13 +875,13 @@ class GPT(nn.Module):
                 id_logits_ = id_logits[B, tf:tf + t - P]
                 id_targets = targets['id'][B, :t - P]
 
-                loss_id_ = F.cross_entropy(id_logits_.view(-1, id_logits_.size(-1)), id_targets.view(-1))    # , weight=self.class_weights_id)
+                loss_id_ = F.cross_entropy(id_logits_.view(-1, id_logits_.size(-1)), id_targets.view(-1), weight=self.class_weights_id)
                 # if self.config.epoch >= 15:
                     # self.truncated_loss.update_weight(id_logits[None, ...], id_targets[None, ...], id_indexes[None, ...])
                 # loss_id_ = self.truncated_loss(id_logits[None, ...], id_targets[None, ...], id_indexes[None, ...])
                 dt_logits_ = dt_logits[B, :t - P]
                 time_targets = targets['dt'][B, :t - P]
-                loss_time_ = F.cross_entropy(dt_logits_.view(-1, dt_logits_.size(-1)), time_targets.view(-1))    #, weight=self.class_weights_dt)
+                loss_time_ = F.cross_entropy(dt_logits_.view(-1, dt_logits_.size(-1)), time_targets.view(-1), weight=self.class_weights_dt)
                 # loss_time_ = F.mse_loss(time_preds.squeeze(-1), time_targets)
                 # loss_id_ = self.poisson_loss(id_logits.view(-1, id_logits.size(-1)), F.one_hot(id_targets, self.config.vocab_size))
                 # if len(id_targets) > 0:
@@ -889,10 +897,13 @@ class GPT(nn.Module):
                 
                 loss_time.append(torch.nan_to_num(loss_time_))
                 loss_id.append(torch.nan_to_num(loss_id_))
+
+            # loss_id.append(F.cross_entropy(id_logits.view(-1, id_logits.size(-1)), targets['id'].view(-1), weight=self.class_weights_id))
+            # loss_time.append(F.cross_entropy(dt_logits.view(-1, dt_logits.size(-1)), targets['dt'].view(-1), weight=self.class_weights_dt))
             
             loss = dict()
             # loss['frames'] = loss_frames / (b / 3)
-            loss['id'] = sum(loss_id) / (b * 2)   # sum(loss_id) / (b * 2)   # / len(loss_id)
+            loss['id'] = sum(loss_id)   / (b * 2)   # sum(loss_id) / (b * 2)   # / len(loss_id)
             loss['time'] = sum(loss_time) / (b * 2)
             # loss['dice'] = sum(loss_dice) / len(loss_dice)
             # loss['dt'] = loss_time / (b * 50)
