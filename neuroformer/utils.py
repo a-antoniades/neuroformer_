@@ -476,7 +476,7 @@ def predict_raster_recursive_time_auto(model, loader, window, stoi, itos_dt, get
             x['id_full'] = torch.cat((x['id_full'], ix.flatten()))
             x['dt_full'] = torch.cat((x['dt_full'], ix_dt.flatten()))
 
-            if dtx >= window:
+            if ix == stoi['EOS']:
                 # id_prev_stoi = current_id_stoi
                 # dt_prev_stoi = current_dt_stoi
                 break
