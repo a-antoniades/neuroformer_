@@ -451,6 +451,7 @@ class SpikeTimeVidData2(Dataset):
                 data = self.data[(self.data['Interval'] > interval[0]) & 
                                  (self.data['Interval'] <= interval[1]) &
                                  (self.data['Trial'] == trial)][-(self.id_block_size - 2):]
+
                 # data = self.data[(self.data['Interval'] == interval) & 
                 #                  (self.data['Trial'] == trial)][-(self.id_block_size - 2):]               
                 
@@ -480,16 +481,14 @@ class SpikeTimeVidData2(Dataset):
 
                 # grab a chunk of (block_size + 1) characters from the data
                 t = self.t.iloc[idx]
-                t_idx = self.data.index[(self.data['Interval'] == t['Interval']) & (self.data['Trial'] == t['Trial'])]
-                start_idx, stop_idx = t_idx[0], (t_idx[-1] + 1)  # add 1 so last idx will be included in iloc
 
                 x = collections.defaultdict(list)
                 y = collections.defaultdict(list)
 
                 ## PREV ##
                 # get state history + dt (last 30 seconds)
-                prev_int = t['Interval'] - (self.window * 2)
-                prev_int = prev_int if prev_int > 0 else -0.5
+                prev_int = t['Interval'] - (2 * self.window)
+                # prev_int = prev_int if prev_int > 0 else -0.5
                 prev_id_interval = prev_int, prev_int + self.window
                 id_prev, dt_prev, _ = self.get_interval(prev_id_interval, t['Trial'])
                 x['id_prev'] = torch.tensor(id_prev[:-1], dtype=torch.long)
