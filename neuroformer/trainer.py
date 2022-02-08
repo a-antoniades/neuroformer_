@@ -18,7 +18,7 @@ from torch.utils.data.dataloader import DataLoader
 
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
-# writer = SummaryWriter("/home/antonis/projects/slab/git/slab/transformer_exp/code/transformer_vid3/runs/tensorboard")
+writer = SummaryWriter("/home/antonis/projects/slab/git/neuroformer/models/logs")
 from datetime import datetime
 logger = logging.getLogger(__name__)
 
@@ -73,7 +73,7 @@ class Trainer:
             self.model = torch.nn.DataParallel(self.model).to(self.device)
             self.criterion = self.criterion.to(self.device)
 
-    def save_checkpoint(self, epoch):
+    def save_checkpoint(self, epoch, loss):
         # DataParallel wrappers keep raw model object in .module attribute
         raw_model = self.model.module if hasattr(self.model, "module") else self.model
         logger.info("saving %s", self.config.ckpt_path)
@@ -147,10 +147,6 @@ class Trainer:
                         loss[key] = value
                         total_loss += value
                         losses[key].append(value.item())
-                
-                # # tensorboard
-                # for key, value in av_losses.items():
-                #     writer.add_scalar(f"Loss/{split}_{str(key)}", value, epoch)
             
                 if is_train:
 
@@ -189,17 +185,22 @@ class Trainer:
                     for param_group in optimizer.param_groups:
                         param_group['lr'] = lr
                 
+                # tensorboard
+                av_losses = collections.defaultdict(list)
+                total_losses = 0
+                for key, value in losses.items():
+                    av_losses[key] = np.array(value).mean()
+                    total_losses += av_losses[key]
+                    writer.add_scalar(f"Loss/{split}_{str(key)}", av_losses[key], epoch)
+                writer.add_scalar(f"Loss/{split}_total", total_losses, epoch)
+                
                 if not is_train:
                     if config.plot_raster:
                         loader = DataLoader(data, shuffle=False, pin_memory=False,
                                             batch_size=1, num_workers=4)
                         predict_and_plot_time(model.module, loader, mconf)
                         # true, predicted = predict_raster(model, loader, self.mconf.frame_block_size)                    
-                    av_losses = collections.defaultdict(list)
-                    total_losses = 0
-                    for key, value in losses.items():
-                        av_losses[key] = np.array(value).mean()
-                        total_losses += av_losses[key]
+
                     logger.info('  '.join([f'{str(key)}_{str(split)}: {value:.5f}  ' for key, value in av_losses.items()]) + f'total_loss: {total_losses:.5f}')
                     return total_losses.item()
 
@@ -217,4 +218,4 @@ class Trainer:
             good_model = self.test_dataset is None or test_loss < best_loss
             if good_model:
                 best_loss = test_loss
-                self.save_checkpoint(epoch)
+                self.save_checkpoint(epoch, test_loss)

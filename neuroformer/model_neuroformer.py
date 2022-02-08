@@ -1,5 +1,6 @@
 # from code.transformer_vid.utils import convert_weights
 # import rotary_embedding_torch
+from sys import exit
 from torch.nn.modules.activation import GELU, ReLU
 # from data.OneCombo3.trainer import TrainerConfig
 import math
@@ -198,8 +199,9 @@ class MultiheadfAttention(nn.Module):
         k = self.key(k).view(Bs, Ts, self.n_head, Cs // self.n_head).transpose(1, 2) # (B, nh, T, hs)
         v = self.value(v).view(Bs, Ts, self.n_head, Cs // self.n_head).transpose(1, 2) # (B, nh, T, hs)
 
-        # Normalize value
-        v = v
+        # Normalize Values across token dimension
+        # This encourages interpretability of attention weights
+        v = F.normalize(v, p=2.0, dim=-1)
 
         # # apply rotary embeddings
         # if dtx is not None:
@@ -209,15 +211,15 @@ class MultiheadfAttention(nn.Module):
         att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
         if tgt_mask is not None:
             att = att.masked_fill(tgt_mask[:,:,:Tt,:Tt] == 0, float('-inf'))
-            # if self.training:
-            #     att = self.generate_sparse_mask(att, 0.25, self.config)
-            # if pad is not None and self.training:
-            #     for idx, i in enumerate(pad):
-            #         att[idx, :, :, self.T - i:] = float('-inf')   # only able to see first padding token
+        #     # if self.training:
+        #     #     att = self.generate_sparse_mask(att, 0.25, self.config)
+        #     if pad is not None and self.training:
+        #         for idx, i in enumerate(pad):
+        #             att[idx, :, :, Tt - i:] = float('-inf')   # only able to see first padding token
         
         att = F.softmax(att, dim=-1)
-        att = self.attn_drop(att)
         self.att = att
+        att = self.attn_drop(att)
         y = att @ v # (B, nh, Tt, Ts) x (B, nh, Ts, hs) -> (B, nh, Tt, hs)
         y = y.transpose(1, 2).contiguous().view(Bt, Tt, Ct) # re-assemble all head outputs side by side
 
@@ -646,8 +648,9 @@ class MultimodalTransformer(nn.Module):
             stimulus: [batch_size, seq_len_s, hidden_size]
         """
         self.epoch += 1
-        if self.epoch >= 20 and self.training: # self.config.sparse_mask
-            p = 0.4 / (1 + np.exp( -self.epoch / 20))
+        min_epoch = 70
+        if self.config.sparse_mask and self.epoch >= min_epoch and self.training:
+            p = 0.4 / (1 + np.exp((-(self.epoch - min_epoch) / 40)))
             mask = self.generate_sparse_mask(p, self.config.id_block_size)   # self.config.p_sparse
             # logger.info(f"p_sparse = {p}")
         else:
@@ -655,7 +658,7 @@ class MultimodalTransformer(nn.Module):
 
         neural_state = features['id']
         neural_history = features['id_prev']
-        stimulus = features['frames']
+        stimulus = torch.nan_to_num(features['frames'])
 
         x = neural_state
         x = self.neural_state_block(x, x, x, mask)
@@ -680,6 +683,7 @@ class GPT(nn.Module):
         # -- Input Embedding Stem -- #        self.n_embd = config.n_embd
         self.tok_emb = nn.Embedding(config.id_vocab_size, config.n_embd)
         self.pos_emb = PositionalEmbedding(config.n_embd, p_drop=0.2)
+        # self.p_emb = PositionalEmbedding(config.n_embd, p_drop=0.2)
         # self.pos_emb_id = nn.Parameter(torch.zeros(1, config.id_block_size, config.n_embd))
         self.pos_emb_frames = nn.Parameter(torch.zeros(1, config.frame_block_size, config.n_embd))
         # self.temp_emb = TemporalEmbedding(config.n_embd, p_drop=0.2)
@@ -800,9 +804,9 @@ class GPT(nn.Module):
         fourrier decomposition and in the case of time, just passed as is. 
         '''
         # # Embeddings
-        prev_id_position_embeddings = self.pos_emb(p_idx)
+        prev_id_position_embeddings = self.pos_emb(p_idx) if self.config.pos_emb else 0
         prev_id_temporal_embeddings = self.temp_emb(dtx_prev.float())
-        id_position_embeddings = self.pos_emb(idx)  
+        id_position_embeddings = self.pos_emb(idx) if self.config.pos_emb else 0
         im_position_embeddings = self.pos_emb_frames
         temporal_embeddings = self.temp_emb(dtx.float())
         
@@ -841,13 +845,15 @@ class GPT(nn.Module):
         dtx = x['dt']
         frames = x['frames']
         pad = x['pad']
+        interval = x['interval']
+        trial = x['trial']
 
         b, t = idx.size()
         b_prev, t_prev = idx_prev.size()
         assert t == t_prev, "Neural states need to be the same size!"
         # b, t = x['id'].shape[0], x['id'].shape[1] + x['id_prev'].shape[1]
-        bf, tf = frames.size()[0:2]
-        tf = self.config.frame_block_size
+        # bf, tf = frames.size()[0:2]
+        # tf = self.config.frame_block_size
         # assert t + tf == self.config.block_size, f"{tf} {t}"
         # assert t <= self.block_size, "Cannot forward, model block size is exhausted"
         
@@ -871,8 +877,8 @@ class GPT(nn.Module):
                 tf = 0
                 # im_logits = logits[B, :tf]
                 # im_targets = targets['frames'][B, :tf]
-                # loss_frames += F.cross_entropy(im_logits.view(-1, im_logits.size(-1)), im_targets.view(-1))
-                id_logits_ = id_logits[B, tf:tf + t - P]
+                # loss_frames += F.cross_entropy(im_logits.view(-1, im_logits.size(-1)), im_targets.view(-1)))
+                id_logits_ = id_logits[B, :t - P]
                 id_targets = targets['id'][B, :t - P]
 
                 loss_id_ = F.cross_entropy(id_logits_.view(-1, id_logits_.size(-1)), id_targets.view(-1), weight=self.class_weights_id)
@@ -881,6 +887,7 @@ class GPT(nn.Module):
                 # loss_id_ = self.truncated_loss(id_logits[None, ...], id_targets[None, ...], id_indexes[None, ...])
                 dt_logits_ = dt_logits[B, :t - P]
                 time_targets = targets['dt'][B, :t - P]
+                # print(id_targets, loss_id_)
                 loss_time_ = F.cross_entropy(dt_logits_.view(-1, dt_logits_.size(-1)), time_targets.view(-1), weight=self.class_weights_dt)
                 # loss_time_ = F.mse_loss(time_preds.squeeze(-1), time_targets)
                 # loss_id_ = self.poisson_loss(id_logits.view(-1, id_logits.size(-1)), F.one_hot(id_targets, self.config.vocab_size))
@@ -894,6 +901,15 @@ class GPT(nn.Module):
                     # loss_psth.append(torch.nan_to_num(self.set_loss(id_logits, id_targets)))
                     # loss_psth_ = self.dice_loss(id_logits, id_targets)
                     # loss_psth.append(torch.nan_to_num(loss_psth_))
+                
+                # if loss_id_.isnan().any() or loss_time_.isnan().any():
+                #     print(id_logits[B, :t - P].shape)
+                #     print(id_logits[B, tf:tf + t - P].shape)
+                #     print(P)
+                    # print(idx[B, t - P])
+                    # print(targets['id'][B, :t - P])
+                    # print(interval[B], trial[B])
+                    # return x['id'][B], id_logits[B, tf:tf + t - P], targets['id'][B, :t - P]
                 
                 loss_time.append(torch.nan_to_num(loss_time_))
                 loss_id.append(torch.nan_to_num(loss_id_))

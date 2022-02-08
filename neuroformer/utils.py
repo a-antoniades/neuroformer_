@@ -376,7 +376,7 @@ def predict_raster_recursive_time(model, loader, stoi, itos_dt, get_dt=False, sa
     return data
 
 @torch.no_grad()
-def predict_raster_recursive_time_auto(model, loader, window, stoi, itos_dt, get_dt=False, sample=False, top_k=0, top_p=0, top_p_t=0, temp=1, frame_end=0, gpu=False):
+def predict_raster_recursive_time_auto(model, loader, window, stoi, itos_dt, get_dt=False, sample=False, top_k=0, top_p=0, top_p_t=0, temp=1, temp_t=1, frame_end=0, gpu=False):
     """
     predict both ID and dt recursively
     """
@@ -388,7 +388,7 @@ def predict_raster_recursive_time_auto(model, loader, window, stoi, itos_dt, get
         pad_n = length - len(x)
         if pad > 0:
             x = x + [pad_token] * pad_n
-            x = torch.tensor(x, dtype=torch.long)
+            x = torch.tensor(x, dtype=torch.long, device=device)
         return x.unsqueeze(0)
 
 
@@ -399,7 +399,7 @@ def predict_raster_recursive_time_auto(model, loader, window, stoi, itos_dt, get
     T = model.get_block_size() # model.config.id_block_size # model.get_block_size()
     T_id = model.config.id_block_size
     T_id_prev = model.config.prev_id_block_size
-    context = torch.tensor(0).unsqueeze(0)
+    context = torch.tensor(0, device=device).unsqueeze(0)
     data = dict()
     data['true'] = context
     data['pred'] = context
@@ -418,32 +418,32 @@ def predict_raster_recursive_time_auto(model, loader, window, stoi, itos_dt, get
         for key, value in y.items():
             y[key] = y[key].to(device)
         
-        if it > 0:
-            x['id_prev'] = [stoi['SOS']] + id_prev_stoi[-(T_id_prev - 2):].tolist() + [stoi['EOS']]
+        if it > 2:
+            x['id_prev'] = [stoi['SOS']] + id_prev_stoi[-(T_id_prev - 2):].tolist()     # + [stoi['EOS']]
             x['id_prev'] = pad_x(x['id_prev'], T_id_prev, stoi['PAD'])
-            x['dt_prev'] = [0] + dt_prev_stoi[-(T_id_prev - 2):].tolist() + [max(list(itos_dt.keys()))]
+            x['dt_prev'] = [0] + dt_prev_stoi[-(T_id_prev - 2):].tolist()           # + [max(list(itos_dt.keys()))]
             x['dt_prev'] = pad_x(x['dt_prev'], T_id_prev, max(list(itos_dt.keys())))
 
-        t = x['id'].shape[-1]
         pad = x['pad'] if 'pad' in x else 0
         x['id_full'] = x['id'][:, 0]
         x['id'] = x['id'][:, 0]
         x['dt_full'] = x['dt'][:, 0]
         x['dt'] = x['dt'][:, 0]
 
-        current_id_stoi = torch.empty(0)
-        current_dt_stoi = torch.empty(0)
-        for i in range(t):
-            t_pad = torch.tensor([stoi['PAD']] * (t - x['id_full'].shape[-1]))
-            t_pad_dt = torch.tensor([0] * (t - x['dt_full'].shape[-1]))
+        current_id_stoi = torch.empty(0, device=device)
+        current_dt_stoi = torch.empty(0, device=device)
+        for i in range(T_id):
+            t_pad = torch.tensor([stoi['PAD']] * (T_id - x['id_full'].shape[-1]), device=device)
+            t_pad_dt = torch.tensor([0] * (T_id - x['dt_full'].shape[-1]), device=device)
             x['id'] = torch.cat((x['id_full'], t_pad)).unsqueeze(0).long()
             x['dt'] = torch.cat((x['dt_full'], t_pad_dt)).unsqueeze(0).long()
+
             logits, features, _ = model(x)
             logits['id'] = logits['id'][:, tf + i] / temp
-            logits['dt'] = logits['dt'][:, tf + i] / temp
+            logits['dt'] = logits['dt'][:, tf + i] / temp_t
             
             # optionally crop probabilities to only the top k / p options
-            if top_k or top_p is not 0:
+            if top_k or top_p != 0:
                 logits['id'] = top_k_top_p_filtering(logits['id'], top_k=top_k, top_p=top_p)
                 logits['dt'] = top_k_top_p_filtering(logits['dt'], top_k=top_k, top_p=top_p_t)
 
@@ -459,34 +459,40 @@ def predict_raster_recursive_time_auto(model, loader, window, stoi, itos_dt, get
                 _, ix = torch.topk(probs, k=1, dim=-1)
                 _, ix_dt = torch.topk(probs_dt, k=1, dim=-1)
             
-            if ix > stoi['PAD']:
-                ix = torch.tensor([513])
+            # if ix > stoi['PAD']:
+            #     ix = torch.tensor([513])
             
             # convert ix_dt to dt and add to current time
-            current_id_stoi = torch.cat((current_id_stoi, ix))
-            current_dt_stoi = torch.cat((current_dt_stoi, ix_dt))
-            dtx = itos_dt[int(ix_dt.flatten())]
+            current_id_stoi = torch.cat((current_id_stoi, ix.flatten()))
+            current_dt_stoi = torch.cat((current_dt_stoi, ix_dt.flatten()))
+            dtx = torch.tensor(itos_dt[int(ix_dt.flatten())], device=device).unsqueeze(0)
             
             # append true and predicted in lists
             # get last unpadded token
-            data['pred'] = torch.cat((data['pred'].to('cpu'), ix.flatten().to('cpu')))
-            data['time_pred'] = torch.cat((data['time_pred'], torch.tensor(dtx)[None, ...]))
+            data['pred'] = torch.cat((data['pred'], ix.flatten()))
+            data['time_pred'] = torch.cat((data['time_pred'], dtx))
             data['trial'] = torch.cat((data['trial'], x['trial']))
             data['interval'] = torch.cat((data['interval'], x['interval']))
             x['id_full'] = torch.cat((x['id_full'], ix.flatten()))
             x['dt_full'] = torch.cat((x['dt_full'], ix_dt.flatten()))
 
-            if ix == stoi['EOS']:
-                # id_prev_stoi = current_id_stoi
-                # dt_prev_stoi = current_dt_stoi
+            if dtx >= 0.5 and ix == stoi['EOS']: # and dtx == 0.5:    # dtx >= window:   # ix == stoi['EOS']:
+                # if ix != stoi['EOS']:
+                #     torch.cat((current_id_stoi, torch.tensor([stoi['EOS']])))
+                # if dtx <= window:
+                #     torch.cat((current_dt_stoi, torch.tensor([max(list(itos_dt.keys()))])))
+                id_prev_stoi = current_id_stoi
+                dt_prev_stoi = current_dt_stoi
                 break
 
-        dty = [itos_dt[int(dt)] for dt in y['dt'][:, :t - pad].flatten()]
-        dty = torch.tensor(dty)
+        dty = torch.tensor([itos_dt[int(dt)] for dt in y['dt'][:, :T_id - pad].flatten()], device=device)
         # dty = torch.tensor(itos_dt[y['dt'][:, i].item()]).unsqueeze(0)
-        data['time'] = torch.cat((data['time'].to('cpu'), dty)) 
-        data['true'] = torch.cat((data['true'].to('cpu'), y['id'][:, :t - pad].flatten().to('cpu')))
-            
+        data['time'] = torch.cat((data['time'], dty)) 
+        data['true'] = torch.cat((data['true'], y['id'][:, :T_id - pad].flatten()))
+
+    for key, value in data.items():
+        data[key] = data[key].to("cpu")
+        
     return data
 
 @torch.no_grad()

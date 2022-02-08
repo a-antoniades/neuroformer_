@@ -194,6 +194,7 @@ def dt_frames_idx(t, Tf, dt_frames=0.25):
 def image_dataset(frame_stack):
     """ Convert frames into images tensor compatible with Resnet"""
     preprocess = transforms.Compose([
+    transforms.ToPILImage(),
     transforms.Resize((64, 112)),
     transforms.CenterCrop((64, 112)),
     transforms.ToTensor(),
@@ -204,7 +205,8 @@ def image_dataset(frame_stack):
     # frame_stack = io.imread(path)
     im_list = []
     for idx in range(len(frame_stack)):
-        image = Image.fromarray(frame_stack[idx])   # .convert('RGB')
+        # image = Image.fromarray(frame_stack[idx])   # .convert('RGB')
+        image = frame_stack[idx]
         image = preprocess(image).unsqueeze(0)
         image = (image / image.max()) - 0.5
         im_list.append(image)
@@ -490,9 +492,10 @@ class SpikeTimeVidData2(Dataset):
                 prev_int = t['Interval'] - (2 * self.window)
                 # prev_int = prev_int if prev_int > 0 else -0.5
                 prev_id_interval = prev_int, prev_int + self.window
-                id_prev, dt_prev, _ = self.get_interval(prev_id_interval, t['Trial'])
+                id_prev, dt_prev, pad_prev = self.get_interval(prev_id_interval, t['Trial'])
                 x['id_prev'] = torch.tensor(id_prev[:-1], dtype=torch.long)
                 x['dt_prev'] = torch.tensor(dt_prev[:-1], dtype=torch.float) # + 0.5
+                x['pad_prev'] = torch.tensor(pad_prev, dtype=torch.long)
                 
                 ## CURRENT ##
                 # data_current = self.data[(self.data['Interval'] == t['Interval']) & (self.data['Trial'] == t['Trial'])][-(self.id_block_size - 2):]
