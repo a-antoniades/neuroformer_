@@ -130,12 +130,20 @@ dmypy.json
 
 
 # custom
-**/data
+**/data/*.png
+**/data/*.jpg
+**/data/*.csv
+**/data/*.mat
+**/data/*.npy
+**/data/*.pt
 **/OneCombo3
 */data
 **/.DS_Store
 **/.history
-**/models
+**/models/*.pkl
+**/models/*.pth
+**/models/*.pt
 **/plots
 */plots
+**/tensorboard
 
