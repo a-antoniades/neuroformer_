@@ -1,7 +1,7 @@
 # from code.transformer_vid.utils import convert_weights
-import rotary_embedding_torch
+# import rotary_embedding_torch
 from torch.nn.modules.activation import GELU, ReLU
-from trainer import TrainerConfig
+# from data.OneCombo3.trainer import TrainerConfig
 import math
 import numpy as np
 import itertools
@@ -15,7 +15,7 @@ from torchvision.models.video import r3d_18
 # from ResNet3D import r3d_18
 
 from scipy.optimize import linear_sum_assignment
-from rotary_embedding_torch import apply_rotary_emb, RotaryEmbedding
+# from rotary_embedding_torch import apply_rotary_emb, RotaryEmbedding
 
 from einops.layers.torch import Rearrange
 
@@ -113,12 +113,20 @@ class VideoFeaturesExtractor(nn.Module):
         return features
 
 class VideoEncoder(nn.Module):
-    def __init__(self):
+    def __init__(self, n_embd):
         super().__init__()
+        # p1, p2 = 16, 16
+        
+        # assert n_embd % (p1 * p2) == 0,  "n_embd must be divisible by p1 * p2"
+        
+        # c = n_embd // (p1 * p2) 
+        # self.to_patch_embedding = nn.Sequential(
+        #     Rearrange(f'b {c} t (h {p1}) (w {p2}) -> b (t h w) ({p1} {p2} {c})', p1=p1, p2=p2)
+        # )
         self.to_patch_embedding = nn.Sequential(
             Rearrange('b c t (h p1) (w p2) -> b (t h w) (p1 p2 c)', p1=16, p2=16)
         )
-    
+
     def forward(self, x):
         return self.to_patch_embedding(x)
 
@@ -132,6 +140,7 @@ class CausalSelfAttention(nn.Module):
     def __init__(self, config):
         super().__init__()
         assert config.n_embd % config.n_head == 0
+        self.config = config
         # key, query, value projections for all heads
         self.key = nn.Linear(config.n_embd, config.n_embd)
         self.query = nn.Linear(config.n_embd, config.n_embd)
@@ -154,6 +163,28 @@ class CausalSelfAttention(nn.Module):
         mask = torch.tril(torch.ones((block_size, block_size)),
                                      ).view(1, 1, block_size, block_size)
         return mask
+    
+    def generate_sparse_mask(self, att, p, config):
+        """
+        Generate a sparse mask according to p.
+        """
+        assert p >= 0 and p <= 1, "p should be in [0, 1]"
+        T = config.block_size
+        mask = torch.rand((1, T)) < p
+        mask = mask.repeat(T, 1)
+        
+        mask[0, 0] = False  # don't mask 1st step
+        # check if any step is fully masked and umask it
+        idx_all_true = (True == torch.all(mask, dim=0)).nonzero()
+        for step in idx_all_true:
+            sampler = torch.distributions.Uniform(low=0, high=step.item()+1)
+            idx_false = sampler.sample((1,1)).long()
+            mask[step, idx_false] = False
+
+        # mask = mask.repeat(T, 1)
+        mask = mask.view(1, 1, T, T).cuda() if att.is_cuda else mask.view(1, 1, T, T)
+        att = att.masked_fill(mask, float('-inf'))
+        return att
 
     def forward(self, x, pad=None, dtx=None):
         # B = Batch, T = Sequence, C = n_embed
@@ -171,9 +202,11 @@ class CausalSelfAttention(nn.Module):
         # causal self-attention; Self-attend: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
         att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
         att = att.masked_fill(self.mask[:,:,:T,:T] == 0, float('-inf'))
-        # if pad is not None:
-        #     for idx, i in enumerate(pad):
-        #         att[idx, :, :, self.T - i:] = float('-inf')   # only able to see first padding token
+        if self.training:
+            att = self.generate_sparse_mask(att, 0.25, self.config)
+        if pad is not None:
+            for idx, i in enumerate(pad):
+                att[idx, :, :, self.T - i:] = float('-inf')   # only able to see first padding token
         
         att = F.softmax(att, dim=-1)
         att = self.attn_drop(att)
@@ -208,29 +241,29 @@ class PositionalEmbedding(nn.Module):
         return self.dropout(x)
 
 
-class RotarySpatioTemporalEmbedding(nn.Module):
-    """ Rotary temporal embeddings - block_size = id_blk_sz """
-    def __init__(self, config):
-        super().__init__()
-        self.frame_block_size = config.frame_block_size
-        self.id_block_size = config.id_block_size
-        self.emb = RotaryEmbedding(dim=32)
+# class RotarySpatioTemporalEmbedding(nn.Module):
+#     """ Rotary temporal embeddings - block_size = id_blk_sz """
+#     def __init__(self, config):
+#         super().__init__()
+#         self.frame_block_size = config.frame_block_size
+#         self.id_block_size = config.id_block_size
+#         self.emb = RotaryEmbedding(dim=32)
 
-    def forward(self, q, k, t):
-        b = t.shape[0]
-        tf = self.frame_block_size
-        queries = []
-        keys = []
-        for B in range(b):
-            im_temp_emb = torch.tensor([-0.5] * (tf//2) + [0.5] * (tf//2))
-            im_pos_emb = torch.arange(self.frame_block_size)
-            im_emb = torch.stack([im_temp_emb, im_pos_emb], dim=0)
-            id_temp_emb = self.temp_emb(t[B], cache_key=self.block_size)
-            freqs = self.emb(torch.cat(im_emb, id_temp_emb))
-            queries.append(apply_rotary_emb(freqs, q[B][None, ...]))
-            keys.append(apply_rotary_emb(freqs, k[B][None, ...]))
-        q, k = torch.cat(queries), torch.cat(keys)
-        return q, k
+#     def forward(self, q, k, t):
+#         b = t.shape[0]
+#         tf = self.frame_block_size
+#         queries = []
+#         keys = []
+#         for B in range(b):
+#             im_temp_emb = torch.tensor([-0.5] * (tf//2) + [0.5] * (tf//2))
+#             im_pos_emb = torch.arange(self.frame_block_size)
+#             im_emb = torch.stack([im_temp_emb, im_pos_emb], dim=0)
+#             id_temp_emb = self.temp_emb(t[B], cache_key=self.block_size)
+#             freqs = self.emb(torch.cat(im_emb, id_temp_emb))
+#             queries.append(apply_rotary_emb(freqs, q[B][None, ...]))
+#             keys.append(apply_rotary_emb(freqs, k[B][None, ...]))
+#         q, k = torch.cat(queries), torch.cat(keys)
+#         return q, k
 
 
 class TemporalEmbedding(nn.Module):
@@ -317,16 +350,12 @@ class Decoder(nn.Module):
     def build_padding_mask(self, tgt, pad):
         # mask = self.tgt_pad_mask.repeat(tgt.shape[0], 1)
         mask = torch.zeros(tgt.shape[0], self.T, dtype=torch.bool)
-        # print(mask.shape)
-        # print(pad.shape)
         for B, P in enumerate(pad):
             mask[B, self.T - P:] = True
         return mask # .to(torch.cuda.current_device())
 
     def forward(self, tgt, memory, pad):
         # padding_mask = self.build_padding_mask(tgt, pad)
-        # print(padding_mask)
-        # print(pad)
         # tgt_mask = self.generate_sparse_mask(self.T) if self.training else self.tgt_mask
         return self.decoder(src=memory, tgt=tgt, tgt_mask=self.tgt_mask, 
                                          tgt_key_padding_mask=None)
@@ -589,7 +618,7 @@ class GPT(nn.Module):
 
         # -- Visual Backbone -- #
         # self.visual_backbone = VideoFeaturesExtractor()
-        self.video_encoder = VideoEncoder()
+        self.video_encoder = VideoEncoder(config.n_embd)
         frame_temp_emb = torch.tensor(list(itertools.chain(*[[n * 0.05] * (config.frame_block_size//20) for n in range(20)]))).unsqueeze(0)
         self.register_buffer("frame_temp_emb_seq", frame_temp_emb)
 
@@ -606,18 +635,18 @@ class GPT(nn.Module):
         ## -- Decoder -- ##
         # self.ln_f = nn.LayerNorm(config.n_embd)
         ## GPT
-        self.blocks = BlockSequential(*[Block(config) for _ in range(config.n_layer)])
-        self.ln_f = nn.LayerNorm(config.n_embd)
+        # self.blocks = BlockSequential(*[Block(config) for _ in range(config.n_layer)])
+        # self.ln_f = nn.LayerNorm(config.n_embd)
         ## enc_dec
-        # self.state_decoder = Decoder(config)
-        # self.ln_f_state_dec = nn.LayerNorm(config.n_embd)
-        # self.stimulus_decoder = Decoder(config)
-        # self.ln_f_stimulus_dec = nn.LayerNorm(config.n_embd)
+        self.state_decoder = Decoder(config)
+        self.ln_f_state_dec = nn.LayerNorm(config.n_embd)
+        self.stimulus_decoder = Decoder(config)
+        self.ln_f_stimulus_dec = nn.LayerNorm(config.n_embd)
         self.head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
        
         ## -- Time -- ##
         # self.proj_time = TimeProjection(config.block_size, config.id_block_size, config.n_embd, config.n_dt)
-        # self.proj_time = ProjectNorm(config.n_embd, config.n_dt)
+        self.proj_time = ProjectNorm(config.n_embd, config.n_dt)
         # self.proj_time = ProjectNorm(config.n_embd, 1)
         
         ## -- PSTH -- ##
@@ -636,7 +665,8 @@ class GPT(nn.Module):
         self.apply(self._init_weights)
         
         if config.class_weights is not None:
-            self.register_buffer("class_weights", config.class_weights)  
+            for key in config.class_weights.keys():
+                self.register_buffer(f"class_weights_{key}", config.class_weights[key])  
         
         logger.info("number of parameters: %e", sum(p.numel() for p in self.parameters()))
 
@@ -708,10 +738,10 @@ class GPT(nn.Module):
     
     def process_features(self, x):
         # batch, block_size, feature
-        # p_idx = x['id_prev']
+        p_idx = x['id_prev']
         idx = x['id']
         dtx = x['dt']
-        # dtx_prev = x['dt_prev']
+        dtx_prev = x['dt_prev']
         frames = self.video_encoder(x['frames'])
         pad = x['pad']
 
@@ -725,14 +755,14 @@ class GPT(nn.Module):
         fourrier decomposition and in the case of time, just passed as is. 
         '''
         # # Embeddings
-        # prev_id_position_embeddings = 0     # self.pos_emb(p_idx)
-        # prev_id_temporal_embeddings = self.temp_emb(dtx_prev.float())
-        id_position_embeddings = 0  # self.pos_emb(idx)  
+        prev_id_position_embeddings = self.pos_emb(p_idx)
+        prev_id_temporal_embeddings = self.temp_emb(dtx_prev.float())
+        id_position_embeddings = self.pos_emb(idx)  
         im_position_embeddings = self.pos_emb_frames
         temporal_embeddings = self.temp_emb(dtx.float())
         
         # Extract ID features
-        # prev_token_embeddings = self.id_drop(self.tok_emb(p_idx) + prev_id_temporal_embeddings + prev_id_position_embeddings)
+        prev_token_embeddings = self.id_drop(self.tok_emb(p_idx) + prev_id_temporal_embeddings + prev_id_position_embeddings)
         token_embeddings = self.tok_emb(idx) # each index maps to a (learnable) vector
         token_embeddings = token_embeddings + temporal_embeddings + id_position_embeddings
         token_embeddings = self.id_drop(token_embeddings)
@@ -745,7 +775,7 @@ class GPT(nn.Module):
         
         # Tidy up
         features = dict()
-        # features['id_prev'] = prev_token_embeddings
+        features['id_prev'] = prev_token_embeddings
         features['id'] = token_embeddings
         features['frames'] = im_embeddings
         
@@ -759,7 +789,6 @@ class GPT(nn.Module):
         logits = self.head(x)
 
         return logits, x
-
 
     def enc_dec(self, features, pad):
         x = self.stimulus_decoder(tgt=features['id'], memory=features['frames'], pad=pad)
@@ -796,10 +825,10 @@ class GPT(nn.Module):
         # assert t <= self.block_size, "Cannot forward, model block size is exhausted"
         
         features, pad = self.process_features(x)
-        # logits, x = self.perceiver(features, pad)
+        logits, x = self.perceiver(features, pad)
         # logits, x = self.enc_dec(features, pad)
-        logits, x = self.GPTdecoder(features, pad)
-        # time = self.proj_time(x)    # (B, T_id, 1)
+        # logits, x = self.GPTdecoder(features, pad)
+        time = self.proj_time(x)    # (B, T_id, 1)
 
         # print(x[:, 0].shape)
         # psth = self.proj_psth(x)    # (B, Vocab_id)
@@ -816,19 +845,20 @@ class GPT(nn.Module):
         if targets is not None:
             # loss_psth = self.dice_loss(psth, targets['modes'][:, tf:])    
             for B, P in enumerate(pad):
+                tf = 0
                 # im_logits = logits[B, :tf]
                 # im_targets = targets['frames'][B, :tf]
                 # loss_frames += F.cross_entropy(im_logits.view(-1, im_logits.size(-1)), im_targets.view(-1))
                 id_logits = logits[B, tf:tf + t - P]
                 id_targets = targets['id'][B, :t - P]
 
-                loss_id_ = F.cross_entropy(id_logits.view(-1, id_logits.size(-1)), id_targets.view(-1), weight=self.class_weights)
+                loss_id_ = F.cross_entropy(id_logits.view(-1, id_logits.size(-1)), id_targets.view(-1), weight=self.class_weights_id)
                 # if self.config.epoch >= 15:
                     # self.truncated_loss.update_weight(id_logits[None, ...], id_targets[None, ...], id_indexes[None, ...])
                 # loss_id_ = self.truncated_loss(id_logits[None, ...], id_targets[None, ...], id_indexes[None, ...])
-                # time_preds = time[B, :t - P]
-                # time_targets = targets['dt'][B, :t - P]
-                # loss_time_ = F.cross_entropy(time_preds.view(-1, time_preds.size(-1)), time_targets.view(-1))
+                time_preds = time[B, :t - P]
+                time_targets = targets['dt'][B, :t - P]
+                loss_time_ = F.cross_entropy(time_preds.view(-1, time_preds.size(-1)), time_targets.view(-1), weight=self.class_weights_dt)
                 # loss_time_ = F.mse_loss(time_preds.squeeze(-1), time_targets)
                 # loss_id_ = self.poisson_loss(id_logits.view(-1, id_logits.size(-1)), F.one_hot(id_targets, self.config.vocab_size))
                 # if len(id_targets) > 0:
@@ -842,13 +872,13 @@ class GPT(nn.Module):
                     # loss_psth_ = self.dice_loss(id_logits, id_targets)
                     # loss_psth.append(torch.nan_to_num(loss_psth_))
                 
-                # loss_time.append(torch.nan_to_num(loss_time_))
+                loss_time.append(torch.nan_to_num(loss_time_))
                 loss_id.append(torch.nan_to_num(loss_id_))
             
             loss = dict()
             # loss['frames'] = loss_frames / (b / 3)
-            loss['id'] = sum(loss_id) / (b)   # sum(loss_id) / (b * 2)   # / len(loss_id)
-            # loss['time'] = sum(loss_time) / (b * 2)
+            loss['id'] = sum(loss_id) / (b * 2)   # sum(loss_id) / (b * 2)   # / len(loss_id)
+            loss['time'] = sum(loss_time) / (b * 2)
             # loss['dice'] = sum(loss_dice) / len(loss_dice)
             # loss['dt'] = loss_time / (b * 50)
             # loss['hungarian'] = sum(loss_hungarian) / (b * 2)
@@ -859,7 +889,7 @@ class GPT(nn.Module):
                     del loss[key]
             
         preds = dict()
-        preds['logits'] = logits    # [:, tf:]    # only id logits
-        # preds['dt'] = time
+        preds['id'] = logits    # [:, tf:]    # only id logits
+        preds['dt'] = time
 
         return preds, features, loss

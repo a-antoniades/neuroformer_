@@ -1,21 +1,19 @@
 # from code.transformer_vid.utils import convert_weights
 # import rotary_embedding_torch
+from sys import exit
 from torch.nn.modules.activation import GELU, ReLU
 # from data.OneCombo3.trainer import TrainerConfig
 import math
 import numpy as np
 import itertools
 import logging
-from inspect import isfunction
 
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
 from torch.autograd import Variable
-# from torchvision.models.video import r3d_18
+from torchvision.models.video import r3d_18
 # from ResNet3D import r3d_18
-from torchvision.models._utils import IntermediateLayerGetter
-
 
 from scipy.optimize import linear_sum_assignment
 # from rotary_embedding_torch import apply_rotary_emb, RotaryEmbedding
@@ -59,9 +57,6 @@ class GPTConfig:
     temp_emb = True
     start_prune = 30
     epoch = 0
-    sparse_topk = None
-    conv_layer = False
-
 
     def __init__(self, vocab_size, block_size, **kwargs):
         self.vocab_size = vocab_size
@@ -72,7 +67,7 @@ class GPTConfig:
 class neuralGPTConfig:
     """ base GPT config, params common to all GPT versions """
     n = 0.4
-    im_drop = 0.4
+    im_drop = 0.2
     id_drop = n
     embd_pdrop = n
     resid_pdrop = n
@@ -81,9 +76,6 @@ class neuralGPTConfig:
     temp_pdrop = n
     pos_emb = True
     temp_emb = True
-    epoch = 0
-    step = 0
-    sparse_topk = None
 
     def __init__(self, vocab_size, block_size, **kwargs):
         self.vocab_size = vocab_size
@@ -99,65 +91,32 @@ class GPT1Config(GPTConfig):
     n_embd = 768
 
 
-# class VideoFeaturesExtractor(nn.Module):
-#     """ 
-#     R3D: (3 x T x H x W)
-#     H, W = 112
-#     """
+class VideoFeaturesExtractor(nn.Module):
+    """ 
+    R3D: (3 x T x H x W)
+    H, W = 112
+    """
     
-#     # def __init__(self):
-#     #     super().__init__()
-#     #     self.backbone = torch.nn.Sequential(*(list(r3d_18(pretrained=True).children())[:-2]))
-#     #     convert_weights(self.backbone)
-#     #     # # freeze backbone
-#     #     # for k, v in self.backbone.named_parameters():
-#     #     #     v.requires_grad = False
+    def __init__(self):
+        super().__init__()
+        self.backbone = torch.nn.Sequential(*(list(r3d_18(pretrained=True).children())[:-2]))
+        convert_weights(self.backbone)
+        # # freeze backbone
+        # for k, v in self.backbone.named_parameters():
+        #     v.requires_grad = False
 
-#     # def forward(self, x):
-#     #     # B = Batch, T, C, Fm, H, W
-#     #     features = self.backbone(x)     # (B, C, T, H, W)
-#     #     B, C, T, H, W = features.shape
-#     #     features = features.permute(0, 2, 3, 4, 1)
-#     #     features = features.view(B, -1, C)
-#     #     return features
-
-#     def __init__(self, config):
-#         super().__init__()
-#         self.backbone = model = torch.hub.load('pytorch/vision:v0.10.0', 'vgg16_bn', pretrained=True).features[:27]
-#         convert_weights(self.backbone)
-#         # # freeze backbone
-#         # for k, v in self.backbone.named_parameters():
-#         #     v.requires_grad = False
-#     def forward(self, x):
-#         features = None
-#         for i in range(len(x)):
-#             x = x.tranpose(0, 1)    # Flip batch and T
-#             feat = self.backbone(x[i])
-#             if features is None:
-#                 features = feat
-#             else:
-#                 features = torch.cat((features, feat))
-#         # (B, t, C, H, W)
-#         x = x.tranpose(0, 1)    # Flip batch and T
-#         x = self.backbone(x)
-#         return x
-
+    def forward(self, x):
+        # B = Batch, T, C, Fm, H, W
+        features = self.backbone(x)     # (B, C, T, H, W)
+        B, C, T, H, W = features.shape
+        features = features.permute(0, 2, 3, 4, 1)
+        features = features.view(B, -1, C)
+        return features
 
 class VideoEncoder(nn.Module):
-    def __init__(self, config):
+    def __init__(self, n_embd):
         super().__init__()
-        self.conv_layer = config.conv_layer
-        if self.conv_layer:
-            self.conv_layer = torch.nn.Sequential(
-                nn.Conv2d(1, 1, kernel_size=3, stride=1, padding=1),
-                nn.LayerNorm([64, 112]),
-                nn.ReLU()
-        )
-        # self.conv_layer_2 = torch.nn.Sequential(
-        #     nn.Conv2d(1, 1, kernel_size=3, stride=1, padding=1),
-        #     nn.LayerNorm([64, 112]),
-        #     nn.ReLU()
-        # )
+        # p1, p2 = 16, 16
         
         # assert n_embd % (p1 * p2) == 0,  "n_embd must be divisible by p1 * p2"
         
@@ -165,25 +124,12 @@ class VideoEncoder(nn.Module):
         # self.to_patch_embedding = nn.Sequential(
         #     Rearrange(f'b {c} t (h {p1}) (w {p2}) -> b (t h w) ({p1} {p2} {c})', p1=p1, p2=p2)
         # )
-        self.f_emb = int(config.n_embd_frames ** (1/2))
-        
         self.to_patch_embedding = nn.Sequential(
-            Rearrange('b c t (h p1) (w p2) -> b (t h w) (p1 p2 c)', p1=self.f_emb, p2=self.f_emb)
+            Rearrange('b c t (h p1) (w p2) -> b (t h w) (p1 p2 c)', p1=16, p2=16)
         )
 
-        self.proj_emb = nn.Linear(config.n_embd_frames, config.n_embd)
-        # convert_weights(self.proj_emb)
     def forward(self, x):
-        if self.conv_layer:
-            # x: (B, C, T, H, W)
-            B, C, T, H, W = x.size()
-            # Flip C and T and merge B and T]
-            x = x.transpose(1, 2).view(-1, C, H, W)
-            x = self.conv_layer(x)
-            # Reshape to (B, C, T, H, W)
-            x = x.view(B, C, T, H, W)
-        x = self.to_patch_embedding(x)
-        return self.proj_emb(x)
+        return self.to_patch_embedding(x)
 
 
 class MultiheadfAttention(nn.Module):
@@ -192,7 +138,7 @@ class MultiheadfAttention(nn.Module):
     
     """
 
-    def __init__(self, config, sparse_topk=None):
+    def __init__(self, config):
         super().__init__()
         assert config.n_embd % config.n_head == 0
         self.config = config
@@ -208,7 +154,6 @@ class MultiheadfAttention(nn.Module):
 
         # self.register_buffer("mask", self.build_mask(config.id_block_size))  
         self.n_head = config.n_head
-        self.sparse_topk = config.sparse_topk if sparse_topk is None else sparse_topk
 
         self.att = None
         self.T = config.block_size
@@ -242,7 +187,7 @@ class MultiheadfAttention(nn.Module):
         att = att.masked_fill(mask, float('-inf'))
         return att
 
-    def forward(self, q, k, v, tgt_mask=None, pad=None, dtx=None, sparse_topk=None):
+    def forward(self, q, k, v, tgt_mask=None, pad=None, dtx=None):
         assert k.size() == v.size(), "Keys and Values must be of same size"
         assert q.size(-1) == k.size(-1) == v.size(-1), "Embedding dims must be of same size"
         
@@ -254,7 +199,8 @@ class MultiheadfAttention(nn.Module):
         k = self.key(k).view(Bs, Ts, self.n_head, Cs // self.n_head).transpose(1, 2) # (B, nh, T, hs)
         v = self.value(v).view(Bs, Ts, self.n_head, Cs // self.n_head).transpose(1, 2) # (B, nh, T, hs)
 
-        # Normalize value
+        # Normalize Values across token dimension
+        # This encourages interpretability of attention weights
         v = F.normalize(v, p=2.0, dim=-1)
 
         # # apply rotary embeddings
@@ -265,18 +211,11 @@ class MultiheadfAttention(nn.Module):
         att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
         if tgt_mask is not None:
             att = att.masked_fill(tgt_mask[:,:,:Tt,:Tt] == 0, float('-inf'))
-            # if self.training:
-            #     att = self.generate_sparse_mask(att, 0.25, self.config)
-            # if pad is not None and self.training:
-            #     for idx, i in enumerate(pad):
-            #         att[idx, :, :, Tt - i:] = float('-inf')   # only able to see first padding token
-        
-        # Explicit Sparse Attention - Use top-K qk values
-        if self.sparse_topk is not None and self.sparse_topk < att.shape[-1]:
-            top, _ = torch.topk(att, self.sparse_topk, dim=-1)
-            vk = top[..., -1].unsqueeze(-1).expand_as(att)
-            mask = att < vk
-            att.masked_fill_(mask, float('-inf'))
+        #     # if self.training:
+        #     #     att = self.generate_sparse_mask(att, 0.25, self.config)
+        #     if pad is not None and self.training:
+        #         for idx, i in enumerate(pad):
+        #             att[idx, :, :, Tt - i:] = float('-inf')   # only able to see first padding token
         
         att = F.softmax(att, dim=-1)
         self.att = att
@@ -338,15 +277,13 @@ class PositionalEmbedding(nn.Module):
 
 class TemporalEmbedding(nn.Module):
     """ encoding temporal information using fourrier signals """
-    def __init__(self, n_embd, p_drop, position=None, max_len=2500):
+    def __init__(self, n_embd, p_drop, max_len=1500):
         super().__init__()
         self.dropout = nn.Dropout(p=p_drop)
+        
         # Compute the positional encodings once in log space.
-        if position is None:
-            pe = torch.zeros(max_len, n_embd)
-            position = torch.arange(0, max_len).unsqueeze(1)
-        else:
-            pe = torch.zeros(position.shape[0], n_embd)
+        pe = torch.zeros(max_len, n_embd)
+        position = torch.arange(0, max_len).unsqueeze(1)
         div_term = torch.exp(torch.arange(0, n_embd, 2) *
                              -(math.log(10000.0) / n_embd))
         pe[:, 0::2] = torch.sin(position * div_term)
@@ -634,7 +571,7 @@ class PoissonCrossEntropyLoss(nn.Module):
 class Block(nn.Module):
     """ an unassuming Transformer block """
 
-    def __init__(self, config, sparse_topk=None):
+    def __init__(self, config):
         super().__init__()
         self.ln1 = nn.LayerNorm(config.n_embd)
         self.ln2 = nn.LayerNorm(config.n_embd)
@@ -668,10 +605,10 @@ class MultimodalTransformer(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.config = config
-        self.neural_state_block = BlockSequential(*[Block(config, sparse_topk=config.sparse_topk_id) for _ in range(config.n_state_layers)])
-        self.neural_state_history_block = BlockSequential(*[Block(config, sparse_topk=config.sparse_topk_id) for _ in range(config.n_state_history_layers)])
+        self.neural_state_block = BlockSequential(*[Block(config) for _ in range(config.n_state_layers)])
+        self.neural_state_history_block = BlockSequential(*[Block(config) for _ in range(config.n_state_history_layers)])
         # self.neural_state_history_self_attention = BlockSequential(*[Block(config) for _ in range(config.n_state_layers)])
-        self.neural_state_stimulus = BlockSequential(*[Block(config, sparse_topk=config.sparse_topk_frame) for _ in range(config.n_stimulus_layers)])
+        self.neural_state_stimulus = BlockSequential(*[Block(config) for _ in range(config.n_stimulus_layers)])
 
         self.ln_f = nn.LayerNorm(config.n_embd)
         self.epoch = 0
@@ -711,8 +648,9 @@ class MultimodalTransformer(nn.Module):
             stimulus: [batch_size, seq_len_s, hidden_size]
         """
         self.epoch += 1
-        if self.config.sparse_mask and self.epoch >= 20 and self.training:
-            p = 0.4 / (1 + np.exp( -self.epoch / 20))
+        min_epoch = 70
+        if self.config.sparse_mask and self.epoch >= min_epoch and self.training:
+            p = 0.4 / (1 + np.exp((-(self.epoch - min_epoch) / 40)))
             mask = self.generate_sparse_mask(p, self.config.id_block_size)   # self.config.p_sparse
             # logger.info(f"p_sparse = {p}")
         else:
@@ -720,12 +658,13 @@ class MultimodalTransformer(nn.Module):
 
         neural_state = features['id']
         neural_history = features['id_prev']
-        stimulus = features['frames']
+        stimulus = torch.nan_to_num(features['frames'])
 
         x = neural_state
         x = self.neural_state_block(x, x, x, mask)
         x = self.neural_state_history_block(x, neural_history, neural_history)
         x = self.neural_state_stimulus(x, stimulus, stimulus)
+        x = self.ln_f(x)
         return x
 
 
@@ -735,7 +674,6 @@ class GPT(nn.Module):
 
     def __init__(self, config):
         super().__init__()
-
         self.device = 'cpu'
         if torch.cuda.is_available():
             self.device = torch.cuda.current_device()
@@ -743,25 +681,22 @@ class GPT(nn.Module):
         self.config = config
         # -- Input Embedding Stem -- #        self.n_embd = config.n_embd
         self.tok_emb = nn.Embedding(config.id_vocab_size, config.n_embd)
-        self.pos_emb = nn.Parameter(torch.zeros(1, config.id_block_size, config.n_embd))
-        self.pos_emb_prev = nn.Parameter(torch.zeros(1, config.id_block_size, config.n_embd))
+        self.pos_emb = PositionalEmbedding(config.n_embd, p_drop=0.2)
         # self.p_emb = PositionalEmbedding(config.n_embd, p_drop=0.2)
-        # self.pos_emb = nn.Parameter(torch.zeros(1, config.id_block_size, config.n_embd))
-        self.pos_emb_frames = nn.Parameter(torch.zeros(1, config.frame_block_size // 20, config.n_embd))
+        # self.pos_emb_id = nn.Parameter(torch.zeros(1, config.id_block_size, config.n_embd))
+        self.pos_emb_frames = nn.Parameter(torch.zeros(1, config.frame_block_size, config.n_embd))
+        self.temp_emb = TemporalEmbedding(config.n_embd, p_drop=0.2)
         # self.temp_emb = RotaryTemporalEmbedding(config.id_block_size)
-        self.temp_emb = LearntTemporalEmbedding(config.id_block_size, config.n_embd)
-        self.temp_emb_prev = LearntTemporalEmbedding(config.id_block_size, config.n_embd)
-        frame_temp_emb = torch.tensor(list(itertools.chain(*[[n * 0.05] * (config.frame_block_size//20) for n in range(20)]))).unsqueeze(1)
-        self.register_buffer("frame_temp_emb_seq", frame_temp_emb)
-        self.frame_temp_emb = TemporalEmbedding(config.n_embd, config.pos_pdrop, position=self.frame_temp_emb_seq)
+        # self.temp_emb = LearntTemporalEmbedding(config.id_block_size, config.n_embd)
+        self.frame_temp_emb = LearntTemporalEmbedding(config.frame_block_size // 5, config.n_embd)
         self.id_drop = nn.Dropout(config.id_drop)
         self.im_drop = nn.Dropout(config.im_drop)
         self.drop = nn.Dropout(config.embd_pdrop)
 
         # -- Visual Backbone -- #
         # self.visual_backbone = VideoFeaturesExtractor()
-        self.video_encoder = VideoEncoder(config)
-        frame_temp_emb = torch.tensor(list(itertools.chain(*[[n * 0.05] * (config.frame_block_size//20) for n in range(20)]))).unsqueeze(0)
+        self.video_encoder = VideoEncoder(config.n_embd)
+        frame_temp_emb = torch.tensor(list(itertools.chain(*[[n * 0.05] * (config.frame_block_size // 20) for n in range(20)]))).unsqueeze(0)
         self.register_buffer("frame_temp_emb_seq", frame_temp_emb)
 
         # -- Multimodal Transformer -- #
@@ -782,9 +717,6 @@ class GPT(nn.Module):
                 self.register_buffer(f"class_weights_{key}", config.class_weights[key])  
         
         logger.info("number of parameters: %e", sum(p.numel() for p in self.parameters()))
-
-        # CONCEPT TRANSFORMER
-        # self.register_buffer("neuron_population", torch.tensor([i for i in range(config.id_vocab_size)], dtype=torch.long).unsquueze(0))
 
     def get_block_size(self):
         return self.block_size
@@ -826,7 +758,6 @@ class GPT(nn.Module):
             for mods in black_list_mods:
                 for name, param in self.named_parameters():
                     if mods in name:
-                        print(name)
                         no_decay.add(name)    # also pos_emb
             
             # validate that we considered every parameter
@@ -872,10 +803,10 @@ class GPT(nn.Module):
         fourrier decomposition and in the case of time, just passed as is. 
         '''
         # # Embeddings
-        prev_id_position_embeddings = self.pos_emb_prev if self.config.pos_emb else 0
-        prev_id_temporal_embeddings = self.temp_emb_prev(dtx_prev.float())
-        id_position_embeddings = self.pos_emb if self.config.pos_emb else 0
-        im_position_embeddings = self.pos_emb_frames.repeat(1, 20, 1)
+        prev_id_position_embeddings = self.pos_emb(p_idx) if self.config.pos_emb else 0
+        prev_id_temporal_embeddings = self.temp_emb(dtx_prev.float())
+        id_position_embeddings = self.pos_emb(idx) if self.config.pos_emb else 0
+        im_position_embeddings = self.pos_emb_frames.repeat(1, 5, 1)
         temporal_embeddings = self.temp_emb(dtx.float())
         
         # Extract ID features
@@ -913,18 +844,19 @@ class GPT(nn.Module):
         dtx = x['dt']
         frames = x['frames']
         pad = x['pad']
+        interval = x['interval']
+        trial = x['trial']
 
         b, t = idx.size()
         b_prev, t_prev = idx_prev.size()
-        # assert t == t_prev, "Neural states need to be the same size!"
+        assert t == t_prev, "Neural states need to be the same size!"
         # b, t = x['id'].shape[0], x['id'].shape[1] + x['id_prev'].shape[1]
-        bf, tf = frames.size()[0:2]
-        tf = self.config.frame_block_size
+        # bf, tf = frames.size()[0:2]
+        # tf = self.config.frame_block_size
         # assert t + tf == self.config.block_size, f"{tf} {t}"
         # assert t <= self.block_size, "Cannot forward, model block size is exhausted"
         
         features, pad = self.process_features(x)
-        # features['id'] =
         x = self.neural_visual_transformer(features)
         id_logits = self.head_id(x)
         dt_logits = self.head_dt(x)    # (B, T_id, 1)
@@ -938,57 +870,34 @@ class GPT(nn.Module):
         loss_frames = 0
         loss_id = []
         loss_time = []
-        precision = []
-
         if targets is not None:
             # loss_psth = self.dice_loss(psth, targets['modes'][:, tf:])    
-            for B, P in enumerate(pad):
-                tf = 0
-                # im_logits = logits[B, :tf]
-                # im_targets = targets['frames'][B, :tf]
-                # loss_frames += F.cross_entropy(im_logits.view(-1, im_logits.size(-1)), im_targets.view(-1))
-                id_logits_ = id_logits[B, tf:tf + t - P]
-                id_targets = targets['id'][B, :t - P]
+            tf = 0
+            # im_logits = logits[B, :tf]
+            # im_targets = targets['frames'][B, :tf]
+            # loss_frames += F.cross_entropy(im_logits.view(-1, im_logits.size(-1)), im_targets.view(-1)))
+            id_logits_ = id_logits
+            id_targets = targets['id']
 
-                loss_id_ = F.cross_entropy(id_logits_.view(-1, id_logits_.size(-1)), id_targets.view(-1))
-                # if self.config.epoch >= 15:
-                    # self.truncated_loss.update_weight(id_logits[None, ...], id_targets[None, ...], id_indexes[None, ...])
-                # loss_id_ = self.truncated_loss(id_logits[None, ...], id_targets[None, ...], id_indexes[None, ...])
-                dt_logits_ = dt_logits[B, :t - P]
-                time_targets = targets['dt'][B, :t - P]
-                loss_time_ = F.cross_entropy(dt_logits_.view(-1, dt_logits_.size(-1)), time_targets.view(-1))
-                # loss_time_ = F.mse_loss(time_preds.squeeze(-1), time_targets)
-                # loss_id_ = self.poisson_loss(id_logits.view(-1, id_logits.size(-1)), F.one_hot(id_targets, self.config.vocab_size))
-                # if len(id_targets) > 0:
-                #     indices = self.hungarian_matcher(id_logits, id_targets)
-                #     probs_matching, targets_matching = id_logits[indices[0][0]], id_targets[indices[0][1]]
-                #     loss_hungarian_ = F.cross_entropy(probs_matching, targets_matching, weight=self.class_weights).to(self.device)
-                    # loss_hungarian.append(loss_hungarian_)
-                #     # psth = self.proj_psth(x[B, -1]) # from the EOS position
-                    
-                    # loss_psth.append(torch.nan_to_num(self.set_loss(id_logits, id_targets)))
-                    # loss_psth_ = self.dice_loss(id_logits, id_targets)
-                    # loss_psth.append(torch.nan_to_num(loss_psth_))
-                
-                loss_time.append(torch.nan_to_num(loss_time_))
-                loss_id.append(torch.nan_to_num(loss_id_))
+            loss_id_ = F.cross_entropy(id_logits_.view(-1, id_logits_.size(-1)), id_targets.view(-1))
+            # if self.config.epoch >= 15:
+                # self.truncated_loss.update_weight(id_logits[None, ...], id_targets[None, ...], id_indexes[None, ...])
+            # loss_id_ = self.truncated_loss(id_logits[None, ...], id_targets[None, ...], id_indexes[None, ...])
+            dt_logits_ = dt_logits
+            time_targets = targets['dt']
+            # print(id_targets, loss_id_)
+            loss_time_ = F.cross_entropy(dt_logits_.view(-1, dt_logits_.size(-1)), time_targets.view(-1))
+            
+            loss_time.append(torch.nan_to_num(loss_time_))
+            loss_id.append(torch.nan_to_num(loss_id_))
 
-                if len(id_targets) > 0:
-                    pred_id = torch.argmax(id_logits_, dim=-1).flatten().detach().cpu().numpy().tolist()
-                    true_id = id_targets.flatten().detach().cpu().numpy().tolist()
-                    # pred_dt = torch.argmax(dt_logits_, dim=-1)
-                    common_set = set(true_id) & set(pred_id)
-                    uncommon_set = set(true_id) | set(pred_id)
-                    precision_score = len(common_set) / (len(uncommon_set) + len(common_set))
-                    precision.append(precision_score)
-
-            # loss_id.append(F.cross_entropy(id_logits.view(-1, id_logits.size(-1)), targets['id'].view(-1)))
-            # loss_time.append(F.cross_entropy(dt_logits.view(-1, dt_logits.size(-1)), targets['dt'].view(-1)))
-
+            # loss_id.append(F.cross_entropy(id_logits.view(-1, id_logits.size(-1)), targets['id'].view(-1), weight=self.class_weights_id))
+            # loss_time.append(F.cross_entropy(dt_logits.view(-1, dt_logits.size(-1)), targets['dt'].view(-1), weight=self.class_weights_dt))
+            
             loss = dict()
             # loss['frames'] = loss_frames / (b / 3)
-            loss['id'] = (3 / 4) * sum(loss_id) / b  # sum(loss_id) / (b * 2)   # / len(loss_id)
-            loss['time'] = (1 / 4) * sum(loss_time) / b
+            loss['id'] = sum(loss_id) / (2)   # sum(loss_id) / (b * 2)   # / len(loss_id)
+            loss['time'] = sum(loss_time) / (2)
             # loss['dice'] = sum(loss_dice) / len(loss_dice)
             # loss['dt'] = loss_time / (b * 50)
             # loss['hungarian'] = sum(loss_hungarian) / (b * 2)
@@ -1001,7 +910,5 @@ class GPT(nn.Module):
         preds = dict()
         preds['id'] = id_logits    # [:, tf:]    # only id logits
         preds['dt'] = dt_logits
-        preds['precision'] = sum(precision) / b
-        # self.config.step += 1
 
         return preds, features, loss

@@ -36,7 +36,6 @@ class AttentionVis:
                 plt.show()
         
         
-        # this is for gpt style models
         @torch.no_grad()
         def getAttention(x, model, blocks=None):
                 idx = x['id']
@@ -62,34 +61,8 @@ class AttentionVis:
                 # # normalize
                 # atts = atts / n_blocks
                 return atts
-        
-        
-        # this is for neuroformer model
-        @torch.no_grad()
-        def get_attention(module, n_blocks, block_size, pad=0):
-                # aggregate attention from n_Blocks
-                atts = None
-                T = block_size
-                # TODO: get index of 166, get attentions up until that stage
-                for n in range(n_blocks):
-                        att = module[n].attn.att
-                        n_heads = att.size()[1]
-                        # zero attention steps of paded positions
-                        # att[:, :, :T_id - pad, :,] == 0
-                        # att = att[:, :, :T_id - pad, :,]
-                        # att = F.softmax(att, dim=-1).detach().to('cpu').numpy()
-                        if pad != 0:
-                                att = att[:, :, T - pad, :,].squeeze(0)
-                        # att = torch.sum(att, axis=1, dtype=torch.float32).squeeze(0)
-                        # att = F.softmax(att, dim=-1)
-                        att = att.detach().squeeze(0).to('cpu').numpy()
-                        # att = att / n_heads
-                        # divide by number of blocks
-                        atts = att if atts is None else np.add(atts, att)
-                return atts
-                
 
-        @torch.no_grad()
+
         def att_models(models, dataset, neurons):
                 ''' 
                 Input list of models
