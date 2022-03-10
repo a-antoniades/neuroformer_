@@ -146,7 +146,8 @@ dmypy.json
 
 **/OneCombo3
 **/notebooks
-*/data
+**/data
+**/models
 **/.DS_Store
 **/.history
 **/plots
