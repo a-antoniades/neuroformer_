@@ -3,6 +3,14 @@ import torch
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import torch.nn.functional as F
+import math
+from scipy.special import softmax
+from scipy.ndimage.filters import gaussian_filter, uniform_filter
+from sklearn.preprocessing import normalize
+from matplotlib.colors import LinearSegmentedColormap
+from numpy import linalg as LA
+from SpikeVidUtils import get_frame_idx
+from utils import top_k_top_p_filtering
 
 class AttentionVis:
         '''attention Visualizer'''
@@ -36,6 +44,7 @@ class AttentionVis:
                 plt.show()
         
         
+        # this is for gpt style models
         @torch.no_grad()
         def getAttention(x, model, blocks=None):
                 idx = x['id']
@@ -61,33 +70,647 @@ class AttentionVis:
                 # # normalize
                 # atts = atts / n_blocks
                 return atts
+        
+        
+        # this is for neuroformer model
+        @torch.no_grad()
+        def get_attention(module, n_blocks, block_size, pad=0, rollout=False):
+                # aggregate attention from n_Blocks
+                atts = None
+                T = block_size
+                # TODO: get index of 166, get attentions up until that stage
+                for n in range(n_blocks):
+                        att = module[n].attn.att
+                        n_heads = att.size()[1]
+                        if pad != 0:
+                                att = att[:, :, T - pad, :,]
+                        att = att.detach().squeeze(0).to('cpu').numpy()
+                        atts = att[None, ...] if atts is None else np.concatenate((atts, att[None, ...]))
+                return atts
+                
 
+        # @torch.no_grad()
+        # def att_models(models, dataset, neurons):
+        #         ''' 
+        #         Input list of models
+        #         Returns Attentions over dataset
+        #         '''
+        #         models_atts = []
+        #         for model in models:
+        #                 attention_scores = np.zeros(len(neurons))
+        #                 data = dataset
+        #                 pbar = tqdm(enumerate(data), total=len(data))
+        #                 for it, (x, y) in pbar:
+        #                         # scores = np.array(np.zeros(len(neurons)))
+        #                         att = np.zeros(len(neurons))
+        #                         score = AttentionVis.getAttention(x, model)
+        #                         if score.size >= 1: score = score[-1]
+        #                         # scores.append(score)
+        #                         for idx, neuron in enumerate(x[:, 0]):
+        #                                 """ 
+        #                                 for each neuron in scores,
+        #                                 add its score to the array
+        #                                 """
+        #                                 neuron = int(neuron.item())
+        #                                 att[neuron] += score[idx]
+        #                         attention_scores = np.vstack((attention_scores, att))
+        #                         if it > len(dataset):
+        #                                 models_atts.append(attention_scores.sum(axis=0))
+        #                                 break
+        #         return models_atts
 
-        def att_models(models, dataset, neurons):
-                ''' 
-                Input list of models
-                Returns Attentions over dataset
+        def rollout_attentions(self, att):
+                ''' Rollout attentions
+                Input: (L, H, ID, F)
                 '''
-                models_atts = []
-                for model in models:
-                        attention_scores = np.zeros(len(neurons))
-                        data = dataset
-                        pbar = tqdm(enumerate(data), total=len(data))
-                        for it, (x, y) in pbar:
-                                # scores = np.array(np.zeros(len(neurons)))
-                                att = np.zeros(len(neurons))
-                                score = AttentionVis.getAttention(x, model)
-                                if score.size >= 1: score = score[-1]
-                                # scores.append(score)
-                                for idx, neuron in enumerate(x[:, 0]):
-                                        """ 
-                                        for each neuron in scores,
-                                        add its score to the array
-                                        """
-                                        neuron = int(neuron.item())
-                                        att[neuron] += score[idx]
-                                attention_scores = np.vstack((attention_scores, att))
-                                if it > len(dataset):
-                                        models_atts.append(attention_scores.sum(axis=0))
-                                        break
-                return models_atts
+                att = att.mean(axis=1)
+                id_att = np.eye(att.shape[-2], att.shape[-1])
+                att = (att + 1.0*id_att) / 2
+                att = att / att.sum(axis=-1, keepdims=True)
+                att_roll = att[0]
+                for i in range(att.shape[0]):
+                        if i==0:
+                                continue
+                        att_roll = att_roll * att[i]
+                att = att_roll
+                return att
+
+        @torch.no_grad()
+        def att_interval_frames(model, module, loader, n_blocks, block_size, rollout=False, pad_key=None, agg=False):
+                device = torch.cuda.current_device() if torch.cuda.is_available() else 'cpu'
+                device = 'cpu'
+                model.to(device)
+                mconf = model.config
+                model = model.eval()
+                T = block_size
+                attention_scores = None
+                pbar = tqdm(enumerate(loader), total=len(loader))
+                for it, (x, y) in pbar:
+                        pad = x[pad_key] if pad_key is not None else 0
+                        # place data on the correct device
+                        for key, value in x.items():
+                                x[key] = x[key].to(device)
+                        for key, value in y.items():
+                                y[key] = y[key].to(device)
+                        # forward the model
+                        preds, features, loss, = model(x)
+                        preds_id = F.softmax(preds['id'] / 0.95, dim=-1).squeeze(0)
+                        ix = torch.multinomial(preds_id, num_samples=1).flatten()
+                        att = AttentionVis.get_attention(module, n_blocks, T)
+                        # att = np.swapaxes(att, -1, -2)
+                        if rollout:
+                                att = AttentionVis.rollout_attentions(att)
+                        if agg: 
+                                n_L, n_H = att.shape[0], att.shape[1]    
+                                t_seq = int(T - x['pad'])
+                                # att = att - att.mean(axis=-2, keepdims=True)
+                                # att = att - att.mean(axis=(0, 1, 2), keepdims=True)
+                                if not rollout:
+                                        att = np.sum(att, axis=0)
+                                        att = np.mean(att, axis=0)
+                                # att = att[-1]   # take last layer
+                                # att_n = LA.norm(att, axis=-1, ord=2, keepdims=True)
+                                # att = softmax(att, axis=-2)
+                                # att = normalize(att, norm='l2', axis=1)
+                                # att = att / (n_L * n_H * (t_seq))
+                                score = np.zeros((mconf.id_vocab_size, mconf.frame_block_size))
+                                xid = x['id'].cpu().flatten().tolist()
+                                yid = y['id'].cpu().flatten().tolist()
+                                score[ix] = att
+                                # score[t_seq:] == 0
+                        else:
+                                score = att
+                        
+                        if attention_scores is None:
+                                attention_scores = score[None, ...]
+                        else:
+                                attention_scores = np.vstack((attention_scores, score[None, ...]))
+
+                        # att_dict[int(y['id'][:, n])] = step
+                        # atts[tuple(x['interval'].cpu().numpy().flatten())] = att_dict
+                return attention_scores
+                        # take attentions from last step
+        @torch.no_grad()
+        def att_models(model, module, loader, n_blocks, block_size, pad_key=None):
+                device = torch.cuda.current_device() if torch.cuda.is_available() else 'cpu'
+                device = 'cpu'
+                model.to(device)
+                model = model.eval()
+                mconf = model.config
+                T = block_size
+                attention_scores = np.zeros(mconf.id_vocab_size)
+                pbar = tqdm(enumerate(loader), total=len(loader))
+                for it, (x, y) in pbar:
+                        pad = x[pad_key] if pad_key is not None else 0
+                        # place data on the correct device
+                        for key, value in x.items():
+                                x[key] = x[key].to(device)
+                        for key, value in y.items():
+                                y[key] = y[key].to(device)
+                        # forward model to calculate attentions
+                        _, _, _ = model(x)
+                        # scores = np.array(np.zeros(len(neurons)))
+                        att = np.zeros(len(mconf.id_vocab_size))
+                        score = AttentionVis.get_attention(module, n_blocks, T, pad)
+                        score = np.sum(score, axis=0)   # sum over all heads 
+                        score = np.sum(score, axis=0)   # sum over all steps
+                        # take attentions from last step
+                        # if score.size >= 1: score = score[-1]
+                        # scores.append(score)
+                        real_ids = x['id'][..., :T - pad].flatten()
+                        for idx, code in enumerate(real_ids):
+                                """ 
+                                for each code in scores,
+                                add its score to the array
+                                """
+                                code = int(code.item())
+                                att[code] += score[idx]
+                        attention_scores = np.vstack((attention_scores, att))
+                return attention_scores.sum(axis=0)
+
+        def heatmap2d(self, arr: np.ndarray, ax=None, alpha=0.5, clim=None, blur=0):
+                ncolors = 256
+                color_array = plt.get_cmap('jet')(range(ncolors))
+
+                # change alpha values
+                n = 20
+                color_array[:,-1] = [0.0] * n +  np.linspace(0.0,1.0,(ncolors - n)).tolist()
+
+                # create a colormap object
+                map_object = LinearSegmentedColormap.from_list(name='rainbow_alpha',colors=color_array)
+
+                # register this new colormap with matplotlib
+                plt.register_cmap(cmap=map_object)
+                if blur > 0:
+                        arr = gaussian_filter(arr, blur)
+                if ax:
+                        h = ax.imshow(arr, cmap='rainbow_alpha', alpha=alpha)
+                else:
+                        h = plt.imshow(arr, cmap='rainbow_alpha', alpha=alpha)
+
+                # plt.colorbar()
+                # plt.colorbar(mappable=h)
+                if clim is not None:
+                        h.set_clim(clim)
+                                              
+        @torch.no_grad()
+        def plot_stim_attention_step(self, dataset, n_embd, video_stack, attention_scores, ix_step=None):
+                '''
+                In: (S, ID, Frame)
+                Out: Attention heatmaps of neurons (y) - frames (x): (S, ID, Frame)
+                '''
+
+                # ix_step = [1, 2, 3, 4]
+                if ix_step is None:
+                        ix_step = np.random.choice(len(attention_scores), 1)
+
+                dataset = dataset
+                interval_trials = dataset.t
+
+
+                H, W = video_stack.shape[-2], video_stack.shape[-1]
+                xy_res = int(n_embd ** (1/2))
+                print(xy_res)
+
+                # # step, layer, head, row = sorted_att_std # layer, head, 
+                # step = ix_step   # 5, 3   # layer, head
+
+                interval_trials = dataset.t
+                x_id = dataset[ix_step][0]['id'].flatten().tolist()
+                x_pad = int(dataset[ix_step][0]['pad'].flatten())
+                neuron_idx = x_id[: len(x_id) - x_pad]
+
+                ncol = 10
+                nrow = len(neuron_idx)
+                fig, ax = plt.subplots(figsize=(60, 4 * nrow), nrows=nrow, ncols=ncol)
+
+
+                # attention_scores[ix_step] /= attention_scores[ix_step].max()
+                # att_max, att_min = attention_scores[ix_step].max(), attention_scores[ix_step].min()
+                print(neuron_idx)
+                print(video_stack.shape)
+                att_step = attention_scores[ix_step]
+                att_step = softmax(att_step, axis=0)   # softmax over IDs
+                print(att_step.shape)
+                att_mean, att_std = att_step.mean(), att_step.std()
+                att_min, att_max = att_step.max(), att_step.min()
+                # attention_scores[ix_step] = attention_scores[ix_step] - att_mean / att_std
+                for n, idx in enumerate(neuron_idx):
+                        top_n = n
+                        att = att_step[n]
+                        att_min, att_max = att.min(), att.max()
+                        att_mean, att_std = att.mean(), att.std()
+                        att = (att - att_mean) / att.std()
+                        # att = softmax(att, axis=-1)
+                        # att = att / att.max()
+                        att_im = att.reshape(1, 20, H // xy_res, W // xy_res)
+                        att_im = (att_im - att_mean) / att_std
+                        att_im = att_im[-1, :, :, :]
+                        
+                        t = interval_trials.iloc[ix_step]
+                        t_trial = t['Trial'].item()
+                        if video_stack.shape[0] == 1:
+                            n_stim = 0
+                        elif video_stack.shape[0] <= 4:
+                                if t['Trial'] <= 20: n_stim = 0
+                                elif t['Trial'] <= 40: n_stim = 1
+                                elif t['Trial'] <= 60: n_stim = 2
+                        elif video_stack.shape[0] <= 8:
+                                n_stim = int(t['Trial'] // 200) - 1
+
+                        # print(n_stim, math.ceil(t['Interval'] * 20))
+                        frame_idx = get_frame_idx(t['Interval'], 1/20)
+                        frame_idx = frame_idx if frame_idx >= 20 else 20
+                        frame_idx = frame_idx if frame_idx < video_stack.shape[1] else video_stack.shape[1]
+                        im_interval = video_stack[n_stim, frame_idx - 20: frame_idx]
+
+                        # att_grid =  softmax(att_top_std_im)
+                        att_grid = np.repeat(att_im, xy_res, axis=-2)
+                        att_grid = np.repeat(att_grid, xy_res, axis=-1)
+
+                        
+                        tdx_range = range(10, att_grid.shape[0])
+                        for tdx in tdx_range:
+                                axis = ax[n][tdx - 10]
+                                # print(att_grid[tdx, :, :].shape)
+                                axis.imshow(im_interval[tdx, 0], cmap='gray')
+                                # clim = (att_trials_id[ix_step].min(), att_trials_id[ix_step].max())
+                                std_n = 3
+                                self.heatmap2d(att_grid[tdx, :, :], ax=axis, alpha=0.85)        # , clim=(att_mean + att_std * std_n, att_mean + att_std * std_n))
+                                # axis.axis('off')
+                                axis.set_title(str(tdx))
+                                axis.set_xticks([])
+                                axis.set_yticks([])
+                                if tdx == min(tdx_range):
+                                        axis.set_ylabel(f"ID {idx}", fontsize=40)
+                                # fig.suptitle(f'Neuron {idx}', y=0.8)
+                
+                # fig.supylabel('Neurons', fontsize=nrow * 6)
+                # fig.supxlabel('Frames (N)', fontsize=nrow * 6)
+                fig.suptitle(f"Interval {int(t['Interval'])} Trial {int(t['Trial'])}", fontsize=40)
+                plt.tight_layout()
+                # plt.savefig(f"SimNeu3D_Combo4, Interval {int(t['Interval'])} Trial {int(t['Trial'])}.png")
+        
+        @torch.no_grad()
+        def predict_iteratively(self, model, mconf, x, stoi, temp, top_p, top_k, sample=True, device='cpu'):
+                t = x['id'].shape[-1]
+                pad = x['pad'] if 'pad' in x else 0
+                x['id_full'] = x['id'][:, 0]
+                x['id'] = x['id'][:, 0]
+                x['dt_full'] = x['dt'][:, 0]
+                x['dt'] = x['dt'][:, 0]
+                T_id = mconf.id_block_size
+                current_id_stoi = torch.empty(0, device=device)
+                current_dt_stoi = torch.empty(0, device=device)
+                att_total = None
+                for i in range(T_id):
+                        t_pad = torch.tensor([stoi['PAD']] * (T_id - x['id_full'].shape[-1]), device=device)
+                        t_pad_dt = torch.tensor([0] * (T_id - x['dt_full'].shape[-1]), device=device)
+                        x['id'] = torch.cat((x['id_full'], t_pad)).unsqueeze(0).long()
+                        x['dt'] = torch.cat((x['dt_full'], t_pad_dt)).unsqueeze(0).long()
+
+                        logits, features, _ = model(x)
+                        logits['id'] = logits['id'][:, i] / temp
+                        logits['dt'] = logits['dt'][:, i] / temp
+
+
+                        att_step = AttentionVis.get_attention(model.neural_visual_transformer.neural_state_stimulus, mconf.n_stimulus_layers, mconf.id_block_size)
+                        att_step = att_step[:, :, i]
+                        att_total = att_step[None, ...] if att_total is None else np.concatenate((att_total, att_step[None, ...]))
+                        # optionally crop probabilities to only the top k / p options
+                        if top_k or top_p != 0:
+                                logits['id'] = top_k_top_p_filtering(logits['id'], top_k=top_k, top_p=top_p)
+                                logits['dt'] = top_k_top_p_filtering(logits['dt'], top_k=top_k, top_p=top_p)
+
+                        # apply softmax to logits
+                        probs = F.softmax(logits['id'], dim=-1)
+                        probs_dt = F.softmax(logits['dt'], dim=-1)
+                        if sample:
+                                ix = torch.multinomial(probs, num_samples=1)
+                                ix_dt = torch.multinomial(probs_dt, num_samples=1)
+                                # ix = torch.poisson(torch.exp(logits), num_samples=1)
+                        else:
+                                # choose highest topk (1) sample
+                                _, ix = torch.topk(probs, k=1, dim=-1)
+                                _, ix_dt = torch.topk(probs_dt, k=1, dim=-1)
+                        
+                        # if ix > stoi['PAD']:
+                        #     ix = torch.tensor([513])
+                        
+                        # convert ix_dt to dt and add to current time
+                        current_id_stoi = torch.cat((current_id_stoi, ix.flatten()))
+                        current_dt_stoi = torch.cat((current_dt_stoi, ix_dt.flatten()))
+                        
+                        # append true and predicted in lists
+                        # get last unpadded token
+                        x['id_full'] = torch.cat((x['id_full'], ix.flatten()))
+                        x['dt_full'] = torch.cat((x['dt_full'], ix_dt.flatten()))
+
+                        if ix == stoi['EOS']: # and dtx == 0.5:    # dtx >= window:   # ix == stoi['EOS']:
+                        # if len(current_id_stoi) == T_id - x['pad']:
+                                # if ix != stoi['EOS']:
+                                #     torch.cat((current_id_stoi, torch.tensor([stoi['EOS']])))
+                                # if dtx <= window:
+                                #     torch.cat((current_dt_stoi, torch.tensor([max(list(itos_dt.keys()))])))
+                                id_prev_stoi = current_id_stoi
+                                dt_prev_stoi = current_dt_stoi
+                                break
+                return x['id_full'].flatten().tolist(), att_total.transpose(1, 2, 0, 3)
+        
+        @torch.no_grad()
+        def plot_stim_attention_step_realtime(self, model, mconf, dataset, n_embd, video_stack, ix_step=None, rollout=False):
+                '''
+                In: (S, ID, Frame)
+                Out: Attention heatmaps of neurons (y) - frames (x): (S, ID, Frame)
+                '''
+
+                # ix_step = [1, 2, 3, 4]
+                if ix_step is None:
+                        ix_step = np.random.choice(len(dataset), 1)
+
+                dataset = dataset
+                interval_trials = dataset.t
+
+
+                H, W = video_stack.shape[-2], video_stack.shape[-1]
+                xy_res = int(n_embd ** (1/2))
+
+                # # step, layer, head, row = sorted_att_std # layer, head, 
+                # step = ix_step   # 5, 3   # layer, head
+
+                interval_trials = dataset.t
+                data_step = dataset[ix_step]
+                for key in data_step[0].keys():
+                        data_step[0][key] = data_step[0][key].unsqueeze(0)
+                x = data_step[0]
+                x_id = dataset[ix_step][0]['id'].flatten().tolist()
+                x_pad = int(dataset[ix_step][0]['pad'].flatten())
+                neuron_idx = x_id[: len(x_id) - x_pad]
+                
+                # model.eval()
+                # with torch.no_grad():
+                #         preds, features, loss, = model(x)
+                # preds_id = F.softmax(preds['id'] / 0.95, dim=-1).squeeze(0)
+                # ix = torch.multinomial(preds_id, num_samples=1).flatten().tolist()
+
+                ix, att_step = self.predict_iteratively(model, mconf, x, dataset.stoi, top_k=0, top_p=0.85, temp=0.85, sample=True)
+                print(f"ix: {ix}, att_step: {att_step.shape}")
+                # ix = torch.argmax(preds_id, dim=-1)
+                neuron_idx = []
+                for idx in ix:
+                        if idx >= dataset.stoi['EOS']:
+                                break
+                        neuron_idx.append(idx)
+                
+                no_frames = 6
+                ncol = no_frames
+                nrow = len(neuron_idx) if len(neuron_idx) > 1 else 2
+                nrow = 5
+                fig, ax = plt.subplots(figsize=(ncol * 6, 4 * nrow), nrows=nrow, ncols=ncol)
+
+                # attention_scores[ix_step] /= attention_scores[ix_step].max()
+                # att_max, att_min = attention_scores[ix_step].max(), attention_scores[ix_step].min()
+                # att_step = AttentionVis.get_attention(model.neural_visual_transformer.neural_state_stimulus, mconf.n_stimulus_layers, mconf.id_block_size)
+                att_step = att_step.sum(axis=0).mean(axis=0) if rollout is False else self.rollout_attentions(att_step)
+                # att_step = softmax(att_step, axis=0)   # softmax over IDs
+                att_mean, att_std = att_step.mean(), att_step.std()
+                att_min, att_max = att_step.max(), att_step.min()
+                # attention_scores[ix_step] = attention_scores[ix_step] - att_mean / att_std
+                for n, idx in enumerate(neuron_idx):
+                        if n > 4: break
+                        top_n = n
+                        att = att_step[n]
+                        att_min, att_max = att.min(), att.max()
+                        att_mean, att_std = att.mean(), att.std()
+                        # att = (att - att_mean) / att.std()
+                        # att = softmax(att, axis=-1)
+                        # att = att / att.max()
+                        att_im = att.reshape(1, 20, H // xy_res, W // xy_res)
+                        # att_im = (att_im - att_mean) / att_std
+                        att_im = att_im[-1, :, :, :]
+                        
+                        t = interval_trials.iloc[ix_step]
+                        t_trial = t['Trial'].item()
+                        if video_stack.shape[0] == 1:
+                            n_stim = 0
+                        elif video_stack.shape[0] <= 4:
+                                if t['Trial'] <= 20: n_stim = 0
+                                elif t['Trial'] <= 40: n_stim = 1
+                                elif t['Trial'] <= 60: n_stim = 2
+                        elif video_stack.shape[0] <= 8:
+                                n_stim = int(t['Trial'] // 200) - 1
+
+                        # print(n_stim, math.ceil(t['Interval'] * 20))
+                        frame_idx = get_frame_idx(t['Interval'], 1/20)
+                        frame_idx = frame_idx if frame_idx >= 20 else 20
+                        frame_idx = frame_idx if frame_idx < video_stack.shape[1] else video_stack.shape[1]
+                        im_interval = video_stack[n_stim, frame_idx - 20: frame_idx]
+
+                        # att_grid =  softmax(att_top_std_im)
+                        att_grid = np.repeat(att_im, xy_res, axis=-2)
+                        att_grid = np.repeat(att_grid, xy_res, axis=-1)
+
+                        
+                        tdx_range = range(10, 10 + no_frames)
+                        for tdx in tdx_range:
+                                axis = ax[n][tdx - 10]
+                                # print(att_grid[tdx, :, :].shape)
+                                axis.imshow(im_interval[tdx, 0], cmap='gray')
+                                # clim = (att_trials_id[ix_step].min(), att_trials_id[ix_step].max())
+                                std_n = 3
+                                self.heatmap2d(att_grid[tdx, :, :], ax=axis, alpha=0.7, blur=2)
+                                # axis.axis('off')
+                                axis.set_title(str(tdx))
+                                axis.set_xticks([])
+                                axis.set_yticks([])
+                                if tdx == min(tdx_range):
+                                        axis.set_ylabel(f"ID {idx}", fontsize=40)
+                                # fig.suptitle(f'Neuron {idx}', y=0.8)
+                
+                # fig.supylabel('Neurons', fontsize=nrow * 6)
+                # fig.supxlabel('Frames (N)', fontsize=nrow * 6)
+                fig.suptitle(f"Interval {int(t['Interval'])} Trial {int(t['Trial'])}", fontsize=40)
+                plt.tight_layout()
+                # plt.savefig(f"SimNeu3D_Combo4, Interval {int(t['Interval'])} Trial {int(t['Trial'])}.png")
+        
+        
+        @torch.no_grad()
+        def plot_stim_attention_time_agg(self, dataset, mconf, video_stack, attention_scores, ix_step=None):
+                '''
+                In: (I, ID, Time, Frame)
+                Out: Attention heatmaps of neurons (y) - frames (x)
+                '''
+
+                # ix_step = [1, 2, 3, 4]
+                if ix_step is None:
+                        ix_step = np.random.choice(len(attention_scores), 1)
+
+                dataset = dataset
+                interval_trials = dataset.t
+
+
+                H, W = video_stack.shape[-2], video_stack.shape[-1]
+                xy_res = int(mconf.n_embd ** (1/2))
+
+                # step, layer, head, row = sorted_att_std # layer, head, 
+                step = ix_step   # 5, 3   # layer, head
+
+                interval_trials = dataset.t
+                x_id = dataset[int(ix_step)][0]['id'].flatten().tolist()
+                x_pad = int(dataset[int(ix_step)][0]['pad'].flatten())
+                neuron_idx = x_id[: len(x_id) - x_pad]
+
+                ncol = 10
+                nrow = len(neuron_idx)
+                fig, ax = plt.subplots(figsize=(60, 4 * nrow), nrows=nrow, ncols=ncol)
+
+
+                print(neuron_idx)
+                for n, idx in enumerate(neuron_idx):
+                        top_n = n
+                        att_idx = ix_step, n  # att_idx_1[0], att_idx_1[1], att_idx_1[2], ix
+                        att = attention_scores[att_idx]
+                        att = att / att.max()
+                        att_im = att.reshape(1, 20, H // xy_res, W // xy_res)
+                        att_im = att_im[-1, :, :, :]
+                        
+                        t = interval_trials.iloc[att_idx[0]]
+                        if video_stack.shape[0] == 1:
+                            n_stim = 0
+                        elif video_stack.shape[0] <= 4:
+                                if t['Trial'] <= 20: n_stim = 0
+                                elif t['Trial'] <= 40: n_stim = 1
+                                elif t['Trial'] <= 60: n_stim = 2
+                        elif video_stack.shape[0] <= 8:
+                                n_stim = int(t['Trial'] // 200) - 1
+
+                        # print(n_stim, math.ceil(t['Interval'] * 20))
+                        t_interval = math.ceil(t['Interval'] * 20)
+                        im_interval = video_stack[n_stim, t_interval - 20: t_interval]
+
+                        # att_grid =  softmax(att_top_std_im)
+                        att_grid = np.repeat(att_im, (H // xy_res), axis=-2)
+                        att_grid = np.repeat(att_grid, (H // xy_res), axis=-1)
+
+                        for tdx in range(10, att_grid.shape[0]):
+                                axis = ax[n][tdx - 10]
+                                # print(att_grid[tdx, :, :].shape)
+                                axis.imshow(im_interval[tdx, 0], cmap='gray')
+                                # clim = (att_trials_id[ix_step].min(), att_trials_id[ix_step].max())
+                                self.heatmap2d(att_grid[tdx, :, :], ax=axis, alpha=0.6, clim=None)
+                                axis.axis('off')
+                                axis.set_title(str(tdx))
+                                axis.set_ylabel(f"Neuron {idx}")
+                                # fig.suptitle(f'Neuron {idx}', y=0.8)
+
+                fig.suptitle(f"Interval {int(t['Interval'])} Trial {int(t['Trial'])}", fontsize=30, y=0.9)
+                # plt.savefig(f"SimNeu3D_Combo4, Interval {int(t['Interval'])} Trial {int(t['Trial'])}.png")
+
+        
+        def plot_stim_att_layer_head(self, dataset, mconf, video_stack, attention_scores, n_embd, ix_step=None):
+                """
+                In: (I, Layer, Head, ID, Frame)
+                Out: Attention heatmaps for neurons
+                """
+
+                H, W = video_stack.shape[-2], video_stack.shape[-1]
+                xy_res = int(n_embd ** (1/2))
+
+                # # ix_step = [1, 2, 3, 4]
+                if ix_step is None:
+                        ix_step = np.random.choice(len(attention_scores), 1)
+
+                ncol = mconf.n_head
+                nrow = mconf.n_stimulus_layers
+
+                interval_trials = dataset.t
+
+                # sorted_att_std = np.unravel_index(np.argsort(-att_trials_id_std.ravel()), att_trials_id_std.shape)
+                # step, layer, head, row = sorted_att_std # layer, head, 
+                # step = ix_step   # 5, 3   # layer, head
+
+                xid = dataset[ix_step][0]['id'].flatten().tolist()
+                x_pad = int(dataset[ix_step][0]['pad'].flatten())
+                neuron_idx = xid[: len(xid) - x_pad]
+
+                fig, ax = plt.subplots(figsize=(60, 4 * nrow), nrows=nrow, ncols=ncol)
+
+
+                for n, idx in enumerate([ix_step]):
+                        print(idx)
+                        xid_n = np.random.choice(range(len(neuron_idx)), 1)
+                        att_n = attention_scores[int(idx), :, :, int(xid_n)]
+                        for layer in range(att_n.shape[0]):
+                                for head in range(att_n.shape[1]):
+                                        att_l_h = att_n[layer, head]
+                                        att_l_h = att_l_h / att_l_h.max()
+                                        att_im = att_l_h.reshape(1, 20, H // xy_res, W // xy_res)
+                                        att_im = att_im[-1, :, :, :]
+                                        
+                                        t = interval_trials.iloc[ix_step]
+                                        if video_stack.shape[0] == 1:
+                                                n_stim = 0
+                                        elif video_stack.shape[0] <= 4:
+                                                if t['Trial'] <= 20: n_stim = 0
+                                                elif t['Trial'] <= 40: n_stim = 1
+                                                elif t['Trial'] <= 60: n_stim = 2
+                                        elif video_stack.shape[0] <= 8:
+                                                n_stim = int(t['Trial'] // 200) - 1
+
+                                        t_interval = math.ceil(t['Interval'] * 20)
+                                        im_interval = video_stack[n_stim, t_interval - 20: t_interval]
+
+                                        # att_grid =  softmax(att_top_std_im)
+                                        att_grid = np.repeat(att_im, xy_res, axis=-2)
+                                        att_grid = np.repeat(att_grid, xy_res, axis=-1)
+
+                                        axis = ax if nrow and ncol == 1 else ax[layer][head]
+                                        # plt.subplot(nrow, ncol, n + layer + head + 1)
+                                        axis.imshow(im_interval[10, 0], cmap='gray')
+                                        self.heatmap2d(att_grid[10, :, :], ax=axis, alpha=0.6, blur=0, clim=None)
+                                        axis.axis('off')
+                                        axis.set_title(f'Layer {layer}, Head {head}', fontsize=15)
+                plt.suptitle(f'Interval {t_interval}, Neuron {neuron_idx[int(xid_n)]}', y=0.97, fontsize=30)
+                # plt.savefig(f"SimNeu_att_layer_head_{neuron_idx[int(xid_n)]}_interval_{t_interval}.png")
+        
+        
+        def export_att_frames(self, model, module, mconf, loader, video_stack, xy_res, path):
+                """
+                Input: 
+                Attentions Scores of shape (S, L, H, ID, F)
+                (where S = Steps, L = Layers, H = Heads, ID = Neurons, F = Frames)
+                Video Stack of shape (T_idx, 1, H, W)
+                (where T_idx = Frame Idx, 1 = Channels, H = Height, W = Width)
+
+                Ouput:
+                Attention heatmaps overlayed on stimulus
+                """
+                n_blocks = mconf.n_stimulus_layers
+                T = mconf.id_block_size
+
+                H, W = video_stack.shape[-2], video_stack.shape[-1]
+                counter = 0
+                for it, (x, y) in enumerate(loader):
+                        # forward model to calculate attentions
+                        _, _, _ = model(x)
+                        # scores = np.array(np.zeros(len(neurons)))
+                        score = AttentionVis.get_attention(module, n_blocks, T)
+                        # att = self.rollout_attentions(score).sum(axis=0)
+                        att = score.mean(axis=0).sum(axis=0).sum(axis=0)
+                        # att = softmax(att, axis=-1)
+                        att = att.reshape(20, H // xy_res, W // xy_res)
+                        att_grid = np.repeat(att, (H // xy_res), axis=-2)
+                        att_grid = np.repeat(att_grid, (H // xy_res), axis=-1)
+                        att_grid = softmax(att_grid, axis=-1)
+                        t_trial = x['trial'].item()
+                        t_interval = math.ceil(x['interval'] * 20)
+                        video_interval = x['frames'][0][0, 5:15]
+                        if len(video_interval) < 10:
+                                continue
+                        for frame in range(len(att_grid[8:11])):
+                                plt.imshow(video_interval[frame], cmap='gray')
+                                self.heatmap2d(att_grid[frame], alpha=0.7, blur=2.5)
+                                plt.savefig(f"{path}/natstim{str(counter).zfill(5)}.png")
+                                plt.close()
+                                counter += 1
+                        
