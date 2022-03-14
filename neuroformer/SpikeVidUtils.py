@@ -521,7 +521,7 @@ class SpikeTimeVidData2(Dataset):
                     elif t['Trial'] <= 40: n_stim = 1
                     elif t['Trial'] <= 60: n_stim = 2
                 elif self.frame_feats.shape[0] <= 8:
-                    if self.t['trial'].max() <= 8:
+                    if self.t['Trial'].max() <= 8:
                         n_stim = int(t['Trial'])
                     else:
                         n_stim = int(t['Trial'] // 200) - 1

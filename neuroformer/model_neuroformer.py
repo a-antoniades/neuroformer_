@@ -172,7 +172,6 @@ class VideoEncoder(nn.Module):
         )
 
         self.proj_emb = nn.Linear(config.n_embd_frames, config.n_embd)
-        # convert_weights(self.proj_emb)
     def forward(self, x):
         if self.conv_layer:
             # x: (B, C, T, H, W)
@@ -184,7 +183,6 @@ class VideoEncoder(nn.Module):
             x = x.view(B, C, T, H, W)
         x = self.to_patch_embedding(x)
         return self.proj_emb(x)
-
 
 class MultiheadfAttention(nn.Module):
     """
@@ -669,7 +667,7 @@ class MultimodalTransformer(nn.Module):
         super().__init__()
         self.config = config
         self.neural_state_block = BlockSequential(*[Block(config, sparse_topk=config.sparse_topk_id) for _ in range(config.n_state_layers)])
-        self.neural_state_history_block = BlockSequential(*[Block(config, sparse_topk=config.sparse_topk_id) for _ in range(config.n_state_history_layers)])
+        # self.neural_state_history_block = BlockSequential(*[Block(config, sparse_topk=config.sparse_topk_id) for _ in range(config.n_state_history_layers)])
         # self.neural_state_history_self_attention = BlockSequential(*[Block(config) for _ in range(config.n_state_layers)])
         self.neural_state_stimulus = BlockSequential(*[Block(config, sparse_topk=config.sparse_topk_frame) for _ in range(config.n_stimulus_layers)])
 
@@ -723,9 +721,9 @@ class MultimodalTransformer(nn.Module):
         stimulus = features['frames']
 
         x = neural_state
-        x = self.neural_state_block(x, x, x, mask)
-        x = self.neural_state_history_block(x, neural_history, neural_history)
-        x = self.neural_state_stimulus(x, stimulus, stimulus)
+        x = x + self.neural_state_block(x, x, x, mask)
+        # x = self.neural_state_history_block(x, neural_history, neural_history)
+        x = x + self.neural_state_stimulus(x, stimulus, stimulus)
         return x
 
 
@@ -939,7 +937,8 @@ class GPT(nn.Module):
         loss_id = []
         loss_time = []
         precision = []
-
+        recall = []
+        F1 = []
         if targets is not None:
             # loss_psth = self.dice_loss(psth, targets['modes'][:, tf:])    
             for B, P in enumerate(pad):
@@ -977,18 +976,24 @@ class GPT(nn.Module):
                     pred_id = torch.argmax(id_logits_, dim=-1).flatten().detach().cpu().numpy().tolist()
                     true_id = id_targets.flatten().detach().cpu().numpy().tolist()
                     # pred_dt = torch.argmax(dt_logits_, dim=-1)
-                    common_set = set(true_id) & set(pred_id)
-                    uncommon_set = set(true_id) | set(pred_id)
-                    precision_score = len(common_set) / (len(uncommon_set) + len(common_set))
-                    precision.append(precision_score)
+                    true_positives = set(true_id) & set(pred_id)
+                    false_positives = set(pred_id) - set(true_id)
+                    false_negatives = set(true_id) - set(pred_id)
+                    precision_score = len(true_positives) / (len(true_positives) + len(false_positives))
+                    recall_score = len(true_positives) / (len(true_positives) + len(false_negatives))
+                    if precision_score + recall_score > 0:
+                        f1_score = (2 * precision_score * recall_score) / (precision_score + recall_score)
+                    else:
+                        f1_score = 0
+                    precision.append(precision_score), recall.append(recall_score), F1.append(f1_score)
 
             # loss_id.append(F.cross_entropy(id_logits.view(-1, id_logits.size(-1)), targets['id'].view(-1)))
             # loss_time.append(F.cross_entropy(dt_logits.view(-1, dt_logits.size(-1)), targets['dt'].view(-1)))
 
             loss = dict()
             # loss['frames'] = loss_frames / (b / 3)
-            loss['id'] = (3 / 4) * sum(loss_id) / b  # sum(loss_id) / (b * 2)   # / len(loss_id)
-            loss['time'] = (1 / 4) * sum(loss_time) / b
+            loss['id'] = (4 / 4) * sum(loss_id) / b  # sum(loss_id) / (b * 2)   # / len(loss_id)
+            # loss['time'] = (1 / 4) * sum(loss_time) / b
             # loss['dice'] = sum(loss_dice) / len(loss_dice)
             # loss['dt'] = loss_time / (b * 50)
             # loss['hungarian'] = sum(loss_hungarian) / (b * 2)
@@ -1002,6 +1007,8 @@ class GPT(nn.Module):
         preds['id'] = id_logits    # [:, tf:]    # only id logits
         preds['dt'] = dt_logits
         preds['precision'] = sum(precision) / b
+        preds['recall'] = sum(recall) / b
+        preds['F1'] = sum(F1) / b
         # self.config.step += 1
 
         return preds, features, loss

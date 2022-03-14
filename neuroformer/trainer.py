@@ -18,8 +18,8 @@ from torch.utils.data.dataloader import DataLoader
 
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
-# writer = SummaryWriter("/home/antonis/projects/slab/git/slab/transformer_exp/code/transformer_vid3/runs/tensorboard")
 from datetime import datetime
+now = datetime.now()
 logger = logging.getLogger(__name__)
 
 import collections
@@ -47,6 +47,7 @@ class TrainerConfig:
     # plot gradient flow
     show_grads = False
     shuffle = True
+    score_metrics = ['precision', 'recall', 'F1']
 
 
     def __init__(self, **kwargs):
@@ -66,6 +67,9 @@ class Trainer:
         self.train_losses = []
         self.test_losses = []
 
+        logdir = self.config.ckpt_path[:-3] + "/"
+        self.writer = SummaryWriter(logdir)
+
         # take over whatever gpus are on the system
         self.device = 'cpu'
         if torch.cuda.is_available():
@@ -73,7 +77,7 @@ class Trainer:
             self.model = torch.nn.DataParallel(self.model).to(self.device)
             self.criterion = self.criterion.to(self.device)
 
-    def save_checkpoint(self, epoch):
+    def save_checkpoint(self, epoch, loss):
         # DataParallel wrappers keep raw model object in .module attribute
         raw_model = self.model.module if hasattr(self.model, "module") else self.model
         logger.info("saving %s", self.config.ckpt_path)
@@ -118,8 +122,8 @@ class Trainer:
         model, config, mconf = self.model, self.config, self.mconf
         raw_model = model.module if hasattr(self.model, "module") else model
         optimizer = raw_model.configure_optimizers(config)
-        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', threshold=1e-3, 
-                                                         factor=0.5, patience=3, verbose=True)
+        # scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', threshold=1e-3, min_lr=1e-6, 
+                                                        #  factor=0.3, patience=config.patience, verbose=True)
         def run_epoch(split):
             is_train = split == 'train'
             model.train(is_train)
@@ -128,6 +132,7 @@ class Trainer:
                                 batch_size=config.batch_size,
                                 num_workers=config.num_workers)
 
+            scores = collections.defaultdict(list)
             losses = collections.defaultdict(list)
             pbar = tqdm(enumerate(loader), total=len(loader)) if is_train else enumerate(loader)
             for it, (x, y) in pbar:
@@ -144,16 +149,9 @@ class Trainer:
                     for key, value in loss.items():
                         # print(key)
                         value = value.mean()
+                        loss[key] = value
                         total_loss += value
                         losses[key].append(value.item())
-
-                av_losses = collections.defaultdict(list)
-                for key, value in losses.items():
-                    av_losses[key] = np.array(value).mean()
-                
-                # # tensorboard
-                # for key, value in av_losses.items():
-                #     writer.add_scalar(f"Loss/{split}_{str(key)}", value, epoch)
             
                 if is_train:
 
@@ -174,44 +172,67 @@ class Trainer:
 
                     lr = optimizer.param_groups[0]['lr']
                     # report progress
+                    precision = preds['precision']
                     # pbar.set_description(f"epoch {epoch+1} iter {it}: frame_loss: {loss['frames'].item():.5f} id_loss {loss['id'].item():.5f} dt_loss: {loss['dt'].item():.5f}   total_loss: {total_loss.item():.5f}. lr {lr:e}")
-                    pbar.set_description(f'epoch {epoch+1}  ' + ''.join([f'{str(key)}_{str(split)}: {value:.5f}  ' for key, value in av_losses.items()]) + \
-                                         f'total_loss: {total_loss:.5f}' + f' lr {lr:e}')
+                    pbar.set_description(f'epoch {epoch+1}  ' + ''.join([f'{str(key)}_{str(split)}: {value:.5f}  ' for key, value in loss.items()]) + \
+                                         f'total_loss: {total_loss:.5f}' + f' lr {lr:e}' + ' ' + f'precision: {precision:.5f}')
             
                     #  linear warmup
                     self.tokens += (y['id']>=0).sum() # number of tokens processed this step (i.e label is not -100)
                     if self.tokens < config.warmup_tokens:
                         # linear warmup
                         lr_mult = float(self.tokens) / float(max(1, config.warmup_tokens))
-                    # else:
-                    #     # cosine learning rate decay
-                    #     progress = float(self.tokens - config.warmup_tokens) / float(max(1, config.final_tokens - config.warmup_tokens))
-                    #     lr_mult = max(0.1, 0.5 * (1.0 + math.cos(math.pi * progress)))
-                        lr = config.learning_rate * lr_mult
-                        for param_group in optimizer.param_groups:
-                            param_group['lr'] = lr
+                    else:
+                        if config.lr_decay:
+                            # cosine learning rate decay
+                            progress = float(self.tokens - config.warmup_tokens) / float(max(1, config.final_tokens - config.warmup_tokens))
+                            lr_mult = max(0.1, 0.5 * (1.0 + math.cos(math.pi * progress)))
+                    lr = config.learning_rate * lr_mult
+                    for param_group in optimizer.param_groups:
+                        param_group['lr'] = lr
                 
-                if not is_train:
-                    if config.plot_raster:
-                        loader = DataLoader(data, shuffle=False, pin_memory=False,
-                                            batch_size=1, num_workers=4)
-                        predict_and_plot_time(model.module, loader, mconf)
-                        # true, predicted = predict_raster(model, loader, self.mconf.frame_block_size)
-                    logger.info('  '.join([f'{str(key)}_{str(split)}: {value:.5f}  ' for key, value in av_losses.items()]) + f'total_loss: {total_loss:.5f}')
-                    return total_loss.item()
+                # tensorboard
+                av_losses = collections.defaultdict(list)
+                total_losses = 0
+                for key, value in losses.items():
+                    av_losses[key] = np.array(value).mean()
+                    total_losses += av_losses[key]
+                    self.writer.add_scalar(f"Loss/{split}_{str(key)}", av_losses[key], epoch)
+                self.writer.add_scalar(f"Loss/{split}_total", total_losses, epoch)
+                
+                for score in config.score_metrics:
+                    scores[score].append(preds[score])
+                    self.writer.add_scalar(f"Score/{split}_{str(score)}", preds[score], epoch)
+                
+            if not is_train:
+                if config.plot_raster:
+                    loader = DataLoader(data, shuffle=False, pin_memory=False,
+                                        batch_size=1, num_workers=4)
+                    predict_and_plot_time(model.module, loader, mconf)
+                    # true, predicted = predict_raster(model, loader, self.mconf.frame_block_size)                    
 
-        best_loss = float('inf')
+                for score in config.score_metrics:
+                    scores[score] = np.array(scores[score]).mean()
+                logger.info('  '.join([f'{str(key)}_{str(split)}: {value:.5f}  ' for key, value in av_losses.items()]))
+                logger.info('  '.join([f'{str(key)}_{str(split)}: {value:.5f}  ' for key, value in preds.items() if key in config.score_metrics]))
+            
+                return total_losses.item(), scores
+
+        # best_loss = float('inf')
+        best_precision = 0
         self.tokens = 0 # counter used for learning rate decay
         for epoch in range(config.max_epochs):
-            model.module.config.epoch += 1
+            raw_model.config.epoch += 1
             run_epoch('train')
             if self.test_dataset is not None:
-                test_loss = run_epoch('test')
-                if config.lr_decay:
-                    scheduler.step(test_loss)
+                test_loss, scores = run_epoch('test')
+                # if config.lr_decay:
+                #     scheduler.step(test_loss)
 
             # supports early stopping based on the test loss, or just save always if no test set is provided
-            good_model = self.test_dataset is None or test_loss < best_loss
+            # good_model = self.test_dataset is None or test_loss < best_loss
+            good_model = self.test_dataset is None or scores['F1'] > best_precision
             if good_model:
-                best_loss = test_loss
-                self.save_checkpoint(epoch)
+                # best_loss = test_loss
+                best_precision = scores['F1']
+                self.save_checkpoint(epoch, scores['F1'])

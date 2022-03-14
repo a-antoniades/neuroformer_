@@ -44,32 +44,32 @@ class AttentionVis:
                 plt.show()
         
         
-        # this is for gpt style models
-        @torch.no_grad()
-        def getAttention(x, model, blocks=None):
-                idx = x['id']
-                dtx = x['dt']
-                frames = x['frames']
-                pad = x['pad']
+        # # this is for gpt style models
+        # @torch.no_grad()
+        # def getAttention(x, model, blocks=None):
+        #         idx = x['id']
+        #         dtx = x['dt']
+        #         frames = x['frames']
+        #         pad = x['pad']
                 
-                features, pad = model.process_features(x)
-                x = torch.cat((features['frames'], features['id']), dim=1)
+        #         features, pad = model.process_features(x)
+        #         x = torch.cat((features['frames'], features['id']), dim=1)
 
-                # aggregate attention from n_Blocks
-                atts = None
-                n_blocks = model.config.n_layer
-                blocks = range(n_blocks) if blocks is None else blocks
-                for n in range(n_blocks):
-                        attBlock = model.blocks[n].attn
-                        attBlock(x, pad).detach().to('cpu').numpy()    # forward model
-                        att = attBlock.att.detach().to('cpu')
-                        att = F.softmax(att, dim=-1).numpy()
-                        att = att[:, 1, :, :,].squeeze(0)
-                        atts = att if atts is None else np.add(atts, att)
+        #         # aggregate attention from n_Blocks
+        #         atts = None
+        #         n_blocks = model.config.n_layer
+        #         blocks = range(n_blocks) if blocks is None else blocks
+        #         for n in range(n_blocks):
+        #                 attBlock = model.blocks[n].attn
+        #                 attBlock(x, pad).detach().to('cpu').numpy()    # forward model
+        #                 att = attBlock.att.detach().to('cpu')
+        #                 att = F.softmax(att, dim=-1).numpy()
+        #                 att = att[:, 1, :, :,].squeeze(0)
+        #                 atts = att if atts is None else np.add(atts, att)
                 
-                # # normalize
-                # atts = atts / n_blocks
-                return atts
+        #         # # normalize
+        #         # atts = atts / n_blocks
+        #         return atts
         
         
         # this is for neuroformer model
@@ -81,7 +81,7 @@ class AttentionVis:
                 # TODO: get index of 166, get attentions up until that stage
                 for n in range(n_blocks):
                         att = module[n].attn.att
-                        n_heads = att.size()[1]
+                        # n_heads = att.size()[1]
                         if pad != 0:
                                 att = att[:, :, T - pad, :,]
                         att = att.detach().squeeze(0).to('cpu').numpy()
