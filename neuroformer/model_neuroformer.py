@@ -724,7 +724,7 @@ class MultimodalTransformer(nn.Module):
         x = x + self.neural_state_block(x, x, x, mask)
         # x = self.neural_state_history_block(x, neural_history, neural_history)
         x = x + self.neural_state_stimulus(x, stimulus, stimulus)
-        return x
+        return self.ln_f(x)
 
 
 
