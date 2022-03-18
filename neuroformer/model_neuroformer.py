@@ -563,11 +563,11 @@ class TruncatedLoss(nn.Module):
         self.k = k
         self.weight = torch.nn.Parameter(data=torch.ones(trainset_size, 1), requires_grad=False)
              
-    def forward(self, logits, targets, indexes):
+    def forward(self, logits, targets, indexes=None):
         p = F.softmax(logits, dim=-1)
         Yg = torch.gather(p, 2, targets.unsqueeze(2))
 
-        loss = ((1-(Yg**self.q))/self.q)*self.weight[indexes] - ((1-(self.k**self.q))/self.q)*self.weight[indexes]
+        loss = ((1-(Yg**self.q))/self.q) - ((1-(self.k**self.q))/self.q)
         loss = torch.mean(loss)
 
         return loss
@@ -667,7 +667,7 @@ class MultimodalTransformer(nn.Module):
         super().__init__()
         self.config = config
         self.neural_state_block = BlockSequential(*[Block(config, sparse_topk=config.sparse_topk_id) for _ in range(config.n_state_layers)])
-        # self.neural_state_history_block = BlockSequential(*[Block(config, sparse_topk=config.sparse_topk_id) for _ in range(config.n_state_history_layers)])
+        self.neural_state_history_block = BlockSequential(*[Block(config, sparse_topk=config.sparse_topk_id) for _ in range(config.n_state_history_layers)])
         # self.neural_state_history_self_attention = BlockSequential(*[Block(config) for _ in range(config.n_state_layers)])
         self.neural_state_stimulus = BlockSequential(*[Block(config, sparse_topk=config.sparse_topk_frame) for _ in range(config.n_stimulus_layers)])
 
@@ -721,9 +721,12 @@ class MultimodalTransformer(nn.Module):
         stimulus = features['frames']
 
         x = neural_state
-        x = x + self.neural_state_block(x, x, x, mask)
-        # x = self.neural_state_history_block(x, neural_history, neural_history)
-        x = x + self.neural_state_stimulus(x, stimulus, stimulus)
+        if self.config.n_state_layers > 0:
+            x = self.neural_state_block(x, x, x, mask=mask)
+        if self.config.n_state_history_layers > 0:
+            x = x + self.neural_state_history_block(x, neural_history, neural_history)
+        if self.config.n_stimulus_layers > 0:
+            x = x + self.neural_state_stimulus(x, stimulus, stimulus)
         return self.ln_f(x)
 
 
@@ -780,6 +783,9 @@ class GPT(nn.Module):
                 self.register_buffer(f"class_weights_{key}", config.class_weights[key])  
         
         logger.info("number of parameters: %e", sum(p.numel() for p in self.parameters()))
+
+        # Loss functions
+        # self.truncated_loss = TruncatedLoss()
 
         # CONCEPT TRANSFORMER
         # self.register_buffer("neuron_population", torch.tensor([i for i in range(config.id_vocab_size)], dtype=torch.long).unsquueze(0))
@@ -952,10 +958,11 @@ class GPT(nn.Module):
                 loss_id_ = F.cross_entropy(id_logits_.view(-1, id_logits_.size(-1)), id_targets.view(-1))
                 # if self.config.epoch >= 15:
                     # self.truncated_loss.update_weight(id_logits[None, ...], id_targets[None, ...], id_indexes[None, ...])
-                # loss_id_ = self.truncated_loss(id_logits[None, ...], id_targets[None, ...], id_indexes[None, ...])
+                # loss_id_ = self.truncated_loss(id_logits_[None, ...], id_targets[None, ...])
                 dt_logits_ = dt_logits[B, :t - P]
                 time_targets = targets['dt'][B, :t - P]
                 loss_time_ = F.cross_entropy(dt_logits_.view(-1, dt_logits_.size(-1)), time_targets.view(-1))
+                # loss_time_ = self.truncated_loss(dt_logits_[None, ...], time_targets[None, ...])
                 # loss_time_ = F.mse_loss(time_preds.squeeze(-1), time_targets)
                 # loss_id_ = self.poisson_loss(id_logits.view(-1, id_logits.size(-1)), F.one_hot(id_targets, self.config.vocab_size))
                 # if len(id_targets) > 0:
@@ -973,7 +980,8 @@ class GPT(nn.Module):
                 loss_id.append(torch.nan_to_num(loss_id_))
 
                 if len(id_targets) > 0:
-                    pred_id = torch.argmax(id_logits_, dim=-1).flatten().detach().cpu().numpy().tolist()
+                    # pred_id = torch.argmax(id_logits_, dim=-1).flatten().detach().cpu().numpy().tolist()
+                    pred_id = torch.multinomial(F.softmax(id_logits_, dim=-1), 1).flatten().detach().cpu().numpy().tolist()
                     true_id = id_targets.flatten().detach().cpu().numpy().tolist()
                     # pred_dt = torch.argmax(dt_logits_, dim=-1)
                     true_positives = set(true_id) & set(pred_id)
@@ -992,8 +1000,8 @@ class GPT(nn.Module):
 
             loss = dict()
             # loss['frames'] = loss_frames / (b / 3)
-            loss['id'] = (4 / 4) * sum(loss_id) / b  # sum(loss_id) / (b * 2)   # / len(loss_id)
-            # loss['time'] = (1 / 4) * sum(loss_time) / b
+            loss['id'] = (2 / 4) * sum(loss_id) / b  # sum(loss_id) / (b * 2)   # / len(loss_id)
+            loss['time'] = (2 / 4) * sum(loss_time) / b
             # loss['dice'] = sum(loss_dice) / len(loss_dice)
             # loss['dt'] = loss_time / (b * 50)
             # loss['hungarian'] = sum(loss_hungarian) / (b * 2)

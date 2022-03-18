@@ -1,3 +1,4 @@
+import logging
 import random
 import numpy as np
 import pandas as pd
@@ -7,6 +8,7 @@ import torch.nn as nn
 from torch.nn import functional as F
 from tqdm import tqdm
 from beam_search import beam_decode
+logger = logging.getLogger(__name__)
 
 
 def set_seed(seed):
@@ -155,7 +157,6 @@ def process_predictions(results, stoi, window):
     df_pred = pd.DataFrame(predicted_dict)
     df_pred['Time'] = df_pred['dt'] + df_pred['Interval'] - 0.5
     df_pred = df_pred[(df_pred['ID'] < stoi['SOS']) & (df_pred['dt'] <= window) & (df_pred['Time'] >= 0)]
-
     true_keys = ['true', 'time']
     true_dict = {k: results[k] for k in results if k in true_keys}
     df_true = pd.DataFrame(true_dict)
@@ -291,7 +292,7 @@ def predict_raster_recursive(model, loader, stoi, get_dt=False, sample=False, to
             preds, features, _ = model(x)
             logits = preds['logits'][:, tf + i]
             # optionally crop probabilities to only the top k options
-            if top_k or top_p is not 0:
+            if top_k or top_p != 0:
                 logits = top_k_top_p_filtering(logits, top_k=top_k, top_p=top_p)
             # apply softmax to logits
             probs = F.softmax(logits, dim=-1)
@@ -504,11 +505,12 @@ def predict_raster_recursive_time_auto(model, loader, window, stoi, itos_dt, get
                 id_prev_stoi = current_id_stoi
                 dt_prev_stoi = current_dt_stoi
                 break
-
+            
         dty = torch.tensor([itos_dt[int(dt)] for dt in y['dt'][:, :T_id - pad].flatten()], device=device)
         # dty = torch.tensor(itos_dt[y['dt'][:, i].item()]).unsqueeze(0)
         data['time'] = torch.cat((data['time'], dty))   
         data['true'] = torch.cat((data['true'], y['id'][:, :T_id - pad].flatten()))
+        pbar.set_description(f"len pred: {len(data['ID'])}, len true: {len(data['true'])}")
 
     for key, value in data.items():
         data[key] = data[key].to("cpu")

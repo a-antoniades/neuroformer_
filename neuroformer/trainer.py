@@ -191,18 +191,18 @@ class Trainer:
                     for param_group in optimizer.param_groups:
                         param_group['lr'] = lr
                 
-                # tensorboard
-                av_losses = collections.defaultdict(list)
-                total_losses = 0
-                for key, value in losses.items():
-                    av_losses[key] = np.array(value).mean()
-                    total_losses += av_losses[key]
-                    self.writer.add_scalar(f"Loss/{split}_{str(key)}", av_losses[key], epoch)
-                self.writer.add_scalar(f"Loss/{split}_total", total_losses, epoch)
+            # tensorboard
+            av_losses = collections.defaultdict(list)
+            total_losses = 0
+            for key, value in losses.items():
+                av_losses[key] = np.array(value).mean()
+                total_losses += av_losses[key]
+                self.writer.add_scalar(f"Loss/{split}_{str(key)}", av_losses[key], epoch)
+            self.writer.add_scalar(f"Loss/{split}_total", total_losses, epoch)
                 
-                for score in config.score_metrics:
-                    scores[score].append(preds[score])
-                    self.writer.add_scalar(f"Score/{split}_{str(score)}", preds[score], epoch)
+            for score in config.score_metrics:
+                scores[score].append(preds[score])
+                self.writer.add_scalar(f"Score/{split}_{str(score)}", preds[score], epoch)
                 
             if not is_train:
                 if config.plot_raster:
@@ -213,8 +213,9 @@ class Trainer:
 
                 for score in config.score_metrics:
                     scores[score] = np.array(scores[score]).mean()
+                scores['F1'] = 2 * scores['precision'] * scores['recall'] / (scores['precision'] + scores['recall'])
                 logger.info('  '.join([f'{str(key)}_{str(split)}: {value:.5f}  ' for key, value in av_losses.items()]))
-                logger.info('  '.join([f'{str(key)}_{str(split)}: {value:.5f}  ' for key, value in preds.items() if key in config.score_metrics]))
+                logger.info('  '.join([f'{str(key)}_{str(split)}: {value:.5f}  ' for key, value in scores.items() if key in config.score_metrics]))
             
                 return total_losses.item(), scores
 
@@ -222,8 +223,9 @@ class Trainer:
         best_precision = 0
         self.tokens = 0 # counter used for learning rate decay
         for epoch in range(config.max_epochs):
-            raw_model.config.epoch += 1
-            run_epoch('train')
+            if self.train_dataset is not None:
+                raw_model.config.epoch += 1
+                run_epoch('train')
             if self.test_dataset is not None:
                 test_loss, scores = run_epoch('test')
                 # if config.lr_decay:

@@ -1,3 +1,4 @@
+import collections
 import numpy as np
 import pandas as pd
 from scipy import stats
@@ -86,4 +87,33 @@ def get_accuracy(true, pred):
     precision = sum(precision) / len(precision)
     
     return precision
+
+
+def get_scores(true, pred):
+    scores = collections.defaultdict(list)
+    intervals = pred[['Interval', 'Trial']].drop_duplicates().reset_index(drop=True)
+    pred[['Interval', 'Trial']].drop_duplicates().reset_index(drop=True)
+    for idx in range(len(intervals)):
+        interval = intervals.iloc[idx][0]
+        trial = intervals.iloc[idx][1]
+        true_int = true[(true['Interval'] == interval) & (true['Trial'] == trial)]
+        pred_int = pred[(pred['Interval'] == interval) & (pred['Trial'] == trial)]
+        
+        set_true = set(true_int['ID'])
+        set_pred = set(pred_int['ID'])
+
+        true_positives = set_true & set_pred
+        false_positives = set_pred - set_true
+        false_negatives = set_true - set_pred
+        scores['precision'].append(len(true_positives) / (len(true_positives) + len(false_positives)))
+        scores['recall'].append(len(true_positives) / (len(true_positives) + len(false_negatives)))
+        if (scores['precision'][idx] + scores['recall'][idx]) == 0:
+            scores['F1'].append(0)
+        else:
+            scores['F1'].append(2 * (scores['precision'][idx] * scores['recall'][idx]) / (scores['precision'][idx] + scores['recall'][idx]))
+    for score in scores.keys():
+        scores[score] = sum(scores[score]) / len(scores[score])
+
+    return scores
+
 

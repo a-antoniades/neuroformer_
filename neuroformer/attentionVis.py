@@ -136,7 +136,7 @@ class AttentionVis:
                 return att
 
         @torch.no_grad()
-        def att_interval_frames(model, module, loader, n_blocks, block_size, rollout=False, pad_key=None, agg=False):
+        def att_interval_frames(self, model, module, loader, n_blocks, block_size, rollout=False, pad_key=None, agg=False):
                 device = torch.cuda.current_device() if torch.cuda.is_available() else 'cpu'
                 device = 'cpu'
                 model.to(device)
@@ -159,7 +159,7 @@ class AttentionVis:
                         att = AttentionVis.get_attention(module, n_blocks, T)
                         # att = np.swapaxes(att, -1, -2)
                         if rollout:
-                                att = AttentionVis.rollout_attentions(att)
+                                att = self.rollout_attentions(att)
                         if agg: 
                                 n_L, n_H = att.shape[0], att.shape[1]    
                                 t_seq = int(T - x['pad'])
