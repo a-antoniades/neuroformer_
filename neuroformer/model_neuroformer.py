@@ -877,10 +877,10 @@ class GPT(nn.Module):
         '''
         # # Embeddings
         prev_id_position_embeddings = self.pos_emb_prev if self.config.pos_emb else 0
-        prev_id_temporal_embeddings = self.temp_emb_prev(dtx_prev.float())
+        prev_id_temporal_embeddings = self.temp_emb_prev(dtx_prev.float()) if self.config.temp_emb else 0
         id_position_embeddings = self.pos_emb if self.config.pos_emb else 0
         im_position_embeddings = self.pos_emb_frames.repeat(1, 20, 1)
-        temporal_embeddings = self.temp_emb(dtx.float())
+        temporal_embeddings = self.temp_emb(dtx.float()) if self.config.temp_emb else 0
         
         # Extract ID features
         prev_token_embeddings = self.id_drop(self.tok_emb(p_idx) + prev_id_temporal_embeddings + prev_id_position_embeddings)
