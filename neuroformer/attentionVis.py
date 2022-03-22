@@ -13,34 +13,47 @@ from SpikeVidUtils import get_frame_idx
 from utils import top_k_top_p_filtering
 
 
-def grad_rollout(attentions, gradients, discard_ratio):
-    result = torch.eye(attentions[0].size(-1))
-    with torch.no_grad():
-        for attention, grad in zip(attentions, gradients):                
-            weights = grad
-            attention_heads_fused = (attention*weights).mean(axis=1)
-            attention_heads_fused[attention_heads_fused < 0] = 0
+def grad_rollout(attentions, gradients, discard_ratio=0.8):
 
-            # Drop the lowest attentions, but
-            # don't drop the class token
-            flat = attention_heads_fused.view(attention_heads_fused.size(0), -1)
-            _, indices = flat.topk(int(flat.size(-1)*discard_ratio), -1, False)
-            #indices = indices[indices != 0]
-            flat[0, indices] = 0
+        print(attentions)
+        result = None
+        with torch.no_grad():
+                for attention, grad in zip(attentions, gradients):     
+                        weights = grad
+                        attention_heads_fused = (attention*weights).mean(axis=1)
+                        attention_heads_fused[attention_heads_fused < 0] = 0
 
-            I = torch.eye(attention_heads_fused.size(-1))
-            a = (attention_heads_fused + 1.0*I)/2
-            a = a / a.sum(dim=-1)
-            result = torch.matmul(a, result)
-    
-    # Look at the total attention between the class token,
-    # and the image patches
-    mask = result[0, 0 , 1 :]
-    # In case of 224x224 image, this brings us from 196 to 14
-    width = int(mask.size(-1)**0.5)
-    mask = mask.reshape(width, width).numpy()
-    mask = mask / np.max(mask)
-    return mask    
+                        # Drop the lowest attentions, but
+                        # don't drop the class token
+                        flat = attention_heads_fused.view(attention_heads_fused.size(0), -1)
+                        _, indices = flat.topk(int(flat.size(-1)*discard_ratio), -1, False)
+                        #indices = indices[indices != 0]
+                        flat[0, indices] = 0
+
+                        I = torch.eye(attention_heads_fused.size(-2), attention_heads_fused.size(-1))
+                        a = (attention_heads_fused + 1.0*I)/2
+                        a = a / a.sum(dim=-1).unsqueeze(-1)
+                        # a = a[:, pos_index]
+                        if result == None:
+                                result = a
+                        else:
+                                result = a * result
+        
+        # print(result.shape)
+        # # Look at the total attention between the class token,
+        # # and the image patches
+        # mask = result[0, 0 ,pos_index]
+        # # In case of 224x224 image, this brings us from 196 to 14
+        # width = int(mask.size(-1)**0.5)
+        # mask = mask.reshape(width, width).numpy()
+        # mask = mask / np.max(mask)
+        return result
+
+def grad_att(attentions, gradients, discard_ratio=0.8):
+        with torch.no_grad():
+                # atts = attentions * gradients
+                # return atts
+                return attentions
 
 class VITAttentionGradRollout:
         """
@@ -57,7 +70,7 @@ class VITAttentionGradRollout:
         def __init__(self, model, module, attn_layer_name='attn_drop', discard_ratio=0.8):
                 self.model = model
                 self.module = module
-                self.discard_ration = discard_ratio
+                self.discard_ratio = discard_ratio
                 for name, module in self.module.named_modules():
                         if attn_layer_name in name:
                                 module.register_forward_hook(self.get_attention)
@@ -72,15 +85,17 @@ class VITAttentionGradRollout:
         def get_attention_gradient(self, module, grad_input, grad_output):
                 self.attention_gradients.append(grad_input[0].cpu())
 
-        def __call__(self, input_tensor, category_index):
+
+        def __call__(self, x, y):
                 self.model.zero_grad()
-                output = self.model(input_tensor)
+                preds, features, loss = self.model(x, y)
+                output = preds['id']
                 category_mask = torch.zeros(output.size())
-                category_mask[:, category_index] = 1
-                loss = (output * category_mask).sum()
+                # category_mask[:, category_index] = 1
+                loss = loss['id'] 
                 loss.backward()
 
-                return grad_rollout(self.attentions, self.attention_gradients, self.discard_ratio)
+                return grad_att(torch.cat(self.attentions), torch.cat(self.attention_gradients))  # grad_rollout(self.attentions, self.attention_gradients, self.discard_ratio)
 
 
 class AttentionVis:
@@ -206,7 +221,6 @@ class AttentionVis:
                 att = att_roll
                 return att
 
-        @torch.no_grad()
         def att_interval_frames(self, model, module, loader, n_blocks, block_size, rollout=False, pad_key=None, agg=False):
                 device = torch.cuda.current_device() if torch.cuda.is_available() else 'cpu'
                 device = 'cpu'
@@ -215,7 +229,11 @@ class AttentionVis:
                 model = model.eval()
                 T = block_size
                 attention_scores = None
+                # if rollout:
+                #         grad_rollout = VITAttentionGradRollout(model, module)
+
                 pbar = tqdm(enumerate(loader), total=len(loader))
+
                 for it, (x, y) in pbar:
                         pad = x[pad_key] if pad_key is not None else 0
                         # place data on the correct device
@@ -224,38 +242,44 @@ class AttentionVis:
                         for key, value in y.items():
                                 y[key] = y[key].to(device)
                         # forward the model
-                        preds, features, loss, = model(x)
-                        preds_id = F.softmax(preds['id'] / 0.95, dim=-1).squeeze(0)
-                        ix = torch.multinomial(preds_id, num_samples=1).flatten()
-                        att = AttentionVis.get_attention(module, n_blocks, T)
+                        with torch.no_grad():
+                                preds, features, loss, = model(x, y)
+                                preds_id = F.softmax(preds['id'] / 0.95, dim=-1).squeeze(0)
+                                ix = torch.multinomial(preds_id, num_samples=1).flatten()
+                                att = AttentionVis.get_attention(module, n_blocks, T)
                         # att = np.swapaxes(att, -1, -2)
                         if rollout:
-                                att = self.rollout_attentions(att)
-                        if agg: 
-                                n_L, n_H = att.shape[0], att.shape[1]    
-                                t_seq = int(T - x['pad'])
-                                # att = att - att.mean(axis=-2, keepdims=True)
-                                # att = att - att.mean(axis=(0, 1, 2), keepdims=True)
-                                if not rollout:
+                                grad_rollout = VITAttentionGradRollout(model, module)
+                                att = grad_rollout(x, y).detach().numpy()
+                                # att = self.rollout_attentions(att)
+                                # att = grad_rollout()
+                        with torch.no_grad():
+                                if agg: 
+                                        n_L, n_H = att.shape[0], att.shape[1]    
+                                        t_seq = int(T - x['pad'])
+                                        # att = att - att.mean(axis=-2, keepdims=True)
+                                        # att = att - att.mean(axis=(0, 1, 2), keepdims=True)
+                                        # if not rollout:
                                         att = np.sum(att, axis=0)
                                         att = np.mean(att, axis=0)
-                                # att = att[-1]   # take last layer
-                                # att_n = LA.norm(att, axis=-1, ord=2, keepdims=True)
-                                # att = softmax(att, axis=-2)
-                                # att = normalize(att, norm='l2', axis=1)
-                                # att = att / (n_L * n_H * (t_seq))
-                                score = np.zeros((mconf.id_vocab_size, mconf.frame_block_size))
-                                xid = x['id'].cpu().flatten().tolist()
-                                yid = y['id'].cpu().flatten().tolist()
-                                score[ix] = att
-                                # score[t_seq:] == 0
-                        else:
-                                score = att
-                        
-                        if attention_scores is None:
-                                attention_scores = score[None, ...]
-                        else:
-                                attention_scores = np.vstack((attention_scores, score[None, ...]))
+                                        # att = att[-1]   # take last layer
+                                        # att_n = LA.norm(att, axis=-1, ord=2, keepdims=True)
+                                        # att = softmax(att, axis=-2)
+                                        # att = normalize(att, norm='l2', axis=1)
+                                        # att = att / (n_L * n_H * (t_seq))
+                                        score = np.zeros((mconf.id_vocab_size, mconf.frame_block_size))
+                                        xid = x['id'].cpu().flatten().tolist()
+                                        yid = y['id'].cpu().flatten().tolist()
+                                        # score[ix] = att
+                                        score[y['id']] = att
+                                        # score[t_seq:] == 0
+                                else:
+                                        score = att
+                                
+                                if attention_scores is None:
+                                        attention_scores = score[None, ...]
+                                else:
+                                        attention_scores = np.vstack((attention_scores, score[None, ...]))
 
                         # att_dict[int(y['id'][:, n])] = step
                         # atts[tuple(x['interval'].cpu().numpy().flatten())] = att_dict

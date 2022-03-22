@@ -277,8 +277,9 @@ class MultiheadfAttention(nn.Module):
             att.masked_fill_(mask, float('-inf'))
         
         att = F.softmax(att, dim=-1)
-        self.att = att
+        # self.att = att
         att = self.attn_drop(att)
+        self.att = att
         y = att @ v # (B, nh, Tt, Ts) x (B, nh, Ts, hs) -> (B, nh, Tt, hs)
         y = y.transpose(1, 2).contiguous().view(Bt, Tt, Ct) # re-assemble all head outputs side by side
 
