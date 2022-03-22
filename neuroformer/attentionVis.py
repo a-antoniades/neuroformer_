@@ -12,6 +12,23 @@ from numpy import linalg as LA
 from SpikeVidUtils import get_frame_idx
 from utils import top_k_top_p_filtering
 
+from scipy import signal
+
+def convolve_atts_3D(stim_atts):
+    '''
+    input: (ID, T, Y, X)
+    '''
+    sigma = 2.0     # width of kernel
+    x = np.arange(-3,4,1)   # coordinate arrays -- make sure they contain 0!
+    y = np.arange(-3,4,1)
+    z = np.arange(-3,4,1)
+    xx, yy, zz = np.meshgrid(x,y,z)
+    kernel = np.exp(-(xx**2 + yy**2 + zz**2)/(2*sigma**2))
+
+    for n_id in range(stim_atts.shape[0]):
+        stim_atts[n_id] = signal.convolve(stim_atts[n_id], kernel, mode="same")
+    return stim_atts
+
 
 def grad_rollout(attentions, gradients, discard_ratio=0.8):
 

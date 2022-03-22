@@ -514,17 +514,17 @@ class SpikeTimeVidData2(Dataset):
                 x['pad'] = torch.tensor(pad, dtype=torch.long) # to attend eos
                 
                 # for backbone:
-                if self.frame_feats.shape[0] == 1:
+                if len(self.frame_feats) == 8:
+                    if self.t['Trial'].max() <= 8:
+                        n_stim = int(t['Trial'])
+                    else:
+                        n_stim = int(t['Trial'] // 200) - 1
+                elif self.frame_feats.shape[0] == 1:
                     n_stim = 0
                 elif self.frame_feats.shape[0] <= 4:
                     if t['Trial'] <= 20: n_stim = 0
                     elif t['Trial'] <= 40: n_stim = 1
                     elif t['Trial'] <= 60: n_stim = 2
-                elif self.frame_feats.shape[0] <= 8:
-                    if self.t['Trial'].max() <= 8:
-                        n_stim = int(t['Trial'])
-                    else:
-                        n_stim = int(t['Trial'] // 200) - 1
 
                 frame_idx = get_frame_idx(t['Interval'], 1/20)     # get last 1 second of frames
                 frame_idx = frame_idx if frame_idx >= 20 else 20
