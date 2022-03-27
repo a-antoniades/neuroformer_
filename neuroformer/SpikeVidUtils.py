@@ -506,8 +506,6 @@ class SpikeTimeVidData2(Dataset):
                 current_int = self.round_n(t['Interval'], self.dt)
                 current_id_interval = current_int, self.round_n(current_int + self.window, self.dt)
                 id_current, dt_current, pad_current = self.get_interval(current_id_interval, t['Trial'])
-                x['id_current'] = torch.tensor(id_current[:-1], dtype=torch.long)
-                x['dt_current'] = torch.tensor(dt_current[:-1], dtype=torch.float)
                 idn, dt, pad = self.get_interval(current_id_interval, t['Trial'])
                 x['id'] = torch.tensor(idn[:-1], dtype=torch.long)
                 x['dt'] = torch.tensor(dt[:-1], dtype=torch.float) # + 1
@@ -525,7 +523,7 @@ class SpikeTimeVidData2(Dataset):
                     if t['Trial'] <= 20: n_stim = 0
                     elif t['Trial'] <= 40: n_stim = 1
                     elif t['Trial'] <= 60: n_stim = 2
-
+                
                 frame_idx = get_frame_idx(t['Interval'], 1/20)     # get last 1 second of frames
                 frame_idx = frame_idx if frame_idx >= 20 else 20
                 frame_feats_stim = self.frame_feats[n_stim]

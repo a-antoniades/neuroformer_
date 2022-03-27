@@ -1,4 +1,5 @@
 import numpy as np
+from sympy import Q
 import torch
 import matplotlib.pyplot as plt
 from tqdm import tqdm
@@ -226,18 +227,19 @@ class AttentionVis:
                 ''' Rollout attentions
                 Input: (L, H, ID, F)
                 '''
-                att = att.mean(axis=1)
-                id_att = np.eye(att.shape[-2], att.shape[-1])
-                att = (att + 1.0*id_att) / 2
-                att = att / att.sum(axis=-1, keepdims=True)
-                att_roll = att[0]
+                rollout_att = np.eye(att.shape[-2], att.shape[-1])
                 for i in range(att.shape[0]):
-                        if i==0:
-                                continue
-                        att_roll = att_roll * att[i]
-                att = att_roll
-                return att
-
+                        # if i==0:
+                        #         continue
+                        I = np.eye(att.shape[-2], att.shape[-1])
+                        a = att[i]
+                        a = a.max(axis=0)
+                        a = (a + 1.0*I) / 2
+                        a = a / a.sum(axis=-1, keepdims=True)
+                        rollout_att = a * rollout_att
+                return rollout_att
+        
+        @torch.no_grad()
         def att_interval_frames(self, model, module, loader, n_blocks, block_size, rollout=False, pad_key=None, agg=False):
                 device = torch.cuda.current_device() if torch.cuda.is_available() else 'cpu'
                 device = 'cpu'
@@ -261,24 +263,24 @@ class AttentionVis:
                         # forward the model
                         with torch.no_grad():
                                 preds, features, loss, = model(x, y)
-                                preds_id = F.softmax(preds['id'] / 0.95, dim=-1).squeeze(0)
+                                preds_id = F.softmax(preds['id'] / 0.8, dim=-1).squeeze(0)
                                 ix = torch.multinomial(preds_id, num_samples=1).flatten()
                                 att = AttentionVis.get_attention(module, n_blocks, T)
                         # att = np.swapaxes(att, -1, -2)
                         if rollout:
-                                grad_rollout = VITAttentionGradRollout(model, module)
-                                att = grad_rollout(x, y).detach().numpy()
-                                # att = self.rollout_attentions(att)
+                                # grad_rollout = VITAttentionGradRollout(model, module)
+                                # att = grad_rollout(x, y).detach().numpy()
+                                att = self.rollout_attentions(att)
                                 # att = grad_rollout()
-                        with torch.no_grad():
+                        # with torch.no_grad():
                                 if agg: 
-                                        n_L, n_H = att.shape[0], att.shape[1]    
                                         t_seq = int(T - x['pad'])
                                         # att = att - att.mean(axis=-2, keepdims=True)
                                         # att = att - att.mean(axis=(0, 1, 2), keepdims=True)
-                                        # if not rollout:
-                                        att = np.sum(att, axis=0)
-                                        att = np.mean(att, axis=0)
+                                        if not rollout:
+                                                att = np.max(att, axis=1)
+                                                att = np.sum(att, axis=0)
+                                        # att = np.mean(att, axis=0)
                                         # att = att[-1]   # take last layer
                                         # att_n = LA.norm(att, axis=-1, ord=2, keepdims=True)
                                         # att = softmax(att, axis=-2)
@@ -288,7 +290,7 @@ class AttentionVis:
                                         xid = x['id'].cpu().flatten().tolist()
                                         yid = y['id'].cpu().flatten().tolist()
                                         # score[ix] = att
-                                        score[y['id']] = att
+                                        score[x['id']] = att
                                         # score[t_seq:] == 0
                                 else:
                                         score = att

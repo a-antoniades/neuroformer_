@@ -156,11 +156,11 @@ def process_predictions(results, stoi, window):
     predicted_dict = {k: results[k] for k in results if k in pred_keys}
     df_pred = pd.DataFrame(predicted_dict)
     df_pred['Time'] = df_pred['dt'] + df_pred['Interval'] - 0.5
-    df_pred = df_pred[(df_pred['ID'] < stoi['SOS']) & (df_pred['dt'] <= window) & (df_pred['Time'] >= 0)]
+    df_pred = df_pred[(df_pred['ID'] <= stoi['SOS']) & (df_pred['dt'] <= window) & (df_pred['Time'] >= 0)]
     true_keys = ['true', 'time']
     true_dict = {k: results[k] for k in results if k in true_keys}
     df_true = pd.DataFrame(true_dict)
-    df_true = df_true[df_true['true'] < stoi['SOS']]
+    df_true = df_true[df_true['true'] <= stoi['SOS']]
     df_true.rename({'true':'ID', 'time':'dt'}, axis=1, inplace=True)
     # df_true['time'] = df_true['dt'] + df_true['interval'] - 0.5
 
