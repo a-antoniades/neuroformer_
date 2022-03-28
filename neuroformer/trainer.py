@@ -191,6 +191,9 @@ class Trainer:
                     for param_group in optimizer.param_groups:
                         param_group['lr'] = lr
                 
+                if it % 100 == 0:
+                    self.save_checkpoint(it, np.array(scores['F1']).mean())
+                
             # tensorboard
             av_losses = collections.defaultdict(list)
             total_losses = 0
@@ -203,6 +206,7 @@ class Trainer:
             for score in config.score_metrics:
                 scores[score].append(preds[score])
                 self.writer.add_scalar(f"Score/{split}_{str(score)}", preds[score], epoch)
+            
                 
             if not is_train:
                 if config.plot_raster:
