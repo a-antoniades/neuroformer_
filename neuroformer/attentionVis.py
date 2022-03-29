@@ -320,7 +320,7 @@ class AttentionVis:
                 return rollout_att
         
         # @torch.no_grad()
-        def att_interval_frames(self, model, module, loader, n_blocks, block_size, rollout=False, pad_key=None, agg=False):
+        def att_interval_frames(self, model, module, loader, n_blocks, block_size, rollout=False, pad_key=None, agg=False, stoi=None):
                 device = torch.cuda.current_device() if torch.cuda.is_available() else 'cpu'
                 device = 'cpu'
                 model.to(device)
@@ -348,17 +348,19 @@ class AttentionVis:
                         if not rollout:
                                 with torch.no_grad():
                                         preds, features, loss, = model(x, y)
-                                        preds_id = F.softmax(preds['id'] / 0.8, dim=-1).squeeze(0)
-                                        ix = torch.multinomial(preds_id, num_samples=1).flatten()
-                                        att = AttentionVis.get_attention(module, n_blocks, T)[-1]
+                                        # preds_id = F.softmax(preds['id'] / 0.8, dim=-1).squeeze(0)
+                                        # ix = torch.multinomial(preds_id, num_samples=1).flatten()
+                                        att = AttentionVis.get_attention(module, n_blocks, T)
+                                        ## predict iteratively
+                                        # ix, att = self.predict_iteratively(model, mconf, x, stoi, top_k=0, top_p=0.5, temp=0.5, sample=True, pred_dt=False)
                         # with torch.no_grad():
                         if agg: 
                                 t_seq = int(T - x['pad'])
                                 # att = att - att.mean(axis=-2, keepdims=True)
                                 # att = att - att.mean(axis=(0, 1, 2), keepdims=True)
                                 if not rollout:
+                                        att = np.mean(att, axis=0)
                                         att = np.max(att, axis=0)
-                                        # att = np.sum(att, axis=0)
                                 # att = np.mean(att, axis=0)
                                 # att = att[-1]   # take last layer
                                 # att_n = LA.norm(att, axis=-1, ord=2, keepdims=True)
@@ -518,8 +520,9 @@ class AttentionVis:
                         im_interval = video_stack[n_stim, frame_idx - 20: frame_idx]
 
                         # att_grid =  softmax(att_top_std_im)
-                        att_grid = np.repeat(att_im, xy_res, axis=-2)
-                        att_grid = np.repeat(att_grid, xy_res, axis=-1)
+                        # att_grid = np.repeat(att_im, xy_res, axis=-2)
+                        # att_grid = np.repeat(att_grid, xy_res, axis=-1)
+                        att_grid = F.interpolate(torch.as_tensor(att_grid), size=(H, W), mode='bilinear', align_corners=False).numpy()
 
                         
                         tdx_range = range(10, att_grid.shape[0])
@@ -545,13 +548,13 @@ class AttentionVis:
                 # plt.savefig(f"SimNeu3D_Combo4, Interval {int(t['Interval'])} Trial {int(t['Trial'])}.png")
         
         @torch.no_grad()
-        def predict_iteratively(self, model, mconf, x, stoi, temp, top_p, top_k, sample=True, device='cpu'):
+        def predict_iteratively(self, model, mconf, x, stoi, temp, top_p, top_k, sample=True, pred_dt=True, device='cpu'):
                 t = x['id'].shape[-1]
                 pad = x['pad'] if 'pad' in x else 0
                 x['id_full'] = x['id'][:, 0]
                 x['id'] = x['id'][:, 0]
                 x['dt_full'] = x['dt'][:, 0]
-                x['dt'] = x['dt'][:, 0]
+                x['dt'] = x['dt'][:, 0] if pred_dt else x['dt']
                 T_id = mconf.id_block_size
                 current_id_stoi = torch.empty(0, device=device)
                 current_dt_stoi = torch.empty(0, device=device)
@@ -564,7 +567,8 @@ class AttentionVis:
 
                         logits, features, _ = model(x)
                         logits['id'] = logits['id'][:, i] / temp
-                        logits['dt'] = logits['dt'][:, i] / temp
+                        if pred_dt:
+                                logits['dt'] = logits['dt'][:, i] / temp
 
 
                         att_step = AttentionVis.get_attention(model.neural_visual_transformer.neural_state_stimulus, mconf.n_stimulus_layers, mconf.id_block_size)
@@ -573,31 +577,37 @@ class AttentionVis:
                         # optionally crop probabilities to only the top k / p options
                         if top_k or top_p != 0:
                                 logits['id'] = top_k_top_p_filtering(logits['id'], top_k=top_k, top_p=top_p)
-                                logits['dt'] = top_k_top_p_filtering(logits['dt'], top_k=top_k, top_p=top_p)
+                                if pred_dt:
+                                        logits['dt'] = top_k_top_p_filtering(logits['dt'], top_k=top_k, top_p=top_p)
 
                         # apply softmax to logits
                         probs = F.softmax(logits['id'], dim=-1)
-                        probs_dt = F.softmax(logits['dt'], dim=-1)
+                        if pred_dt:
+                                probs_dt = F.softmax(logits['dt'], dim=-1)
                         if sample:
                                 ix = torch.multinomial(probs, num_samples=1)
-                                ix_dt = torch.multinomial(probs_dt, num_samples=1)
+                                if pred_dt:
+                                        ix_dt = torch.multinomial(probs_dt, num_samples=1)
                                 # ix = torch.poisson(torch.exp(logits), num_samples=1)
                         else:
                                 # choose highest topk (1) sample
                                 _, ix = torch.topk(probs, k=1, dim=-1)
-                                _, ix_dt = torch.topk(probs_dt, k=1, dim=-1)
+                                if pred_dt:
+                                        _, ix_dt = torch.topk(probs_dt, k=1, dim=-1) 
                         
                         # if ix > stoi['PAD']:
                         #     ix = torch.tensor([513])
                         
                         # convert ix_dt to dt and add to current time
                         current_id_stoi = torch.cat((current_id_stoi, ix.flatten()))
-                        current_dt_stoi = torch.cat((current_dt_stoi, ix_dt.flatten()))
+                        if pred_dt:
+                                current_dt_stoi = torch.cat((current_dt_stoi, ix_dt.flatten()))
                         
                         # append true and predicted in lists
                         # get last unpadded token
                         x['id_full'] = torch.cat((x['id_full'], ix.flatten()))
-                        x['dt_full'] = torch.cat((x['dt_full'], ix_dt.flatten()))
+                        if pred_dt:
+                                x['dt_full'] = torch.cat((x['dt_full'], ix_dt.flatten()))
 
                         if ix == stoi['EOS']: # and dtx == 0.5:    # dtx >= window:   # ix == stoi['EOS']:
                         # if len(current_id_stoi) == T_id - x['pad']:
@@ -608,7 +618,7 @@ class AttentionVis:
                                 id_prev_stoi = current_id_stoi
                                 dt_prev_stoi = current_dt_stoi
                                 break
-                return x['id_full'].flatten().tolist(), att_total.transpose(1, 2, 0, 3)
+                return x['id_full'].flatten().tolist()[1:], att_total.transpose(1, 2, 0, 3)
         
         @torch.no_grad()
         def plot_stim_attention_step_realtime(self, model, mconf, dataset, n_embd, video_stack, ix_step=None, rollout=False):
@@ -639,6 +649,8 @@ class AttentionVis:
                 x_id = dataset[ix_step][0]['id'].flatten().tolist()
                 x_pad = int(dataset[ix_step][0]['pad'].flatten())
                 neuron_idx = x_id[: len(x_id) - x_pad]
+
+                print(x.keys())
                 
                 # model.eval()
                 # with torch.no_grad():
@@ -646,14 +658,15 @@ class AttentionVis:
                 # preds_id = F.softmax(preds['id'] / 0.95, dim=-1).squeeze(0)
                 # ix = torch.multinomial(preds_id, num_samples=1).flatten().tolist()
 
-                ix, att_step = self.predict_iteratively(model, mconf, x, dataset.stoi, top_k=0, top_p=0.85, temp=0.85, sample=True)
+                ix, att_step = self.predict_iteratively(model, mconf, x, dataset.stoi, top_k=0, top_p=0.85, temp=0.85, sample=True, pred_dt=False)
                 print(f"ix: {ix}, att_step: {att_step.shape}")
                 # ix = torch.argmax(preds_id, dim=-1)
                 neuron_idx = []
+                neuron_idx = []
                 for idx in ix:
+                        neuron_idx.append(idx)
                         if idx >= dataset.stoi['EOS']:
                                 break
-                        neuron_idx.append(idx)
                 
                 no_frames = 6
                 ncol = no_frames
@@ -664,7 +677,7 @@ class AttentionVis:
                 # attention_scores[ix_step] /= attention_scores[ix_step].max()
                 # att_max, att_min = attention_scores[ix_step].max(), attention_scores[ix_step].min()
                 # att_step = AttentionVis.get_attention(model.neural_visual_transformer.neural_state_stimulus, mconf.n_stimulus_layers, mconf.id_block_size)
-                att_step = att_step.sum(axis=0).mean(axis=0) if rollout is False else self.rollout_attentions(att_step)
+                att_step = att_step.max(axis=0).max(axis=0) if rollout is False else self.rollout_attentions(att_step)
                 # att_step = softmax(att_step, axis=0)   # softmax over IDs
                 att_mean, att_std = att_step.mean(), att_step.std()
                 att_min, att_max = att_step.max(), att_step.min()
@@ -700,8 +713,10 @@ class AttentionVis:
                         im_interval = video_stack[n_stim, frame_idx - 20: frame_idx]
 
                         # att_grid =  softmax(att_top_std_im)
-                        att_grid = np.repeat(att_im, xy_res, axis=-2)
-                        att_grid = np.repeat(att_grid, xy_res, axis=-1)
+                        # att_grid = np.repeat(att_im, xy_res, axis=-2)
+                        # att_grid = np.repeat(att_grid, xy_res, axis=-1)
+                        print(att_im.shape)
+                        att_grid = F.interpolate(torch.tensor(att_im[None, ...]), size=(H, W), mode='bilinear', align_corners=False).numpy()[0]
 
                         
                         tdx_range = range(10, 10 + no_frames)
