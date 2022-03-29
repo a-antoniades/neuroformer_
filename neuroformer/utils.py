@@ -447,8 +447,8 @@ def predict_raster_recursive_time_auto(model, loader, window, stoi, itos_dt, get
         pad = x['pad'] if 'pad' in x else 0
         x['id_full'] = x['id'][:, 0]
         x['id'] = x['id'][:, 0]
-        x['dt_full'] = x['dt'][:, 0]
-        x['dt'] = x['dt'][:, 0]
+        x['dt_full'] = x['dt'][:, 0] if pred_dt else x['dt']
+        x['dt'] = x['dt'][:, 0] if pred_dt else x['dt']
 
         current_id_stoi = torch.empty(0, device=device)
         current_dt_stoi = torch.empty(0, device=device)
@@ -456,7 +456,7 @@ def predict_raster_recursive_time_auto(model, loader, window, stoi, itos_dt, get
             t_pad = torch.tensor([stoi['PAD']] * (T_id - x['id_full'].shape[-1]), device=device)
             t_pad_dt = torch.tensor([0] * (T_id - x['dt_full'].shape[-1]), device=device)
             x['id'] = torch.cat((x['id_full'], t_pad)).unsqueeze(0).long()
-            x['dt'] = torch.cat((x['dt_full'], t_pad_dt)).unsqueeze(0).long()
+            x['dt'] = torch.cat((x['dt_full'], t_pad_dt)).unsqueeze(0).long() if pred_dt else x['dt']
 
             logits, features, _ = model(x)
             logits['id'] = logits['id'][:, tf + i] / temp
@@ -494,7 +494,7 @@ def predict_raster_recursive_time_auto(model, loader, window, stoi, itos_dt, get
             data['Trial'] = torch.cat((data['Trial'], x['trial']))
             data['Interval'] = torch.cat((data['Interval'], x['interval']))
             x['id_full'] = torch.cat((x['id_full'], ix.flatten()))
-            x['dt_full'] = torch.cat((x['dt_full'], ix_dt.flatten()))
+            x['dt_full'] = torch.cat((x['dt_full'], ix_dt.flatten())) if pred_dt else x['dt']
 
             if ix == stoi['EOS']: # and dtx == 0.5:    # dtx >= window:   # ix == stoi['EOS']:
             # if len(current_id_stoi) == T_id - x['pad']:
