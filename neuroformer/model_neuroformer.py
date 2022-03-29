@@ -277,9 +277,8 @@ class MultiheadfAttention(nn.Module):
             att.masked_fill_(mask, float('-inf'))
         
         att = F.softmax(att, dim=-1)
-        # self.att = att
-        att = self.attn_drop(att)
         self.att = att
+        att = self.attn_drop(att)
         y = att @ v # (B, nh, Tt, Ts) x (B, nh, Ts, hs) -> (B, nh, Tt, hs)
         y = y.transpose(1, 2).contiguous().view(Bt, Tt, Ct) # re-assemble all head outputs side by side
 
@@ -564,11 +563,11 @@ class TruncatedLoss(nn.Module):
         self.k = k
         self.weight = torch.nn.Parameter(data=torch.ones(trainset_size, 1), requires_grad=False)
              
-    def forward(self, logits, targets, indexes=None):
+    def forward(self, logits, targets, indexes):
         p = F.softmax(logits, dim=-1)
         Yg = torch.gather(p, 2, targets.unsqueeze(2))
 
-        loss = ((1-(Yg**self.q))/self.q) - ((1-(self.k**self.q))/self.q)
+        loss = ((1-(Yg**self.q))/self.q)*self.weight[indexes] - ((1-(self.k**self.q))/self.q)*self.weight[indexes]
         loss = torch.mean(loss)
 
         return loss
@@ -600,12 +599,12 @@ class HungarianMatcher(nn.Module):
         super().__init__()
     
     @torch.no_grad()
-    def forward(self, logits, targets, device):
+    def forward(self, logits, targets):
         T, C = logits.size()
         probs = F.softmax(logits, dim=-1)
         cost_id = (1 - probs[:, targets]).cpu().view(T, -1).unsqueeze(0)
         indices = [linear_sum_assignment(c[i]) for i, c in enumerate(cost_id.split(len(targets), -1))]
-        return [(torch.as_tensor(i, dtype=torch.int64, device=device), torch.as_tensor(j, dtype=torch.int64, device=device)) for i, j in indices]
+        return [(torch.as_tensor(i, dtype=torch.int64), torch.as_tensor(j, dtype=torch.int64)) for i, j in indices]
 
 class KLDivLoss(nn.Module):
     def __init__(self):
@@ -668,7 +667,7 @@ class MultimodalTransformer(nn.Module):
         super().__init__()
         self.config = config
         self.neural_state_block = BlockSequential(*[Block(config, sparse_topk=config.sparse_topk_id) for _ in range(config.n_state_layers)])
-        self.neural_state_history_block = BlockSequential(*[Block(config, sparse_topk=config.sparse_topk_id) for _ in range(config.n_state_history_layers)])
+        # self.neural_state_history_block = BlockSequential(*[Block(config, sparse_topk=config.sparse_topk_id) for _ in range(config.n_state_history_layers)])
         # self.neural_state_history_self_attention = BlockSequential(*[Block(config) for _ in range(config.n_state_layers)])
         self.neural_state_stimulus = BlockSequential(*[Block(config, sparse_topk=config.sparse_topk_frame) for _ in range(config.n_stimulus_layers)])
 
@@ -722,14 +721,10 @@ class MultimodalTransformer(nn.Module):
         stimulus = features['frames']
 
         x = neural_state
-        if self.config.n_state_layers > 0:
-            x = self.neural_state_block(x, x, x, mask=mask)
-        if self.config.n_state_history_layers > 0:
-            y = x + self.neural_state_history_block(neural_history, neural_history, neural_history)
-            # x = self.neural_state_history_block(neural_history, neural_history, neural_history)
-        if self.config.n_stimulus_layers > 0:
-            z = x + y + self.neural_state_stimulus(x, stimulus, stimulus)
-        return self.ln_f(z)
+        x = x + self.neural_state_block(x, x, x, mask)
+        # x = self.neural_state_history_block(x, neural_history, neural_history)
+        x = x + self.neural_state_stimulus(x, stimulus, stimulus)
+        return self.ln_f(x)
 
 
 
@@ -785,10 +780,6 @@ class GPT(nn.Module):
                 self.register_buffer(f"class_weights_{key}", config.class_weights[key])  
         
         logger.info("number of parameters: %e", sum(p.numel() for p in self.parameters()))
-
-        # Loss functions
-        # self.truncated_loss = TruncatedLoss()
-        self.hungarian_matcher = HungarianMatcher()
 
         # CONCEPT TRANSFORMER
         # self.register_buffer("neuron_population", torch.tensor([i for i in range(config.id_vocab_size)], dtype=torch.long).unsquueze(0))
@@ -880,10 +871,10 @@ class GPT(nn.Module):
         '''
         # # Embeddings
         prev_id_position_embeddings = self.pos_emb_prev if self.config.pos_emb else 0
-        prev_id_temporal_embeddings = self.temp_emb_prev(dtx_prev.float()) if self.config.temp_emb else 0
+        prev_id_temporal_embeddings = self.temp_emb_prev(dtx_prev.float())
         id_position_embeddings = self.pos_emb if self.config.pos_emb else 0
         im_position_embeddings = self.pos_emb_frames.repeat(1, 20, 1)
-        temporal_embeddings = self.temp_emb(dtx.float()) if self.config.temp_emb else 0
+        temporal_embeddings = self.temp_emb(dtx.float())
         
         # Extract ID features
         prev_token_embeddings = self.id_drop(self.tok_emb(p_idx) + prev_id_temporal_embeddings + prev_id_position_embeddings)
@@ -942,6 +933,7 @@ class GPT(nn.Module):
         # if targets, calculate loss
         # calculate loss on logits up to padding token for each batch
         loss = None
+        
         loss_frames = 0
         loss_id = []
         loss_time = []
@@ -950,39 +942,40 @@ class GPT(nn.Module):
         F1 = []
         if targets is not None:
             # loss_psth = self.dice_loss(psth, targets['modes'][:, tf:])    
-            for B, P in enumerate(pad):         
-                
-                # P = 0
-                id_logits_ = id_logits[B, :t - P]
+            for B, P in enumerate(pad):
+                tf = 0
+                # im_logits = logits[B, :tf]
+                # im_targets = targets['frames'][B, :tf]
+                # loss_frames += F.cross_entropy(im_logits.view(-1, im_logits.size(-1)), im_targets.view(-1))
+                id_logits_ = id_logits[B, tf:tf + t - P]
                 id_targets = targets['id'][B, :t - P]
-                dt_logits_ = dt_logits[B, :t - P]
-                time_targets = targets['dt'][B, :t - P]
 
                 loss_id_ = F.cross_entropy(id_logits_.view(-1, id_logits_.size(-1)), id_targets.view(-1))
-                loss_time_ = F.cross_entropy(dt_logits_.view(-1, dt_logits_.size(-1)), time_targets.view(-1))
                 # if self.config.epoch >= 15:
                     # self.truncated_loss.update_weight(id_logits[None, ...], id_targets[None, ...], id_indexes[None, ...])
-                # loss_id_ = self.truncated_loss(id_logits_[None, ...], id_targets[None, ...])
-                # loss_time_ = self.truncated_loss(dt_logits_[None, ...], time_targets[None, ...])
+                # loss_id_ = self.truncated_loss(id_logits[None, ...], id_targets[None, ...], id_indexes[None, ...])
+                dt_logits_ = dt_logits[B, :t - P]
+                time_targets = targets['dt'][B, :t - P]
+                loss_time_ = F.cross_entropy(dt_logits_.view(-1, dt_logits_.size(-1)), time_targets.view(-1))
                 # loss_time_ = F.mse_loss(time_preds.squeeze(-1), time_targets)
                 # loss_id_ = self.poisson_loss(id_logits.view(-1, id_logits.size(-1)), F.one_hot(id_targets, self.config.vocab_size))
-                if len(id_targets) > 0:
-                    ## hungarian loss
-                    # indices = self.hungarian_matcher(id_logits_, id_targets, self.device)
-                    # probs_matching, targets_matching = id_logits_[indices[0][0]], id_targets[indices[0][1]]
-                    # probs_matching_dt, targets_matching_dt = dt_logits_[indices[0][0]], time_targets[indices[0][1]]
-                    # loss_id_ = F.cross_entropy(probs_matching, targets_matching)
-                    # loss_time_ = F.cross_entropy(probs_matching_dt, targets_matching_dt)
+                # if len(id_targets) > 0:
+                #     indices = self.hungarian_matcher(id_logits, id_targets)
+                #     probs_matching, targets_matching = id_logits[indices[0][0]], id_targets[indices[0][1]]
+                #     loss_hungarian_ = F.cross_entropy(probs_matching, targets_matching, weight=self.class_weights).to(self.device)
+                    # loss_hungarian.append(loss_hungarian_)
+                #     # psth = self.proj_psth(x[B, -1]) # from the EOS position
+                    
+                    # loss_psth.append(torch.nan_to_num(self.set_loss(id_logits, id_targets)))
+                    # loss_psth_ = self.dice_loss(id_logits, id_targets)
+                    # loss_psth.append(torch.nan_to_num(loss_psth_))
+                
+                loss_time.append(torch.nan_to_num(loss_time_))
+                loss_id.append(torch.nan_to_num(loss_id_))
 
-                    ## score metrics
-                    # pred_id = torch.argmax(id_logits_, dim=-1).flatten().detach().cpu().numpy().tolist()
-                    probs_neurons = F.softmax(id_logits_, dim=-1)
-                    _, ix_top_k = torch.topk(probs_neurons, k=5, dim=-1)
-                    pred_neurons = ix_top_k.detach().flatten().cpu().numpy()
-                    true_neurons = id_targets.detach().flatten().cpu().numpy()
-                    # for n in range(len(pred_neurons)):
-                    pred_id = pred_neurons
-                    true_id = true_neurons
+                if len(id_targets) > 0:
+                    pred_id = torch.argmax(id_logits_, dim=-1).flatten().detach().cpu().numpy().tolist()
+                    true_id = id_targets.flatten().detach().cpu().numpy().tolist()
                     # pred_dt = torch.argmax(dt_logits_, dim=-1)
                     true_positives = set(true_id) & set(pred_id)
                     false_positives = set(pred_id) - set(true_id)
@@ -995,13 +988,13 @@ class GPT(nn.Module):
                         f1_score = 0
                     precision.append(precision_score), recall.append(recall_score), F1.append(f1_score)
 
-                loss_id.append(loss_id_)
-                loss_time.append(loss_time_)
+            # loss_id.append(F.cross_entropy(id_logits.view(-1, id_logits.size(-1)), targets['id'].view(-1)))
+            # loss_time.append(F.cross_entropy(dt_logits.view(-1, dt_logits.size(-1)), targets['dt'].view(-1)))
 
             loss = dict()
             # loss['frames'] = loss_frames / (b / 3)
-            loss['id'] = (3 / 4) * sum(loss_id) / b  # sum(loss_id) / (b * 2)   # / len(loss_id)
-            loss['time'] = (1 / 4) * sum(loss_time) / b
+            loss['id'] = (4 / 4) * sum(loss_id) / b  # sum(loss_id) / (b * 2)   # / len(loss_id)
+            # loss['time'] = (1 / 4) * sum(loss_time) / b
             # loss['dice'] = sum(loss_dice) / len(loss_dice)
             # loss['dt'] = loss_time / (b * 50)
             # loss['hungarian'] = sum(loss_hungarian) / (b * 2)
