@@ -359,8 +359,9 @@ class AttentionVis:
                                 # att = att - att.mean(axis=-2, keepdims=True)
                                 # att = att - att.mean(axis=(0, 1, 2), keepdims=True)
                                 if not rollout:
-                                        att = np.mean(att, axis=0)
-                                        att = np.max(att, axis=0)
+                                        att = np.max(att, axis=1)
+                                        att = np.sum(att, axis=0)
+                                        # att = np.max(att, axis=(0, 1))
                                 # att = np.mean(att, axis=0)
                                 # att = att[-1]   # take last layer
                                 # att_n = LA.norm(att, axis=-1, ord=2, keepdims=True)
