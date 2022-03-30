@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 
 import pandas as pd
+pd.options.mode.chained_assignment = None  # default='warn'
 
 import math
 from torch.utils.data import Dataset
