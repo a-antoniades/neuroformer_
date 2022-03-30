@@ -193,19 +193,19 @@ class Trainer:
                 
                 if it % 100 == 0:
                     self.save_checkpoint(it, np.array(scores['F1']).mean())
-                
-            # tensorboard
-            av_losses = collections.defaultdict(list)
-            total_losses = 0
-            for key, value in losses.items():
-                av_losses[key] = np.array(value).mean()
-                total_losses += av_losses[key]
-                self.writer.add_scalar(f"Loss/{split}_{str(key)}", av_losses[key], epoch)
-            self.writer.add_scalar(f"Loss/{split}_total", total_losses, epoch)
-                
-            for score in config.score_metrics:
-                scores[score].append(preds[score])
-                self.writer.add_scalar(f"Score/{split}_{str(score)}", preds[score], epoch)
+                    
+                # tensorboard
+                av_losses = collections.defaultdict(list)
+                total_losses = 0
+                for key, value in losses.items():
+                    av_losses[key] = np.array(value).mean()
+                    total_losses += av_losses[key]
+                    self.writer.add_scalar(f"Loss/{split}_{str(key)}", av_losses[key], epoch)
+                self.writer.add_scalar(f"Loss/{split}_total", total_losses, epoch)
+                    
+                for score in config.score_metrics:
+                    scores[score].append(preds[score])
+                    self.writer.add_scalar(f"Score/{split}_{str(score)}", preds[score], epoch)
             
                 
             if not is_train:
