@@ -34,11 +34,9 @@ def convolve_atts_3D(stim_atts):
 def grad_rollout(attentions, gradients, discard_ratio=0.8):
         result = None
         with torch.no_grad():
-                # for attention, grad in zip(attentions[-1], gradients):     
-                for attention in attentions:
-                        # weights = grad
-                        # attention_heads_fused = (weights*attention).mean(axis=1)
-                        attention_heads_fused = attention.max(axis=1)[0]
+                for attention, grad in zip(attentions[-1], gradients):     
+                        weights = grad
+                        attention_heads_fused = (weights*attention).mean(axis=1)
                         attention_heads_fused[attention_heads_fused < 0] = 0
 
                         # Drop the lowest attentions, but
@@ -50,7 +48,7 @@ def grad_rollout(attentions, gradients, discard_ratio=0.8):
 
                         I = torch.eye(attention_heads_fused.size(-2), attention_heads_fused.size(-1))
                         a = (attention_heads_fused + 1.0*I)/2
-                        a = attention_heads_fused
+                        # a = attention_heads_fused
                         a = a / a.sum(dim=-1).unsqueeze(-1)
                         # a = a[:, pos_index]
                         if result == None:
@@ -305,18 +303,18 @@ class AttentionVis:
                 '''
                 rollout_att = np.eye(att.shape[-2], att.shape[-1])
                 for i in range(att.shape[0]):
-                        # if i==0:
-                        #         continue
+                        if i==0:
+                                continue
                         I = np.eye(att.shape[-2], att.shape[-1])
                         a = att[i]
-                        a = a.max(axis=0)
+                        a = a.max(axis=0)[0]
                         a = (a + 1.0*I) / 2
                         a = a / a.sum(axis=-1, keepdims=True)
                         rollout_att = a * rollout_att
                 return rollout_att
         
         # @torch.no_grad()
-        def att_interval_frames(self, model, module, loader, n_blocks, block_size, rollout=False, pad_key=None, agg=False, stoi=None):
+        def att_interval_frames(self, model, module, loader, n_blocks, block_size, rollout=False, pad_key=None, agg=False, stoi=None, max_it=None):
                 device = torch.cuda.current_device() if torch.cuda.is_available() else 'cpu'
                 device = 'cpu'
                 model.to(device)
@@ -324,7 +322,8 @@ class AttentionVis:
                 model = model.eval()
                 T = block_size
                 attention_scores = None
-                pbar = tqdm(enumerate(loader), total=len(loader))
+                len_loader = len(loader) if max_it is None else max_it
+                pbar = tqdm(enumerate(loader), total=len_loader)
 
                 if rollout:
                         grad_rollout = VITAttentionGradRollout(model, module)
@@ -337,10 +336,11 @@ class AttentionVis:
                                 y[key] = y[key].to(device)
                         # att = np.swapaxes(att, -1, -2)
                         if rollout:
-                                # att = grad_rollout(x, y).detach().numpy()
+                                # preds, features, loss, = model(x, y)
+                                # att = AttentionVis.get_attention(module, n_blocks, T)
                                 # att = self.rollout_attentions(att)
                                 att = grad_rollout(x, y)[0]
-                                # print(att.shape)
+
                         if not rollout:
                                 with torch.no_grad():
                                         preds, features, loss, = model(x, y)
@@ -377,6 +377,9 @@ class AttentionVis:
                                 attention_scores = score[None, ...]
                         else:
                                 attention_scores = np.vstack((attention_scores, score[None, ...]))
+                        
+                        if max_it is not None and it == max_it:
+                                break
 
                         # att_dict[int(y['id'][:, n])] = step
                         # atts[tuple(x['interval'].cpu().numpy().flatten())] = att_dict
