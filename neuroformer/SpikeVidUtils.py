@@ -448,9 +448,9 @@ class SpikeTimeVidData2(Dataset):
                 dt_chunk = dt
                 pad_n
                 """
-                data = self.data[(self.data['Interval'] > interval[0] + 0.005) & 
-                                 (self.data['Interval'] <= interval[1] + 0.005) &
-                                 (self.data['Trial'] == trial)][-(self.id_block_size - 2):]
+                data = self.data[self.data['Trial'] == trial]
+                data = data[(data['Interval'] > interval[0] + 0.005) & 
+                                 (data['Interval'] <= interval[1] + 0.005)][-(self.id_block_size - 2):]
 
 
                 # data = self.data[(self.data['Interval'] == interval) & 
