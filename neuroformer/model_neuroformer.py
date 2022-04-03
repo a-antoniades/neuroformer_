@@ -14,7 +14,7 @@ from torch.nn import functional as F
 from torch.autograd import Variable
 # from torchvision.models.video import r3d_18
 # from ResNet3D import r3d_18
-from torchvision.models._utils import IntermediateLayerGetter
+# from torchvision.models._utils import IntermediateLayerGetter
 
 
 from scipy.optimize import linear_sum_assignment
@@ -869,7 +869,7 @@ class GPT(nn.Module):
         pad = x['pad']
 
         b, t = idx.size()
-        # b_p, t_p = p_idx.size()
+        b_p, t_p = p_idx.size()
         bf, tf = frames.size()[0:2]
 
         # forward the GPT model
@@ -877,17 +877,17 @@ class GPT(nn.Module):
         positional and temporal embeddings implemented in multiple ways, learnt, 
         fourrier decomposition and in the case of time, just passed as is. 
         '''
-        # # Embeddings
+        # Embeddings
         prev_id_position_embeddings = self.pos_emb_prev if self.config.pos_emb else 0
         prev_id_temporal_embeddings = self.temp_emb_prev(dtx_prev.float()) if self.config.temp_emb else 0
         id_position_embeddings = self.pos_emb if self.config.pos_emb else 0
+        id_temporal_embeddings = self.temp_emb(dtx.float()) if self.config.temp_emb else 0
         im_position_embeddings = self.pos_emb_frames.repeat(1, 20, 1)
-        temporal_embeddings = self.temp_emb(dtx.float()) if self.config.temp_emb else 0
         
         # Extract ID features
         prev_token_embeddings = self.id_drop(self.tok_emb(p_idx) + prev_id_temporal_embeddings + prev_id_position_embeddings)
         token_embeddings = self.tok_emb(idx) # each index maps to a (learnable) vector
-        token_embeddings = token_embeddings + temporal_embeddings + id_position_embeddings
+        token_embeddings = token_embeddings + id_temporal_embeddings + id_position_embeddings
         token_embeddings = self.id_drop(token_embeddings)
 
         # Extract image features and add time embeddings
