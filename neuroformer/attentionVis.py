@@ -37,7 +37,7 @@ def grad_rollout(attentions, gradients, discard_ratio=0.8):
                 for attention, grad in zip(attentions[-1], gradients):     
                         weights = grad
                         attention_heads_fused = (weights*attention).mean(axis=1)
-                        attention_heads_fused[attention_heads_fused < 0] = 0
+                        # attention_heads_fused[attention_heads_fused < 0] = 0
 
                         # Drop the lowest attentions, but
                         # don't drop the class token
@@ -47,8 +47,8 @@ def grad_rollout(attentions, gradients, discard_ratio=0.8):
                         # flat[0, indices] = 0
 
                         I = torch.eye(attention_heads_fused.size(-2), attention_heads_fused.size(-1))
-                        a = (attention_heads_fused + 1.0*I)/2
-                        # a = attention_heads_fused
+                        # a = (attention_heads_fused + 1.0*I)/2
+                        a = attention_heads_fused
                         a = a / a.sum(dim=-1).unsqueeze(-1)
                         # a = a[:, pos_index]
                         if result == None:
@@ -99,12 +99,12 @@ class VITAttentionGradRollout:
         def get_attention(self, module, input, output):
                 self.attentions.append(output.cpu())
                 # print(output.shape)
-                # print(len(self.attentions))
                 
         
         def get_attention_gradient(self, module, grad_input, grad_output):
                 # print(grad_input[0].shape)
                 # print(grad_input)
+                print(grad_output[0].shape)
                 self.attention_gradients.append(grad_input[0].cpu())
                 # print(grad_input[0].shape)
 
@@ -121,74 +121,6 @@ class VITAttentionGradRollout:
                 return grad_rollout(self.attentions, self.attention_gradients, self.discard_ratio)
                 # return grad_att(torch.cat(self.attentions), torch.cat(self.attention_gradients))  # grad_rollout(self.attentions, self.attention_gradients, self.discard_ratio)
 
-
-# def grad_rollout(attentions, gradients, discard_ratio):
-#     result = torch.eye(attentions[0].size(-1))
-# #     print(len(gradients))
-# #     print(len(attentions))
-#     with torch.no_grad():
-#         for attention, grad in zip(attentions, gradients):                
-#             weights = grad
-#             attention_heads_fused = (attention*weights).mean(axis=1)
-#             attention_heads_fused[attention_heads_fused < 0] = 0
-
-#             # Drop the lowest attentions, but
-#             # don't drop the class token
-#             flat = attention_heads_fused.view(attention_heads_fused.size(0), -1)
-#             _, indices = flat.topk(int(flat.size(-1)*discard_ratio), -1, False)
-#             #indices = indices[indices != 0]
-#             flat[0, indices] = 0
-
-#             I = torch.eye(attention_heads_fused.size(-1))
-#             a = (attention_heads_fused + 1.0*I)/2
-#             a = a / a.sum(dim=-1)
-#             result = torch.matmul(a, result)
-    
-#     # Look at the total attention between the class token,
-#     # and the image patches
-#     mask = result[0, 0 , 1 :]
-#     # In case of 224x224 image, this brings us from 196 to 14
-#     width = int(mask.size(-1)**0.5)
-#     mask = mask.reshape(width, width).numpy()
-#     mask = mask / np.max(mask)
-#     return mask    
-
-# class VITAttentionGradRollout:
-#     def __init__(self, model, blocks, attention_layer_name='attn_drop',
-#         discard_ratio=0.9):
-#         self.model = model
-#         self.discard_ratio = discard_ratio
-#         self.blocks = blocks
-#         # for name, module in self.model.named_modules():
-#         #     if attention_layer_name in name:
-#         #         module.register_forward_hook(self.get_attention)
-#         #         module.register_full_backward_hook(self.get_attention_gradient)
-        
-#         for i in range(len(blocks)):
-#                 self.blocks[i].attn.attn_drop.register_forward_hook(self.get_attention)
-#                 self.blocks[i].attn.attn_drop.register_full_backward_hook(self.get_attention_gradient)
-#                 # print(name, module)
-
-#         self.attentions = []
-#         self.attention_gradients = []
-
-#     def get_attention(self, module, input, output):
-#         self.attentions.append(output.cpu())
-
-#     def get_attention_gradient(self, module, grad_input, grad_output):
-#         self.attention_gradients.append(grad_input[0].cpu())
-
-#     def __call__(self, x, y):
-#         self.model.zero_grad()
-#         preds, features, loss = self.model(x, y)
-#         output = preds['id']
-#         category_mask = torch.zeros(output.size())
-#         # category_mask[:, category_index] = 1
-#         loss = loss['id']
-#         loss.backward()
-
-#         return grad_rollout(self.attentions, self.attention_gradients,
-#             self.discard_ratio)
 
 class AttentionVis:
         '''attention Visualizer'''
@@ -325,8 +257,6 @@ class AttentionVis:
                 len_loader = len(loader) if max_it is None else max_it
                 pbar = tqdm(enumerate(loader), total=len_loader)
 
-                if rollout:
-                        grad_rollout = VITAttentionGradRollout(model, module)
                 for it, (x, y) in pbar:
                         pad = x[pad_key] if pad_key is not None else 0
                         # place data on the correct device
@@ -339,6 +269,7 @@ class AttentionVis:
                                 # preds, features, loss, = model(x, y)
                                 # att = AttentionVis.get_attention(module, n_blocks, T)
                                 # att = self.rollout_attentions(att)
+                                grad_rollout = VITAttentionGradRollout(model, module)
                                 att = grad_rollout(x, y)[0]
 
                         if not rollout:
@@ -355,8 +286,8 @@ class AttentionVis:
                                 # att = att - att.mean(axis=-2, keepdims=True)
                                 # att = att - att.mean(axis=(0, 1, 2), keepdims=True)
                                 if not rollout:
-                                        att = np.max(att, axis=1)
-                                        att = np.sum(att, axis=0)
+                                        att = np.max(att, axis=(0, 1))
+                                        # att = np.sum(att, axis=0)
                                         # att = np.max(att, axis=(0, 1))
                                 # att = np.mean(att, axis=0)
                                 # att = att[-1]   # take last layer
@@ -461,7 +392,6 @@ class AttentionVis:
 
                 for step in ix_step:
                         interval_trials = dataset.t
-
 
                         H, W = video_stack[0].shape[-2], video_stack[0].shape[-1]
                         xy_res = int(n_embd ** (1/2))
