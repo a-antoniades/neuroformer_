@@ -1,4 +1,5 @@
 import numpy as np
+from pyrsistent import discard
 from sympy import Q
 import torch
 import matplotlib.pyplot as plt
@@ -31,13 +32,15 @@ def convolve_atts_3D(stim_atts):
     return stim_atts
 
 
-def grad_rollout(attentions, gradients, discard_ratio=0.8):
+def grad_rollout(attentions, gradients, discard_ratio=0.8, idx=None):
         result = None
         with torch.no_grad():
-                for attention, grad in zip(attentions[-1], gradients):     
+                for attention, grad in zip(attentions, gradients):
+                        attention = attention if idx is None else attention[:, :, idx]
+                        grad = grad if idx is None else grad[:, :, idx] 
                         weights = grad
                         attention_heads_fused = (weights*attention).mean(axis=1)
-                        # attention_heads_fused[attention_heads_fused < 0] = 0
+                        # attention_heads_fused[attenti,on_heads_fused < discard_ratio] = 0
 
                         # Drop the lowest attentions, but
                         # don't drop the class token
@@ -84,9 +87,10 @@ class VITAttentionGradRollout:
         This way we can get neuron-specific attentions.
         """
 
-        def __init__(self, model, module, attn_layer_name='attn_drop', discard_ratio=0.5):
+        def __init__(self, model, module, attn_layer_name='attn_drop', discard_ratio=0.5, idx=None):
                 self.model = model
                 self.module = module
+                self.idx = idx
                 self.discard_ratio = discard_ratio
                 for name, module in self.module.named_modules():
                         if attn_layer_name in name:
@@ -97,28 +101,31 @@ class VITAttentionGradRollout:
                 self.attention_gradients = []
 
         def get_attention(self, module, input, output):
+                # output = output if self.idx is None else output[:, :, self.idx]
                 self.attentions.append(output.cpu())
                 # print(output.shape)
                 
         
         def get_attention_gradient(self, module, grad_input, grad_output):
-                # print(grad_input[0].shape)
-                # print(grad_input)
-                print(grad_output[0].shape)
+                grad = grad_input[0]
+                # grad = grad if self.idx is None else grad[:, :, self.idx]
                 self.attention_gradients.append(grad_input[0].cpu())
                 # print(grad_input[0].shape)
 
         def __call__(self, x, y):
                 self.model.zero_grad()
                 preds, features, loss = self.model(x, y)
-                output = preds['id']
+                output = preds['id'] if self.idx==None else preds['id'][:, self.idx]
                 category_mask = torch.zeros(output.size())
-                # category_mask[:, category_index] = 1
-                loss = loss['id'] 
+                y_id = y['id'].flatten()
+                y_idx = y_id if self.idx==None else y_id[self.idx]
+                category_mask[..., y_idx] = 1
+                loss = (output*category_mask).sum()
+                # loss = loss['id']
                 loss.backward()
                 
                 # print(len(self.attention_gradients))
-                return grad_rollout(self.attentions, self.attention_gradients, self.discard_ratio)
+                return grad_rollout(self.attentions, self.attention_gradients, self.discard_ratio, self.idx)
                 # return grad_att(torch.cat(self.attentions), torch.cat(self.attention_gradients))  # grad_rollout(self.attentions, self.attention_gradients, self.discard_ratio)
 
 
@@ -245,6 +252,17 @@ class AttentionVis:
                         rollout_att = a * rollout_att
                 return rollout_att
         
+        def grad_attentions(self, model, module, x, y, stoi):
+                grad_attentions = None
+                for idx, id_ in enumerate(y['id'].flatten()):
+                        grad_rollout = VITAttentionGradRollout(model, module, idx=idx)
+                        att = grad_rollout(x, y)[0]
+                        grad_attentions = att[None, ...] if grad_attentions is None else torch.cat((grad_attentions, att[None, ...]))
+                        if id_ >= stoi['SOS']:
+                                break
+                return grad_attentions
+
+        
         # @torch.no_grad()
         def att_interval_frames(self, model, module, loader, n_blocks, block_size, rollout=False, pad_key=None, agg=False, stoi=None, max_it=None):
                 device = torch.cuda.current_device() if torch.cuda.is_available() else 'cpu'
@@ -269,8 +287,14 @@ class AttentionVis:
                                 # preds, features, loss, = model(x, y)
                                 # att = AttentionVis.get_attention(module, n_blocks, T)
                                 # att = self.rollout_attentions(att)
-                                grad_rollout = VITAttentionGradRollout(model, module)
-                                att = grad_rollout(x, y)[0]
+
+                                # grad_rollout = VITAttentionGradRollout(model, module)
+                                # att = grad_rollout(x, y)[0]
+
+                                att = self.grad_attentions(model, module, x, y, stoi)
+                                if att == None:
+                                        continue
+
 
                         if not rollout:
                                 with torch.no_grad():
@@ -297,9 +321,10 @@ class AttentionVis:
                                 # att = att / (n_L * n_H * (t_seq))
                                 score = np.zeros((mconf.id_vocab_size, mconf.frame_block_size))
                                 xid = x['id'].cpu().flatten().tolist()
-                                yid = y['id'].cpu().flatten().tolist()
+                                yid = y['id'].cpu().flatten().tolist()[:t_seq]
                                 # score[ix] = att
-                                score[y['id']] = att
+                                # print(score.shape, len(yid), att.shape)
+                                score[yid] = att
                                 # score[t_seq:] == 0
                         else:
                                 score = att
