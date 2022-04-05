@@ -16,6 +16,7 @@ from utils import top_k_top_p_filtering
 
 from scipy import signal
 
+
 def convolve_atts_3D(stim_atts):
     '''
     input: (ID, T, Y, X)
@@ -30,7 +31,6 @@ def convolve_atts_3D(stim_atts):
     for n_id in range(stim_atts.shape[0]):
         stim_atts[n_id] = signal.convolve(stim_atts[n_id], kernel, mode="same")
     return stim_atts
-
 
 def rollout_attentions(att):
         ''' Rollout attentions
@@ -54,6 +54,7 @@ def grad_rollout(attentions, gradients, discard_ratio=0.8, idx=None):
         # attentions = [rollout_attentions(torch.cat(attentions))]
         # if len(attentions) > 1:
         #         attentions = [torch.cat(attentions).sum(0)[None, ...]]
+        print(len(attentions), len(gradients))
         with torch.no_grad():
                 for attention, grad in zip(attentions[-1][None], gradients):
                         attention = attention if idx is None else attention[:, :, idx]
