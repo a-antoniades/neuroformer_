@@ -32,10 +32,30 @@ def convolve_atts_3D(stim_atts):
     return stim_atts
 
 
+def rollout_attentions(att):
+        ''' Rollout attentions
+        Input: (L, H, ID, F)
+        '''
+        rollout_att = torch.eye(att.shape[-2], att.shape[-1])
+        for i in range(att.shape[0]):
+                if i==0:
+                        continue
+                I = torch.eye(att.shape[-2], att.shape[-1])
+                a = att[i]
+                a = a.max(axis=0)[0]
+                a = (a + 1.0*I) / 2
+                a = a / a.sum(axis=-1, keepdims=True)
+                rollout_att = a * rollout_att
+        return rollout_att
+
+
 def grad_rollout(attentions, gradients, discard_ratio=0.8, idx=None):
         result = None
+        # attentions = [rollout_attentions(torch.cat(attentions))]
+        # if len(attentions) > 1:
+        #         attentions = [torch.cat(attentions).sum(0)[None, ...]]
         with torch.no_grad():
-                for attention, grad in zip(attentions, gradients):
+                for attention, grad in zip(attentions[-1][None], gradients):
                         attention = attention if idx is None else attention[:, :, idx]
                         grad = grad if idx is None else grad[:, :, idx] 
                         weights = grad
@@ -235,22 +255,6 @@ class AttentionVis:
         #                                 models_atts.append(attention_scores.sum(axis=0))
         #                                 break
         #         return models_atts
-
-        def rollout_attentions(self, att):
-                ''' Rollout attentions
-                Input: (L, H, ID, F)
-                '''
-                rollout_att = np.eye(att.shape[-2], att.shape[-1])
-                for i in range(att.shape[0]):
-                        if i==0:
-                                continue
-                        I = np.eye(att.shape[-2], att.shape[-1])
-                        a = att[i]
-                        a = a.max(axis=0)[0]
-                        a = (a + 1.0*I) / 2
-                        a = a / a.sum(axis=-1, keepdims=True)
-                        rollout_att = a * rollout_att
-                return rollout_att
         
         def grad_attentions(self, model, module, x, y, stoi):
                 grad_attentions = None
@@ -274,7 +278,7 @@ class AttentionVis:
                 attention_scores = None
                 len_loader = len(loader) if max_it is None else max_it
                 pbar = tqdm(enumerate(loader), total=len_loader)
-
+                
                 for it, (x, y) in pbar:
                         pad = x[pad_key] if pad_key is not None else 0
                         # place data on the correct device
@@ -310,7 +314,7 @@ class AttentionVis:
                                 # att = att - att.mean(axis=-2, keepdims=True)
                                 # att = att - att.mean(axis=(0, 1, 2), keepdims=True)
                                 if not rollout:
-                                        att = np.max(att, axis=(0, 1))
+                                        att = np.mean(att, axis=(0, 1))
                                         # att = np.sum(att, axis=0)
                                         # att = np.max(att, axis=(0, 1))
                                 # att = np.mean(att, axis=0)
@@ -324,7 +328,7 @@ class AttentionVis:
                                 yid = y['id'].cpu().flatten().tolist()[:t_seq]
                                 # score[ix] = att
                                 # print(score.shape, len(yid), att.shape)
-                                score[yid] = att
+                                score[yid] = att[:t_seq]
                                 # score[t_seq:] == 0
                         else:
                                 score = att
