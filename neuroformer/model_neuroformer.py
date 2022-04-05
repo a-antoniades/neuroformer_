@@ -1,5 +1,8 @@
 # from code.transformer_vid.utils import convert_weights
 # import rotary_embedding_torch
+from xml.etree.ElementPath import xpath_tokenizer
+
+from grpc import xds_channel_credentials
 from torch.nn.modules.activation import GELU, ReLU
 # from data.OneCombo3.trainer import TrainerConfig
 import math
@@ -12,6 +15,9 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 from torch.autograd import Variable
+
+import copy
+
 # from torchvision.models.video import r3d_18
 # from ResNet3D import r3d_18
 # from torchvision.models._utils import IntermediateLayerGetter
@@ -47,6 +53,9 @@ def convert_weights(model: nn.Module):
                     attr.data = attr.data.half()
 
     model.apply(_convert_weights_to_fp16)
+
+def _get_clones(module, N):
+    return nn.ModuleList([copy.deepcopy(module) for i in range(N)])
 
 class GPTConfig:
     """ base GPT config, params common to all GPT versions """
@@ -667,10 +676,15 @@ class MultimodalTransformer(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.config = config
-        self.neural_state_block = BlockSequential(*[Block(config, sparse_topk=config.sparse_topk_id) for _ in range(config.n_state_layers)])
-        self.neural_state_history_block = BlockSequential(*[Block(config, sparse_topk=config.sparse_topk_id) for _ in range(config.n_state_history_layers)])
+        # self.neural_state_block = nn.Sequential(*[Block(config, sparse_topk=config.sparse_topk_id) for _ in range(config.n_state_layers)])
+        # self.neural_state_history_block = nn.Sequential(*[Block(config, sparse_topk=config.sparse_topk_id) for _ in range(config.n_state_history_layers)])
         # self.neural_state_history_self_attention = BlockSequential(*[Block(config) for _ in range(config.n_state_layers)])
-        self.neural_state_stimulus = BlockSequential(*[Block(config, sparse_topk=config.sparse_topk_frame) for _ in range(config.n_stimulus_layers)])
+        # self.neural_state_stimulus = BlockSequential(*[Block(config, sparse_topk=config.sparse_topk_frame) for _ in range(config.n_stimulus_layers)])
+
+        self.neural_state_blocks = _get_clones(Block(config, sparse_topk=config.sparse_topk_id), config.n_state_layers)
+        self.neural_state_history_blocks = _get_clones(Block(config, sparse_topk=config.sparse_topk_id), config.n_state_history_layers)
+        # self.neural_state_history_self_attention = BlockSequential(*[Block(config) for _ in range(config.n_state_layers)])
+        self.neural_state_stimulus_blocks =  _get_clones(Block(config, sparse_topk=config.sparse_topk_frame), config.n_stimulus_layers)
 
         self.ln_f = nn.LayerNorm(config.n_embd)
         self.epoch = 0
@@ -720,15 +734,16 @@ class MultimodalTransformer(nn.Module):
         neural_state = features['id']
         neural_history = features['id_prev']
         stimulus = features['frames']
+        neural_state_stimulus = []
         
-        if self.config.n_state_layers > 0:
-            x = self.neural_state_block(neural_state, neural_state, neural_state, mask=mask)
-        if self.config.n_state_history_layers > 0:
-            y = x + self.neural_state_history_block(neural_history, neural_history, neural_history)
-            # x = self.neural_state_history_block(neural_history, neural_history, neural_history)
-        if self.config.n_stimulus_layers > 0:
-            z = x + y + self.neural_state_stimulus(x, stimulus, stimulus)
-        return self.ln_f(z)
+        x = neural_state
+        for mod in self.neural_state_blocks:
+            x = mod(x, neural_state, neural_state, mask)
+        for mod in self.neural_state_history_blocks:
+            x = x + mod(x, neural_history, neural_history)
+        for mod in self.neural_state_stimulus_blocks:
+            x = x + mod(x, stimulus, stimulus)
+        return self.ln_f(x)
 
 
 
@@ -787,7 +802,7 @@ class GPT(nn.Module):
 
         # Loss functions
         # self.truncated_loss = TruncatedLoss()
-        self.hungarian_matcher = HungarianMatcher()
+        # self.hungarian_matcher = HungarianMatcher()
 
         # CONCEPT TRANSFORMER
         # self.register_buffer("neuron_population", torch.tensor([i for i in range(config.id_vocab_size)], dtype=torch.long).unsquueze(0))
