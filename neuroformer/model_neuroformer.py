@@ -177,7 +177,7 @@ class VideoEncoder(nn.Module):
         self.f_emb = int(config.n_embd_frames ** (1/2))
         
         self.to_patch_embedding = nn.Sequential(
-            Rearrange('b c t (h p1) (w p2) -> b t h w (p1 p2 c)', p1=self.f_emb, p2=self.f_emb)
+            Rearrange('b c t (h p1) (w p2) -> b (t h w) (p1 p2 c)', p1=self.f_emb, p2=self.f_emb)
         )
 
         self.proj_emb = nn.Linear(config.n_embd_frames, config.n_embd)
@@ -249,12 +249,17 @@ class MultiheadfAttention(nn.Module):
         att = att.masked_fill(mask, float('-inf'))
         return att
 
-    def forward(self, q, k, v, tgt_mask=None, pad=None, dtx=None, sparse_topk=None):
-        assert k.size() == v.size(), "Keys and Values must be of same size"
-        assert q.size(-1) == k.size(-1) == v.size(-1), "Embedding dims must be of same size"
+    def forward(self, q, k=None, v=None, tgt_mask=None, pad=None, dtx=None, sparse_topk=None):
+        if None not in (k, v):
+            assert k.size() == v.size(), "Keys and Values must be of same size"
+            assert q.size(-1) == k.size(-1) == v.size(-1), "Embedding dims must be of same size"
+        else:
+            k, v = q, q
         
         Bt, Tt, Ct = q.size()
         Bs, Ts, Cs = k.size()
+
+        k, v = q if None in {k, v} else k, v
 
         # calculate query, key, values for all head in batch and move head forward to the batch dim]
         q = self.query(q).view(Bt, Tt, self.n_head, Ct // self.n_head).transpose(1, 2) # (B, nh, T, hs)
@@ -317,54 +322,6 @@ class PositionalEmbedding(nn.Module):
         x = Variable(self.pe[:, :x.size(1)], 
                          requires_grad=False)
         return self.dropout(x)
-
-    
-class PositionalEncoding3D(nn.Module):
-    def __init__(self, n_embd, max_len=[30, 30, 30]):
-        """
-        :param channels: The last dimension of the tensor you want to apply pos emb to.
-        """
-        super(PositionalEncoding3D, self).__init__()
-
-        n_embd_d = n_embd // 3
-        if n_embd_d % 2:
-            n_embd_d += 1
-        self.n_embd_d = n_embd_d
-        
-        pe_x = self.fourrier_encode(max_len[0], n_embd_d).unsqueeze(1).unsqueeze(1)
-        pe_y = self.fourrier_encode(max_len[1], n_embd_d).unsqueeze(1)
-        pe_z = self.fourrier_encode(max_len[2], n_embd_d)
-
-        self.register_buffer('pe_x', pe_x)
-        self.register_buffer('pe_y', pe_y)
-        self.register_buffer('pe_z', pe_z)
-    
-    def fourrier_encode(self, max_len, n_embd):
-        pe = torch.zeros(max_len, n_embd)
-        position = torch.arange(0, max_len).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, n_embd, 2) *
-                            -(math.log(10000.0) / n_embd))
-        pe[:, 0::2] = torch.sin(position * div_term)
-        pe[:, 1::2] = torch.cos(position * div_term)
-
-        return pe
-
-    def forward(self, x):
-        b, t, h, w, c = x.size()
-        assert len(x.size()) == 5, "Input must be 5-dimensional"
-        pe_x = self.pe_x[:t]
-        pe_y = self.pe_y[:h]
-        pe_z = self.pe_z[:w]
-
-        # pe_x
-        # print(pe_x.shape, pe_y.shape, pe_z.shape)
-
-        pe = torch.zeros(t, h, w, self.n_embd_d * 3)
-        pe[:, :, :, :self.n_embd_d] = pe_x
-        pe[:, :, :, self.n_embd_d:2 * self.n_embd_d] = pe_y
-        pe[:, :, :, 2 * self.n_embd_d:] = pe_z
-
-        return pe[None, ..., :c]
 
 
 # class RotarySpatioTemporalEmbedding(nn.Module):
@@ -703,7 +660,7 @@ class Block(nn.Module):
         )
         self.ln_f = nn.LayerNorm(config.n_embd)
 
-    def forward(self, q, k, v, mask=None, pad=None, dtx=None):
+    def forward(self, q, k=None, v=None, mask=None, pad=None, dtx=None):
         x = q
         # x = self.ln1(x + self.attn(x, k, v, mask, pad))
         # x = self.ln2(x + self.mlp(x))
@@ -785,13 +742,15 @@ class MultimodalTransformer(nn.Module):
         neural_state_stimulus = []
         
         x = neural_state
+        y = neural_history
+        z = None
         for mod in self.neural_state_blocks:
-            x = mod(x, neural_state, neural_state, mask)
-        for mod in self.neural_state_history_blocks:
-            x = x + mod(x, neural_history, neural_history)
+            x = mod(x, mask=mask)
+        # for mod in self.neural_state_history_blocks:
+            # y = x + mod(x, neural_history, neural_history)
         for mod in self.neural_state_stimulus_blocks:
-            x = x + mod(x, stimulus, stimulus)
-        return self.ln_f(x)
+            z = x + mod(x, stimulus, stimulus)
+        return self.ln_f(z)
 
 
 
@@ -816,7 +775,9 @@ class GPT(nn.Module):
         # self.temp_emb = RotaryTemporalEmbedding(config.id_block_size)
         self.temp_emb = LearntTemporalEmbedding(config.id_block_size, config.n_embd)
         self.temp_emb_prev = LearntTemporalEmbedding(config.id_block_size, config.n_embd)
-        self.frame_3d_emb = PositionalEncoding3D(config.n_embd)
+        frame_temp_emb = torch.tensor(list(itertools.chain(*[[n * 0.05] * (config.frame_block_size//20) for n in range(20)]))).unsqueeze(1)
+        self.register_buffer("frame_temp_emb_seq", frame_temp_emb)
+        self.frame_temp_emb = TemporalEmbedding(config.n_embd, config.pos_pdrop, position=self.frame_temp_emb_seq)
         self.id_drop = nn.Dropout(config.id_drop)
         self.im_drop = nn.Dropout(config.im_drop)
         self.drop = nn.Dropout(config.embd_pdrop)
@@ -824,6 +785,8 @@ class GPT(nn.Module):
         # -- Visual Backbone -- #
         # self.visual_backbone = VideoFeaturesExtractor()
         self.video_encoder = VideoEncoder(config)
+        frame_temp_emb = torch.tensor(list(itertools.chain(*[[n * 0.05] * (config.frame_block_size//20) for n in range(20)]))).unsqueeze(0)
+        self.register_buffer("frame_temp_emb_seq", frame_temp_emb)
 
         # -- Multimodal Transformer -- #
         self.neural_visual_transformer = MultimodalTransformer(config)
@@ -941,7 +904,7 @@ class GPT(nn.Module):
         prev_id_temporal_embeddings = self.temp_emb_prev(dtx_prev.float()) if self.config.temp_emb else 0
         id_position_embeddings = self.pos_emb if self.config.pos_emb else 0
         id_temporal_embeddings = self.temp_emb(dtx.float()) if self.config.temp_emb else 0
-        im_3d_embeddings = self.frame_3d_emb(frames)
+        im_position_embeddings = self.pos_emb_frames.repeat(1, 20, 1)
         
         # Extract ID features
         prev_token_embeddings = self.id_drop(self.tok_emb(p_idx) + prev_id_temporal_embeddings + prev_id_position_embeddings)
@@ -950,9 +913,9 @@ class GPT(nn.Module):
         token_embeddings = self.id_drop(token_embeddings)
 
         # Extract image features and add time embeddings
+        im_temporal_embeddings = self.frame_temp_emb(self.frame_temp_emb_seq)
         im_embeddings = frames    # self.tok_emb(frames)
-        im_embeddings = im_embeddings + im_3d_embeddings
-        im_embeddings = im_embeddings.view(b, -1, self.config.n_embd)
+        im_embeddings = im_embeddings + im_position_embeddings + im_temporal_embeddings
         im_embeddings = self.im_drop(im_embeddings)   # separate pos emb?
         
         # Tidy up
