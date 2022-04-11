@@ -191,23 +191,24 @@ class Trainer:
                     for param_group in optimizer.param_groups:
                         param_group['lr'] = lr
                 
-                if it % 100 == 0:
-                    self.save_checkpoint(it, np.array(scores['F1']).mean())
-                    
-                # tensorboard
-                av_losses = collections.defaultdict(list)
-                total_losses = 0
-                for key, value in losses.items():
-                    av_losses[key] = np.array(value).mean()
-                    total_losses += av_losses[key]
-                    self.writer.add_scalar(f"Loss/{split}_{str(key)}", av_losses[key], epoch)
-                self.writer.add_scalar(f"Loss/{split}_total", total_losses, epoch)
-                    
+                # if it % 100 == 0:
+                #     self.save_checkpoint(it, np.array(scores['F1']).mean())
+
                 for score in config.score_metrics:
                     scores[score].append(preds[score])
-                    self.writer.add_scalar(f"Score/{split}_{str(score)}", preds[score], epoch)
-            
-                
+                    
+            # tensorboard
+            av_losses = collections.defaultdict(list)
+            total_losses = 0
+            for key, value in losses.items():
+                av_losses[key] = np.array(value).mean()
+                total_losses += av_losses[key]
+                self.writer.add_scalar(f"Loss/{split}_{str(key)}", av_losses[key], epoch)
+            self.writer.add_scalar(f"Loss/{split}_total", total_losses, epoch) 
+
+            for score in config.score_metrics:
+                self.writer.add_scalar(f"Score/{split}_{str(score)}", preds[score], epoch)
+             
             if not is_train:
                 if config.plot_raster:
                     loader = DataLoader(data, shuffle=False, pin_memory=False,
