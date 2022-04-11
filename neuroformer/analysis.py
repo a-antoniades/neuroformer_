@@ -105,8 +105,12 @@ def get_scores(true, pred):
         true_positives = set_true & set_pred
         false_positives = set_pred - set_true
         false_negatives = set_true - set_pred
-        scores['precision'].append(len(true_positives) / (len(true_positives) + len(false_positives)))
-        scores['recall'].append(len(true_positives) / (len(true_positives) + len(false_negatives)))
+        if 0 not in {len(true_positives), len(false_positives), len(false_negatives)}:
+            scores['precision'].append(len(true_positives) / (len(true_positives) + len(false_positives)))
+            scores['recall'].append(len(true_positives) / (len(true_positives) + len(false_negatives)))
+        else:
+            scores['precision'].append(0)
+            scores['recall'].append(0)
         if (scores['precision'][idx] + scores['recall'][idx]) == 0:
             scores['F1'].append(0)
         else:

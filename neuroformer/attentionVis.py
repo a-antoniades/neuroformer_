@@ -115,6 +115,7 @@ def interpret(x, y, model, idx=None, n_layer=0):
                                 att = att[:, :, T - pad, :,]
                         atts.append(att)
                 return atts
+
         model.zero_grad(set_to_none=True)
         mconf = model.config
         preds, _, _ = model(x)
@@ -147,10 +148,9 @@ def interpret(x, y, model, idx=None, n_layer=0):
                 grad = torch.autograd.grad(loss, blk_att, retain_graph=True)[0].detach()
                 blk_att = blk_att.detach()
                 blk_att = grad * blk_att
-                blk_att = blk_att.max(dim=1)[0]
+                blk_att = blk_att.clamp(min=0).mean(dim=1)
                 R_id_vis = R_id_vis + torch.transpose(R_id, -1, -2) @ blk_att @ R_vis
                 del grad
-        
         R_id_vis = R_id_vis[:, idx, :,]
         model.zero_grad(set_to_none=True)
 
@@ -265,13 +265,13 @@ class AttentionVis:
                 plt.show()
         
         
-        def grad_attentions(self, model, module, grad_rollout, x, y, stoi):
+        def grad_attentions(self, model, module, grad_rollout, x, y, stoi, n_layer=None):
                 grad_attentions = None
                 for idx, id_ in enumerate(y['id'].flatten()):
                         # grad_rollout.idx = idx
                         # grad_rollout = VITAttentionGradRollout(model, module, idx=idx)
                         # att = grad_rollout(x, y)[0, idx]
-                        _, att = interpret(x, y, model, idx)
+                        _, att = interpret(x, y, model, idx, n_layer=n_layer)
                         # grad_attentions = att[None, ...] if grad_attentions is None else torch.cat((grad_attentions, att[None, ...]))
                         grad_attentions = att if grad_attentions is None else torch.cat((grad_attentions, att))
                         model.zero_grad()
@@ -308,7 +308,7 @@ class AttentionVis:
                                 # grad_rollout = VITAttentionGradRollout(model, module)
                                 # att = grad_rollout(x, y)[0]
 
-                                att = self.grad_attentions(model, module, grad_rollout, x, y, stoi)
+                                att = self.grad_attentions(model, module, grad_rollout, x, y, stoi, n_layer=2)
                                 if att == None:
                                         continue
 
@@ -318,7 +318,7 @@ class AttentionVis:
                                         preds, features, loss, = model(x, y)
                                         # preds_id = F.softmax(preds['id'] / 0.8, dim=-1).squeeze(0)
                                         # ix = torch.multinomial(preds_id, num_samples=1).flatten()
-                                        att = AttentionVis.get_attention(module, n_blocks, T)
+                                        att = get_attention(module, n_blocks, T)
                                         ## predict iteratively
                                         # ix, att = self.predict_iteratively(model, mconf, x, stoi, top_k=0, top_p=0.5, temp=0.5, sample=True, pred_dt=False)
                         with torch.no_grad():
@@ -327,7 +327,8 @@ class AttentionVis:
                                         # att = att - att.mean(axis=-2, keepdims=True)
                                         # att = att - att.mean(axis=(0, 1, 2), keepdims=True)
                                         if not rollout:
-                                                att = np.mean(att, axis=(0, 1))
+                                                att = np.max(att, axis=1)
+                                                att = np.mean(att, axis=0)
                                                 # att = np.sum(att, axis=0)
                                                 # att = np.max(att, axis=(0, 1))
                                         # att = np.mean(att, axis=0)

@@ -151,7 +151,7 @@ mconf = GPTConfig(train_dataset.population_size, block_size,    # frame_block_si
                         temp_emb=True, pos_emb=False,
                         id_drop=0, im_drop=0)
 model = GPT(mconf)
-model_path = "/Users/antonis/Downloads/simNeu3D_correct_norel_sparse_(None, None)__dt__True_perceiver_1.0_0.5_0.05_(1, 0, 4)_8_256-2.pt"
+model_path = "/Users/antonis/Downloads/simNeu3D_correct_norel_sparse_(None, None)__dt__True_perceiver_1.0_0.5_0.05_(1, 0, 4)_8_256-4.pt"
 # model.load_state_dict(torch.load(model_path, map_location='cpu'))
 
 
@@ -169,7 +169,7 @@ stimulus_atts_scores_agg = AV().att_interval_frames(model, model.neural_visual_t
 # B, L, H, N, F = stimulus_atts_scores.shape
 print(stimulus_atts_scores_agg.shape)
 
-path = "/Users/antonis/projects/slab/neuroformer/neuroformer/notebooks/centroids/stim_atts"
+path = "/Users/antonis/projects/slab/neuroformer/neuroformer/notebooks/centroids/stim_atts_5"
 paths = sorted(glob.glob(path + '/*.pt'))
 
 # for p in paths:
