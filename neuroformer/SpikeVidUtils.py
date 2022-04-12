@@ -224,6 +224,16 @@ def video_dataset(frame_stack):
     video = np.repeat(frame_stack[None, ...], 3, axis=0)
     return video
 
+def neuron_dict(df):
+    """
+    Convert pandas df[[ID, Time, Trial, Interval]]
+    into nested dict 
+    """
+    d = {k: f.groupby('Interval').apply(lambda x: {'Time': np.array(x['Time']), 'ID': np.array(x['ID'])}).to_dict()
+     for k, f in df.groupby('Trial')}
+    
+    return d
+
 
 # dataloader class
 class SpikeTimeVidData(Dataset):
@@ -463,6 +473,197 @@ class SpikeTimeVidData2(Dataset):
 
                 # print(data['Time'], "int", interval[0])
                 dt_chunk = (data['Time'] - (interval[0]))
+                dt_chunk = [self.stoi_dt[self.round_n(dt, self.dt)] for dt in dt_chunk]
+                if len(dt_chunk) > 0:
+                    dt_max = max(dt_chunk)
+                else:
+                    dt_max = 0
+                # dt_max = self.dt_max
+                dt_chunk = [0] + dt_chunk + [dt_max] * (pad_n + 1) # 0 = SOS, max = EOS
+            
+                return dix, dt_chunk, pad_n
+
+        def __getitem__(self, idx):
+                """
+                Using an odd Block_Size, in order to be able to 
+                appropriately mask joint image and id encodings.
+                
+                Example for block_size = n:
+
+                x = [frame_token_1... frame_token_n ..., id_1, id_n,]    
+                y = [frame_token_2... frame_token_n + 1 ..., id_2, id_n + 1,]
+
+                """
+
+                # grab a chunk of (block_size + 1) characters from the data
+                t = self.t.iloc[idx]
+
+                x = collections.defaultdict(list)
+                y = collections.defaultdict(list)
+
+                ## PREV ##
+                # get state history + dt (last 30 seconds)
+                prev_int = self.round_n(t['Interval'] - (self.window), self.dt)
+                # prev_int = prev_int if prev_int > 0 else -0.5
+                prev_id_interval = prev_int, self.round_n(prev_int + self.window, self.dt)
+                id_prev, dt_prev, pad_prev = self.get_interval(prev_id_interval, t['Trial'])
+                x['id_prev'] = torch.tensor(id_prev[:-1], dtype=torch.long)
+                x['dt_prev'] = torch.tensor(dt_prev[:-1], dtype=torch.float) # + 0.5
+                x['pad_prev'] = torch.tensor(pad_prev, dtype=torch.long)
+                
+                ## CURRENT ##
+                # data_current = self.data[(self.data['Interval'] == t['Interval']) & (self.data['Trial'] == t['Trial'])][-(self.id_block_size - 2):]
+                current_int = self.round_n(t['Interval'], self.dt)
+                current_id_interval = current_int, self.round_n(current_int + self.window, self.dt)
+                id_current, dt_current, pad_current = self.get_interval(current_id_interval, t['Trial'])
+                idn, dt, pad = self.get_interval(current_id_interval, t['Trial'])
+                x['id'] = torch.tensor(idn[:-1], dtype=torch.long)
+                x['dt'] = torch.tensor(dt[:-1], dtype=torch.float) # + 1
+                x['pad'] = torch.tensor(pad, dtype=torch.long) # to attend eos
+                
+                # for backbone:
+                if len(self.frame_feats) == 8:
+                    if self.t['Trial'].max() <= 8:
+                        n_stim = int(t['Trial'])
+                    else:
+                        n_stim = int(t['Trial'] // 200) - 1
+                elif self.frame_feats.shape[0] == 1:
+                    n_stim = 0
+                elif self.frame_feats.shape[0] <= 4:
+                    if t['Trial'] <= 20: n_stim = 0
+                    elif t['Trial'] <= 40: n_stim = 1
+                    elif t['Trial'] <= 60: n_stim = 2
+                
+                t['Interval'] += self.window
+                frame_idx = get_frame_idx(t['Interval'], 1/20)     # get last 1 second of frames
+                frame_idx = frame_idx if frame_idx >= 20 else 20
+                frame_feats_stim = self.frame_feats[n_stim]
+                frame_idx = frame_idx if frame_idx < frame_feats_stim.shape[1] else frame_feats_stim.shape[1]
+                # x['idx'] = torch.tensor([frame_idx, n_stim], dtype=torch.float16)
+                if self.frame_feats is not None:
+                    x['frames'] = frame_feats_stim[:, frame_idx - 20:frame_idx].type(torch.float32)
+                
+                y['id'] = torch.tensor(idn[1:], dtype=torch.long)
+                y['dt'] = torch.tensor(dt[1:], dtype=torch.long)
+                
+                # if self.pred:
+                #     dt_real = np.array(dt_chunk[1:]) + data_current['Time'].min()
+                #     y['time'] = torch.tensor(dt_real, dtype=torch.float)
+
+                # y['indexes'] = torch.linspace(1, len(y['id']), len(y['id'])).long() + self.idx
+                # self.idx += len(y['id']) - x['pad']
+
+                # x['pad'] += 1   # if +1, EOS is not attended
+                # x['pad'] = 0    # if 0, EOS is attended
+                x['interval'] = torch.tensor(t['Interval'], dtype=torch.float16)
+                x['trial'] = torch.tensor(t['Trial'], dtype=torch.long)
+
+                # x['frame_token'] = torch.tensor([self.stoi['EOS']], dtype=torch.long)
+                # x['prev_int'] = torch.tensor(len(id_prev), dtype=torch.long)
+                
+                return x, y
+    
+
+# dataloader class
+class SpikeTimeBigData(Dataset):
+        """
+        # data: 
+        0 col: Time
+        1 col: Neuron ID
+
+        # block_size:
+        Transformer Window
+
+        # dt
+        Time intervals from data col 0
+
+        # stoi, itos: dictionaries mapping neuron ID to transformer vocab
+        and vice-versa.
+        """
+
+        def __init__(self, data, data_dict, frames, block_size, id_block_size, frame_block_size, id_prev_block_size, window, dt, frame_memory, 
+                     stoi, itos, neurons, stoi_dt=None, itos_dt=None, frame_feats=None, pred=False):
+                
+                pixels = [i for i in range(frames.min(), frames.max() + 1)] if frames is not None else []
+                feat_encodings = neurons + ['EOS'] + ['PAD'] + pixels                 
+                # stoi = { ch:i for i,ch in enumerate(feat_encodings) }
+                # itos = { i:ch for i,ch in enumerate(feat_encodings) }
+                self.stoi = stoi
+                self.itos = itos
+                self.stoi_dt = stoi_dt
+                self.itos_dt = itos_dt
+
+                self.dt = dt
+                self.dt_max = max(list(stoi_dt.values()))
+                                
+                self.frame_block_size = frame_block_size
+                self.block_size = block_size
+                self.id_prev_block_size = id_prev_block_size
+                self.id_block_size = id_block_size
+                
+                assert self.id_block_size > 0
+                # assert self.frame_block_size + self.id_block_size + self.prev_id_block_size == self.block_size
+                
+                self.frame_memory = frame_memory
+                
+                self.data = data.reset_index(drop=True)
+                self.data_dict = data_dict
+                self.frame_feats = frame_feats
+                self.frames = frames
+
+                data_size, id_population_size, pixels_population_size = len(data), len(neurons + ['SOS'] + ['EOS'] + ['PAD']), len(pixels)
+                print('Length: %d Neurons: %d Pixels: %d.' % (data_size, id_population_size, pixels_population_size))
+                print(f'id block size: {self.id_block_size}')
+                print(f'frames: {frame_block_size}, id: {self.id_block_size}')
+                self.population_size = len([*stoi.keys()])
+                self.id_population_size = len([*stoi.keys()])
+                self.dt_population_size = len([*stoi_dt.keys()])
+
+                # keep track of which interval we are and how many neurons remain
+                # (i.e did not fit in block)
+                # self.t = self.data['Interval'].unique()
+                self.window = window        # interval window (prediction)
+                self.t = self.data.drop_duplicates(subset=['Interval', 'Trial'])[['Interval', 'Trial']] # .sample(frac=1).reset_index(drop=True) # interval-trial unique pairs
+                self.t = self.t[self.t['Interval'] != self.t['Interval'].min()].reset_index(drop=True)
+                self.idx = 0
+                self.window = window        # interval window (prediction)
+                self.interval = 0           # our current interval                
+                self.pred = pred
+                self.size = len(data) + 2 * len(self.t) # 2x = EOS , PAD
+                self.offset = round(data['Interval'].min() - self.window, 2)
+
+        def __len__(self):
+                return len(self.t)
+        
+        def round_n(self, x, base):
+            return round(base * (round(float(x)/base)), 2)
+                # return round(base * float(x)/base)
+
+        def get_interval(self, interval, trial):
+                """
+                Returns interval[0] >= data < interval[1]
+                chunk = ID
+                dt_chunk = dt
+                pad_n
+                """
+                data = self.data_dict[trial]
+                if interval[1] in data:
+                    data = data[interval[1]]
+                else:
+                    data = {'Time': np.array([]), 'ID': np.array([])}
+
+
+                # data = self.data[(self.data['Interval'] == interval) & 
+                #                  (self.data['Trial'] == trial)][-(self.id_block_size - 2):]  
+                chunk = data['ID']
+                dix = [self.stoi[s] for s in chunk][-(self.id_block_size - 2):]
+                dix = ([self.stoi['SOS']] + dix + [self.stoi['EOS']])
+                pad_n = self.id_block_size - (len(dix) + 1 - 2) # len chunk is 1 unit bigger than x, y
+                pad_n = 0 if pad_n <= 0 else pad_n
+                dix = dix + [self.stoi['PAD']] * pad_n
+
+                # print(data['Time'], "int", interval[0])
+                dt_chunk = (data['Time'] - (interval[0]))[-(self.id_block_size - 2):]
                 dt_chunk = [self.stoi_dt[self.round_n(dt, self.dt)] for dt in dt_chunk]
                 if len(dt_chunk) > 0:
                     dt_max = max(dt_chunk)
