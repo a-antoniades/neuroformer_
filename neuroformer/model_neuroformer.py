@@ -177,10 +177,10 @@ class VideoEncoder(nn.Module):
         self.f_emb = int(config.n_embd_frames ** (1/2))
         
         self.to_patch_embedding = nn.Sequential(
-            Rearrange('b c t (h p1) (w p2) -> b (t h w) (p1 p2 c)', p1=self.f_emb, p2=self.f_emb)
+            Rearrange('b c t (h p1) (w p2) -> b t h w (p1 p2 c)', p1=self.f_emb, p2=self.f_emb)
         )
 
-        self.proj_emb = nn.Linear(config.n_embd_frames, config.n_embd)
+        # self.proj_emb = nn.Linear(config.n_embd_frames, config.n_embd)
     def forward(self, x):
         if self.conv_layer:
             # x: (B, C, T, H, W)
@@ -191,7 +191,7 @@ class VideoEncoder(nn.Module):
             # Reshape to (B, C, T, H, W)
             x = x.view(B, C, T, H, W)
         x = self.to_patch_embedding(x)
-        return self.proj_emb(x)
+        return x
 
 class MultiheadfAttention(nn.Module):
     """
@@ -259,8 +259,6 @@ class MultiheadfAttention(nn.Module):
         Bt, Tt, Ct = q.size()
         Bs, Ts, Cs = k.size()
 
-        k, v = q if None in {k, v} else k, v
-
         # calculate query, key, values for all head in batch and move head forward to the batch dim]
         q = self.query(q).view(Bt, Tt, self.n_head, Ct // self.n_head).transpose(1, 2) # (B, nh, T, hs)
         k = self.key(k).view(Bs, Ts, self.n_head, Cs // self.n_head).transpose(1, 2) # (B, nh, T, hs)
@@ -323,6 +321,56 @@ class PositionalEmbedding(nn.Module):
                          requires_grad=False)
         return self.dropout(x)
 
+class PositionalEncoding3D(nn.Module):
+    def __init__(self, channels):
+        """
+        :param channels: The last dimension of the tensor you want to apply pos emb to.
+        """
+        super(PositionalEncoding3D, self).__init__()
+        self.org_channels = channels
+        channels = int(np.ceil(channels / 6) * 2)
+        if channels % 2:
+            channels += 1
+        self.channels = channels
+        inv_freq = 1.0 / (10000 ** (torch.arange(0, channels, 2).float() / channels))
+        self.register_buffer("inv_freq", inv_freq)
+        self.cached_penc = None
+
+    def forward(self, tensor):
+        """
+        :param tensor: A 5d tensor of size (batch_size, x, y, z, ch)
+        :return: Positional Encoding Matrix of size (batch_size, x, y, z, ch)
+        """
+        if len(tensor.shape) != 5:
+            raise RuntimeError("The input tensor has to be 5d!")
+
+        if self.cached_penc is not None and self.cached_penc.shape == tensor.shape:
+            return self.cached_penc
+
+        self.cached_penc = None
+        batch_size, x, y, z, orig_ch = tensor.shape
+        pos_x = torch.arange(x, device=tensor.device).type(self.inv_freq.type())
+        pos_y = torch.arange(y, device=tensor.device).type(self.inv_freq.type())
+        pos_z = torch.arange(z, device=tensor.device).type(self.inv_freq.type())
+        sin_inp_x = torch.einsum("i,j->ij", pos_x, self.inv_freq)
+        sin_inp_y = torch.einsum("i,j->ij", pos_y, self.inv_freq)
+        sin_inp_z = torch.einsum("i,j->ij", pos_z, self.inv_freq)
+        emb_x = (
+            torch.cat((sin_inp_x.sin(), sin_inp_x.cos()), dim=-1)
+            .unsqueeze(1)
+            .unsqueeze(1)
+        )
+        emb_y = torch.cat((sin_inp_y.sin(), sin_inp_y.cos()), dim=-1).unsqueeze(1)
+        emb_z = torch.cat((sin_inp_z.sin(), sin_inp_z.cos()), dim=-1)
+        emb = torch.zeros((x, y, z, self.channels * 3), device=tensor.device).type(
+            tensor.type()
+        )
+        emb[:, :, :, : self.channels] = emb_x
+        emb[:, :, :, self.channels : 2 * self.channels] = emb_y
+        emb[:, :, :, 2 * self.channels :] = emb_z
+
+        self.cached_penc = emb[None, :, :, :, :orig_ch].repeat(batch_size, 1, 1, 1, 1)
+        return self.cached_penc
 
 # class RotarySpatioTemporalEmbedding(nn.Module):
 #     """ Rotary temporal embeddings - block_size = id_blk_sz """
@@ -687,7 +735,7 @@ class MultimodalTransformer(nn.Module):
         # self.neural_state_stimulus = BlockSequential(*[Block(config, sparse_topk=config.sparse_topk_frame) for _ in range(config.n_stimulus_layers)])
 
         self.neural_state_blocks = _get_clones(Block(config, sparse_topk=config.sparse_topk_id), config.n_state_layers)
-        self.neural_state_history_blocks = _get_clones(Block(config, sparse_topk=config.sparse_topk_id), config.n_state_history_layers)
+        # self.neural_state_history_blocks = _get_clones(Block(config, sparse_topk=config.sparse_topk_id), config.n_state_history_layers)
         # self.neural_state_history_self_attention = BlockSequential(*[Block(config) for _ in range(config.n_state_layers)])
         self.neural_state_stimulus_blocks =  _get_clones(Block(config, sparse_topk=config.sparse_topk_frame), config.n_stimulus_layers)
 
@@ -745,12 +793,12 @@ class MultimodalTransformer(nn.Module):
         y = neural_history
         z = None
         for mod in self.neural_state_blocks:
-            x = mod(x, mask=mask)
+            x = mod(x, x, x, mask=mask)
         # for mod in self.neural_state_history_blocks:
             # y = x + mod(x, neural_history, neural_history)
         for mod in self.neural_state_stimulus_blocks:
-            z = x + mod(x, stimulus, stimulus)
-        return self.ln_f(z)
+            x = x + mod(x, stimulus, stimulus)
+        return self.ln_f(x)
 
 
 
@@ -775,9 +823,7 @@ class GPT(nn.Module):
         # self.temp_emb = RotaryTemporalEmbedding(config.id_block_size)
         self.temp_emb = LearntTemporalEmbedding(config.id_block_size, config.n_embd)
         self.temp_emb_prev = LearntTemporalEmbedding(config.id_block_size, config.n_embd)
-        frame_temp_emb = torch.tensor(list(itertools.chain(*[[n * 0.05] * (config.frame_block_size//20) for n in range(20)]))).unsqueeze(1)
-        self.register_buffer("frame_temp_emb_seq", frame_temp_emb)
-        self.frame_temp_emb = TemporalEmbedding(config.n_embd, config.pos_pdrop, position=self.frame_temp_emb_seq)
+        self.frame_3d_emb = PositionalEncoding3D(config.n_embd)
         self.id_drop = nn.Dropout(config.id_drop)
         self.im_drop = nn.Dropout(config.im_drop)
         self.drop = nn.Dropout(config.embd_pdrop)
@@ -785,8 +831,6 @@ class GPT(nn.Module):
         # -- Visual Backbone -- #
         # self.visual_backbone = VideoFeaturesExtractor()
         self.video_encoder = VideoEncoder(config)
-        frame_temp_emb = torch.tensor(list(itertools.chain(*[[n * 0.05] * (config.frame_block_size//20) for n in range(20)]))).unsqueeze(0)
-        self.register_buffer("frame_temp_emb_seq", frame_temp_emb)
 
         # -- Multimodal Transformer -- #
         self.neural_visual_transformer = MultimodalTransformer(config)
@@ -904,8 +948,8 @@ class GPT(nn.Module):
         prev_id_temporal_embeddings = self.temp_emb_prev(dtx_prev.float()) if self.config.temp_emb else 0
         id_position_embeddings = self.pos_emb if self.config.pos_emb else 0
         id_temporal_embeddings = self.temp_emb(dtx.float()) if self.config.temp_emb else 0
-        im_position_embeddings = self.pos_emb_frames.repeat(1, 20, 1)
-        
+        im_3d_embeddings = self.frame_3d_emb(frames)
+
         # Extract ID features
         prev_token_embeddings = self.id_drop(self.tok_emb(p_idx) + prev_id_temporal_embeddings + prev_id_position_embeddings)
         token_embeddings = self.tok_emb(idx) # each index maps to a (learnable) vector
@@ -913,9 +957,9 @@ class GPT(nn.Module):
         token_embeddings = self.id_drop(token_embeddings)
 
         # Extract image features and add time embeddings
-        im_temporal_embeddings = self.frame_temp_emb(self.frame_temp_emb_seq)
         im_embeddings = frames    # self.tok_emb(frames)
-        im_embeddings = im_embeddings + im_position_embeddings + im_temporal_embeddings
+        im_embeddings = im_embeddings + im_3d_embeddings
+        im_embeddings = im_embeddings.view(b, -1, self.config.n_embd)
         im_embeddings = self.im_drop(im_embeddings)   # separate pos emb?
         
         # Tidy up
