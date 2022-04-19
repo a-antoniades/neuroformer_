@@ -443,7 +443,7 @@ def predict_raster_recursive_time_auto(model, loader, window, stoi, itos_dt, get
             if pred_dt:
                 x['dt_prev'] = [0] + dt_prev_stoi[-(T_id_prev - 2):].tolist()           # + [max(list(itos_dt.keys()))]
                 x['dt_prev'] = pad_x(x['dt_prev'], T_id_prev, max(list(itos_dt.keys())))
-
+        
         pad = x['pad'] if 'pad' in x else 0
         x['id_full'] = x['id'][:, 0]
         x['id'] = x['id'][:, 0]
@@ -496,7 +496,7 @@ def predict_raster_recursive_time_auto(model, loader, window, stoi, itos_dt, get
             x['id_full'] = torch.cat((x['id_full'], ix.flatten()))
             x['dt_full'] = torch.cat((x['dt_full'], ix_dt.flatten())) if pred_dt else x['dt']
 
-            if ix == stoi['EOS']: # and dtx == 0.5:    # dtx >= window:   # ix == stoi['EOS']:
+            if ix == stoi['EOS'] or len(data['ID']) == T: # and dtx == 0.5:    # dtx >= window:   # ix == stoi['EOS']:
             # if len(current_id_stoi) == T_id - x['pad']:
                 # if ix != stoi['EOS']:
                 #     torch.cat((current_id_stoi, torch.tensor([stoi['EOS']])))
