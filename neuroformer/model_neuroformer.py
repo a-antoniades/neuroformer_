@@ -163,8 +163,8 @@ class VideoEncoder(nn.Module):
         #         nn.ReLU()
         # )
             self.conv_layer = torch.nn.Sequential(
-                    nn.Conv3d(20, 20, 3, stride=1, padding=1),
-                    nn.LayerNorm([256]),
+                    nn.Conv3d(20, 10, 3, stride=1, padding=1),
+                    nn.LayerNorm([config.n_embd_frames]),
                     nn.ReLU()
         )
         # self.conv_layer_2 = torch.nn.Sequential(
@@ -185,7 +185,7 @@ class VideoEncoder(nn.Module):
             Rearrange('b c t (h p1) (w p2) -> b t h w (p1 p2 c)', p1=self.f_emb, p2=self.f_emb)
         )
 
-        self.proj_emb = nn.Linear(config.n_embd_frames, config.n_embd)
+        # self.proj_emb = nn.Linear(config.n_embd_frames, config.n_embd)
     def forward(self, x):
         if self.conv_layer:
             # x: (B, C, T, H, W)
@@ -195,7 +195,7 @@ class VideoEncoder(nn.Module):
             # Reshape to (B, C, T, H, W)
             x = x.view(B, C, T, H, W)
         x = self.to_patch_embedding(x)
-        x = self.proj_emb(x)
+        # x = self.proj_emb(x)
         return self.conv_layer(x)
 
 class MultiheadfAttention(nn.Module):
@@ -800,10 +800,10 @@ class MultimodalTransformer(nn.Module):
         for mod in self.neural_state_blocks:
             x = mod(x, x, x, mask=mask)
         # for mod in self.neural_state_history_blocks:
-            y = x + mod(x, neural_history, neural_history)
+        #     x = x + mod(x, neural_history, neural_history)
         for mod in self.neural_state_stimulus_blocks:
-            z = x + y + mod(x, stimulus, stimulus)
-        return self.ln_f(z)
+            x = x + mod(x, stimulus, stimulus)
+        return self.ln_f(x)
 
 
 
@@ -1070,8 +1070,8 @@ class GPT(nn.Module):
 
             loss = dict()
             # loss['frames'] = loss_frames / (b / 3)
-            loss['id'] = (3 / 4) * sum(loss_id) / b  # sum(loss_id) / (b * 2)   # / len(loss_id)
-            loss['time'] = (1 / 4) * sum(loss_time) / b
+            loss['id'] = (4 / 4) * sum(loss_id) / b  # sum(loss_id) / (b * 2)   # / len(loss_id)
+            # loss['time'] = (1 / 4) * sum(loss_time) / b
             # loss['dice'] = sum(loss_dice) / len(loss_dice)
             # loss['dt'] = loss_time / (b * 50)
             # loss['hungarian'] = sum(loss_hungarian) / (b * 2)
