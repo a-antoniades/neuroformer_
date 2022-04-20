@@ -437,7 +437,7 @@ def predict_raster_recursive_time_auto(model, loader, window, stoi, itos_dt, get
         for key, value in y.items():
             y[key] = y[key].to(device)
         
-        if it > 2:
+        if it > 12:
             x['id_prev'] = [stoi['SOS']] + id_prev_stoi[-(T_id_prev - 2):].tolist()     # + [stoi['EOS']]
             x['id_prev'] = pad_x(x['id_prev'], T_id_prev, stoi['PAD'])
             if pred_dt:

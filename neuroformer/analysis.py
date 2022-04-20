@@ -34,7 +34,7 @@ def get_rates(df, ids, intervals, interval='Interval'):
             df = df[id]
             for i in df.index:
                 n = int((i * 2) - 1)
-                rates[n] = df[i]            
+                rates[n] = df.loc[i]            
             return rates
     rates = dict()
     for id in ids:
