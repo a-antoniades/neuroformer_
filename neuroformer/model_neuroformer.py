@@ -828,7 +828,7 @@ class GPT(nn.Module):
         # self.temp_emb = RotaryTemporalEmbedding(config.id_block_size)
         self.temp_emb = LearntTemporalEmbedding(config.id_block_size, config.n_embd)
         self.temp_emb_prev = LearntTemporalEmbedding(config.prev_id_block_size, config.n_embd)
-        self.frame_3d_emb = PositionalEncoding3D(config.n_embd)
+        self.frame_3d_emb = PositionalEncoding3D(config.n_embd_frames)
         self.id_drop = nn.Dropout(config.id_drop)
         self.im_drop = nn.Dropout(config.im_drop)
         self.drop = nn.Dropout(config.embd_pdrop)
@@ -963,6 +963,7 @@ class GPT(nn.Module):
 
         # Extract image features and add time embeddings
         im_embeddings = frames    # self.tok_emb(frames)
+        print(im_embeddings.shape, im_3d_embeddings.shape)
         im_embeddings = im_embeddings + im_3d_embeddings
         im_embeddings = im_embeddings.view(b, -1, self.config.n_embd)
         im_embeddings = self.im_drop(im_embeddings)   # separate pos emb?
