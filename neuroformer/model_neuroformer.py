@@ -204,14 +204,16 @@ class MultiheadfAttention(nn.Module):
     
     """
 
-    def __init__(self, config, sparse_topk=None):
+    def __init__(self, config, kv_embd=None, sparse_topk=None):
         super().__init__()
         assert config.n_embd % config.n_head == 0
         self.config = config
+
+        kv_embd = kv_embd if kv_embd != None else config.n_embd
         # key, query, value projections for all heads
-        self.key = nn.Linear(config.n_embd, config.n_embd)
-        self.query = nn.Linear(config.n_embd, config.n_embd)
-        self.value = nn.Linear(config.n_embd, config.n_embd)
+        self.query= nn.Linear(config.n_embd, config.n_embd)
+        self.key = nn.Linear(kv_embd, config.n_embd)
+        self.value = nn.Linear(kv_embd, config.n_embd)
         # regularization
         self.attn_drop = nn.Dropout(config.attn_pdrop)
         self.resid_drop = nn.Dropout(config.resid_pdrop)
@@ -257,17 +259,19 @@ class MultiheadfAttention(nn.Module):
     def forward(self, q, k=None, v=None, tgt_mask=None, pad=None, dtx=None, sparse_topk=None):
         if None not in (k, v):
             assert k.size() == v.size(), "Keys and Values must be of same size"
-            assert q.size(-1) == k.size(-1) == v.size(-1), "Embedding dims must be of same size"
+            # assert q.size(-1) == k.size(-1) == v.size(-1), "Embedding dims must be of same size"
         else:
             k, v = q, q
         
         Bt, Tt, Ct = q.size()
         Bs, Ts, Cs = k.size()
 
+
+        print(k.shape)
         # calculate query, key, values for all head in batch and move head forward to the batch dim]
         q = self.query(q).view(Bt, Tt, self.n_head, Ct // self.n_head).transpose(1, 2) # (B, nh, T, hs)
-        k = self.key(k).view(Bs, Ts, self.n_head, Cs // self.n_head).transpose(1, 2) # (B, nh, T, hs)
-        v = self.value(v).view(Bs, Ts, self.n_head, Cs // self.n_head).transpose(1, 2) # (B, nh, T, hs)
+        k = self.key(k).view(Bs, Ts, self.n_head, Ct // self.n_head).transpose(1, 2) # (B, nh, T, hs)
+        v = self.value(v).view(Bs, Ts, self.n_head, Ct // self.n_head).transpose(1, 2) # (B, nh, T, hs)
 
         # Normalize value
         v = F.normalize(v, p=2.0, dim=-1)
@@ -294,6 +298,8 @@ class MultiheadfAttention(nn.Module):
             att.masked_fill_(mask, float('-inf'))
         
         att = F.softmax(att, dim=-1)
+        
+        print(q.shape, k.shape, att.shape)
         # self.att = att
         att = self.attn_drop(att)
         self.att = att
@@ -700,11 +706,11 @@ class PoissonCrossEntropyLoss(nn.Module):
 class Block(nn.Module):
     """ an unassuming Transformer block """
 
-    def __init__(self, config, sparse_topk=None):
+    def __init__(self, config, kv_embd=None, sparse_topk=None):
         super().__init__()
         self.ln1 = nn.LayerNorm(config.n_embd)
         self.ln2 = nn.LayerNorm(config.n_embd)
-        self.attn = MultiheadfAttention(config)
+        self.attn = MultiheadfAttention(config, kv_embd, sparse_topk)
         self.mlp = nn.Sequential(
             nn.Linear(config.n_embd, 4 * config.n_embd),
             nn.GELU(),
@@ -742,7 +748,7 @@ class MultimodalTransformer(nn.Module):
         self.neural_state_blocks = _get_clones(Block(config, sparse_topk=config.sparse_topk_id), config.n_state_layers)
         # self.neural_state_history_blocks = _get_clones(Block(config, sparse_topk=config.sparse_topk_id), config.n_state_history_layers)
         # self.neural_state_history_self_attention = BlockSequential(*[Block(config) for _ in range(config.n_state_layers)])
-        self.neural_state_stimulus_blocks =  _get_clones(Block(config, sparse_topk=config.sparse_topk_frame), config.n_stimulus_layers)
+        self.neural_state_stimulus_blocks =  _get_clones(Block(config, config.n_embd_frames, sparse_topk=config.sparse_topk_frame), config.n_stimulus_layers)
 
         self.ln_f = nn.LayerNorm(config.n_embd)
         self.epoch = 0
@@ -963,9 +969,9 @@ class GPT(nn.Module):
 
         # Extract image features and add time embeddings
         im_embeddings = frames    # self.tok_emb(frames)
-        print(im_embeddings.shape, im_3d_embeddings.shape)
+        print(im_embeddings.shape)
         im_embeddings = im_embeddings + im_3d_embeddings
-        im_embeddings = im_embeddings.view(b, -1, self.config.n_embd)
+        im_embeddings = im_embeddings.view(b, -1, self.config.n_embd_frames)
         im_embeddings = self.im_drop(im_embeddings)   # separate pos emb?
         
         # Tidy up
