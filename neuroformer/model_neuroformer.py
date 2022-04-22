@@ -162,9 +162,10 @@ class VideoEncoder(nn.Module):
         #         nn.LayerNorm([64, 112]),
         #         nn.ReLU()
         # )
+            kernel_size = config.kernel_size
             self.conv_layer = torch.nn.Sequential(
-                    nn.Conv3d(1, config.n_embd, kernel_size=config.kernel_size, stride=(5, 8, 8), padding=1),
-                    Rearrange('b e t (h) (w) -> b t (h w) e'),
+                    nn.Conv3d(1, config.n_embd, kernel_size=kernel_size, stride=kernel_size, padding=1),
+                    Rearrange('b e t h w -> b t h w e'),
                     nn.LayerNorm([config.n_embd]),
                     nn.ReLU()
         )
@@ -836,7 +837,7 @@ class GPT(nn.Module):
         # self.temp_emb = RotaryTemporalEmbedding(config.id_block_size)
         self.temp_emb = LearntTemporalEmbedding(config.id_block_size, config.n_embd)
         self.temp_emb_prev = LearntTemporalEmbedding(config.prev_id_block_size, config.n_embd)
-        self.frame_3d_emb = PositionalEncoding3D(config.n_embd_frames)
+        self.frame_3d_emb = PositionalEncoding3D(config.n_embd)
         self.id_drop = nn.Dropout(config.id_drop)
         self.im_drop = nn.Dropout(config.im_drop)
         self.drop = nn.Dropout(config.embd_pdrop)
