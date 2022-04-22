@@ -216,7 +216,7 @@ class MultiheadfAttention(nn.Module):
 
         kv_embd = kv_embd if kv_embd != None else config.n_embd
         # key, query, value projections for all heads
-        self.query= nn.Linear(config.n_embd, config.n_embd)
+        self.query = nn.Linear(config.n_embd, config.n_embd)
         self.key = nn.Linear(kv_embd, config.n_embd)
         self.value = nn.Linear(kv_embd, config.n_embd)
         # regularization
@@ -294,6 +294,7 @@ class MultiheadfAttention(nn.Module):
             #     for idx, i in enumerate(pad):
             #         att[idx, :, :, Tt - i:] = float('-inf')   # only able to see first padding token
         
+
         # Explicit Sparse Attention - Use top-K qk values
         if self.sparse_topk is not None and self.sparse_topk < att.shape[-1]:
             top, _ = torch.topk(att, self.sparse_topk, dim=-1)
@@ -302,6 +303,7 @@ class MultiheadfAttention(nn.Module):
             att.masked_fill_(mask, float('-inf'))
         
         att = F.softmax(att, dim=-1)
+        print(att.shape)
         
         # self.att = att
         att = self.attn_drop(att)
@@ -751,7 +753,7 @@ class MultimodalTransformer(nn.Module):
         self.neural_state_blocks = _get_clones(Block(config, sparse_topk=config.sparse_topk_id), config.n_state_layers)
         # self.neural_state_history_blocks = _get_clones(Block(config, sparse_topk=config.sparse_topk_id), config.n_state_history_layers)
         # self.neural_state_history_self_attention = BlockSequential(*[Block(config) for _ in range(config.n_state_layers)])
-        self.neural_state_stimulus_blocks =  _get_clones(Block(config, config.n_embd_frames, sparse_topk=config.sparse_topk_frame), config.n_stimulus_layers)
+        self.neural_state_stimulus_blocks =  _get_clones(Block(config, sparse_topk=config.sparse_topk_frame), config.n_stimulus_layers)
 
         self.ln_f = nn.LayerNorm(config.n_embd)
         self.epoch = 0
@@ -946,6 +948,7 @@ class GPT(nn.Module):
         dtx = x['dt']
         dtx_prev = x['dt_prev']
         frames = self.video_encoder(x['frames'])
+        print(f'frames: {frames.shape}')
         pad = x['pad']
 
         b, t = idx.size()
@@ -973,7 +976,7 @@ class GPT(nn.Module):
         # Extract image features and add time embeddings
         im_embeddings = frames    # self.tok_emb(frames)
         im_embeddings = im_embeddings + im_3d_embeddings
-        im_embeddings = im_embeddings.view(b, -1, self.config.n_embd_frames)
+        im_embeddings = im_embeddings.view(b, -1, self.config.n_embd)
         im_embeddings = self.im_drop(im_embeddings)   # separate pos emb?
         
         # Tidy up
