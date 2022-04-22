@@ -60,7 +60,7 @@ def _get_clones(module, N):
 class GPTConfig:
     """ base GPT config, params common to all GPT versions """
     embd_pdrop = 0.2
-    resid_pdrop = 0.2
+    resid_pdrop = 0.2 
     attn_pdrop = 0.2
     pos_pdrop = 0.2
     temp_pdrop = 0.2
@@ -163,8 +163,9 @@ class VideoEncoder(nn.Module):
         #         nn.ReLU()
         # )
             self.conv_layer = torch.nn.Sequential(
-                    nn.Conv3d(20, 10, 3, stride=1, padding=1),
-                    nn.LayerNorm([config.n_embd_frames]),
+                    nn.Conv3d(1, config.n_embd, kernel_size=config.kernel_size, stride=(5, 8, 8), padding=1),
+                    Rearrange('b e t (h) (w) -> b t (h w) e'),
+                    nn.LayerNorm([config.n_embd]),
                     nn.ReLU()
         )
         # self.conv_layer_2 = torch.nn.Sequential(
@@ -173,7 +174,7 @@ class VideoEncoder(nn.Module):
         #     nn.ReLU()
         # )
         
-        # assert n_embd % (p1 * p2) == 0,  "n_embd must be divisible by p1 * p2"
+        #  assert n_embd % (p1 * p2) == 0,  "n_embd must be divisible by p1 * p2"
         
         # c = n_embd // (p1 * p2) 
         # self.to_patch_embedding = nn.Sequential(
@@ -187,16 +188,19 @@ class VideoEncoder(nn.Module):
 
         # self.proj_emb = nn.Linear(config.n_embd_frames, config.n_embd)
     def forward(self, x):
-        if self.conv_layer:
-            # x: (B, C, T, H, W)
-            B, C, T, H, W = x.size()
-            # Flip C and T and merge B and T]
-            x = x.transpose(1, 2).view(-1, C, H, W)
-            # Reshape to (B, C, T, H, W)
-            x = x.view(B, C, T, H, W)
-        x = self.to_patch_embedding(x)
+        # if self.conv_layer:
+        #     # x: (B, C, T, H, W)
+        #     B, C, T, H, W = x.size()
+        #     # Flip C and T and merge B and T]
+        #     x = x.transpose(1, 2).view(-1, C, H, W)
+        #     # Reshape to (B, C, T, H, W)
+        #     x = x.view(B, C, T, H, W)
+        # x = self.to_patch_embedding(x)
+        # print(x.shape)
+
         # x = self.proj_emb(x)
         return self.conv_layer(x)
+        # return x
 
 class MultiheadfAttention(nn.Module):
     """
@@ -267,7 +271,6 @@ class MultiheadfAttention(nn.Module):
         Bs, Ts, Cs = k.size()
 
 
-        print(k.shape)
         # calculate query, key, values for all head in batch and move head forward to the batch dim]
         q = self.query(q).view(Bt, Tt, self.n_head, Ct // self.n_head).transpose(1, 2) # (B, nh, T, hs)
         k = self.key(k).view(Bs, Ts, self.n_head, Ct // self.n_head).transpose(1, 2) # (B, nh, T, hs)
@@ -299,7 +302,6 @@ class MultiheadfAttention(nn.Module):
         
         att = F.softmax(att, dim=-1)
         
-        print(q.shape, k.shape, att.shape)
         # self.att = att
         att = self.attn_drop(att)
         self.att = att
@@ -969,7 +971,6 @@ class GPT(nn.Module):
 
         # Extract image features and add time embeddings
         im_embeddings = frames    # self.tok_emb(frames)
-        print(im_embeddings.shape)
         im_embeddings = im_embeddings + im_3d_embeddings
         im_embeddings = im_embeddings.view(b, -1, self.config.n_embd_frames)
         im_embeddings = self.im_drop(im_embeddings)   # separate pos emb?
@@ -1012,9 +1013,6 @@ class GPT(nn.Module):
         x = self.neural_visual_transformer(features)
         id_logits = self.head_id(x)
         dt_logits = self.head_dt(x)    # (B, T_id, 1)
-
-        # print(x[:, 0].shape)
-        # psth = self.proj_psth(x)    # (B, Vocab_id)
 
         # if targets, calculate loss
         # calculate loss on logits up to padding token for each batch
