@@ -76,6 +76,8 @@ class Trainer:
             self.device = torch.cuda.current_device()
             self.model = torch.nn.DataParallel(self.model).to(self.device)
             self.criterion = self.criterion.to(self.device)
+        
+        self.writer.add_scalar(f"model/no_parameters", sum(p.numel() for p in model.parameters())) 
 
     def save_checkpoint(self, epoch, loss):
         # DataParallel wrappers keep raw model object in .module attribute
@@ -225,7 +227,7 @@ class Trainer:
                 return total_losses.item(), scores
 
         # best_loss = float('inf')
-        best_precision = 0
+        best_loss = 0
         self.tokens = 0 # counter used for learning rate decay
         for epoch in range(config.max_epochs):
             if self.train_dataset is not None:
@@ -237,9 +239,10 @@ class Trainer:
                 #     scheduler.step(test_loss)
 
             # supports early stopping based on the test loss, or just save always if no test set is provided
-            # good_model = self.test_dataset is None or test_loss < best_loss
-            good_model = self.test_dataset is None or scores['F1'] > best_precision
+            good_model = self.test_dataset is None or test_loss < best_loss
+            # good_model = self.test_dataset is None or scores['F1'] > best_precision
             if good_model:
-                # best_loss = test_loss
-                best_precision = scores['F1']
-                self.save_checkpoint(epoch, scores['F1'])
+                best_loss = test_loss
+                self.save_checkpoint(epoch, test_loss)
+                # best_precision = scores['F1']
+                # self.save_checkpoint(epoch, scores['F1'])
