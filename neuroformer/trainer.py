@@ -226,8 +226,7 @@ class Trainer:
             
                 return total_losses.item(), scores
 
-        # best_loss = float('inf')
-        best_loss = 0
+        best_loss = float('inf')
         self.tokens = 0 # counter used for learning rate decay
         for epoch in range(config.max_epochs):
             if self.train_dataset is not None:
