@@ -157,38 +157,24 @@ class VideoEncoder(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.conv_layer = config.conv_layer
+        self.f_emb = int(config.n_embd_frames ** (1/2))
+        
         if self.conv_layer:
-        #     self.conv_layer = torch.nn.Sequential(
-        #         nn.Conv2d(1, 1, kernel_size=3, stride=1, padding=1),
-        #         nn.LayerNorm([64, 112]),
-        #         nn.ReLU()
-        # )
             kernel_size = config.kernel_size
-            self.conv_layer = torch.nn.Sequential(
+            self.conv_block = torch.nn.Sequential(
                     nn.Conv3d(1, config.n_embd, kernel_size=kernel_size, stride=kernel_size, padding=0),
                     Rearrange('b e t h w -> b t h w e'),
                     nn.LayerNorm([config.n_embd]),
                     nn.ReLU()
         )
-        # self.conv_layer_2 = torch.nn.Sequential(
-        #     nn.Conv2d(1, 1, kernel_size=3, stride=1, padding=1),
-        #     nn.LayerNorm([64, 112]),
-        #     nn.ReLU()
-        # )
-        
-        #  assert n_embd % (p1 * p2) == 0,  "n_embd must be divisible by p1 * p2"
-        
-        # c = n_embd // (p1 * p2) 
-        # self.to_patch_embedding = nn.Sequential(
-        #     Rearrange(f'b {c} t (h {p1}) (w {p2}) -> b (t h w) ({p1} {p2} {c})', p1=p1, p2=p2)
-        # )
-        self.f_emb = int(config.n_embd_frames ** (1/2))
-        
-        self.to_patch_embedding = nn.Sequential(
-            Rearrange('b c t (h p1) (w p2) -> b t h w (p1 p2 c)', p1=self.f_emb, p2=self.f_emb)
-        )
 
-        # self.proj_emb = nn.Linear(config.n_embd_frames, config.n_embd)
+        else:
+            self.to_patch_embedding = nn.Sequential(
+                Rearrange('b c t (h p1) (w p2) -> b t h w (p1 p2 c)', p1=self.f_emb, p2=self.f_emb),
+                nn.Linear(config.n_embd_frames, config.n_embd),
+                nn.ReLU()
+            )
+
     def forward(self, x):
         # if self.conv_layer:
         #     # x: (B, C, T, H, W)
@@ -199,9 +185,12 @@ class VideoEncoder(nn.Module):
         #     x = x.view(B, C, T, H, W)
         # x = self.to_patch_embedding(x)
         # print(x.shape)
+        if self.conv_layer:
+            x = self.conv_block(x)
+        else:
+            x = self.to_patch_embedding(x)
 
-        # x = self.proj_emb(x)
-        return self.conv_layer(x)
+        return x
         # return x
 
 class MultiheadfAttention(nn.Module):
@@ -279,7 +268,7 @@ class MultiheadfAttention(nn.Module):
         v = self.value(v).view(Bs, Ts, self.n_head, Ct // self.n_head).transpose(1, 2) # (B, nh, T, hs)
 
         # Normalize value
-        v = F.normalize(v, p=2.0, dim=-1)
+        # v = F.normalize(v, p=2.0, dim=-1)
 
         # # apply rotary embeddings
         # if dtx is not None:
@@ -739,7 +728,6 @@ class BlockSequential(nn.Sequential):
         return x
 
 
-
 class MultimodalTransformer(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -750,9 +738,10 @@ class MultimodalTransformer(nn.Module):
         # self.neural_state_stimulus = BlockSequential(*[Block(config, sparse_topk=config.sparse_topk_frame) for _ in range(config.n_stimulus_layers)])
 
         self.neural_state_blocks = _get_clones(Block(config, sparse_topk=config.sparse_topk_id), config.n_state_layers)
-        # self.neural_state_history_blocks = _get_clones(Block(config, sparse_topk=config.sparse_topk_id), config.n_state_history_layers)
+        self.neural_state_history_blocks = _get_clones(Block(config, sparse_topk=config.sparse_topk_id), config.n_state_history_layers)
         # self.neural_state_history_self_attention = BlockSequential(*[Block(config) for _ in range(config.n_state_layers)])
         self.neural_state_stimulus_blocks =  _get_clones(Block(config, sparse_topk=config.sparse_topk_frame), config.n_stimulus_layers)
+        # self.output_att = _get_clones(Block(config, sparse_topk=config.sparse_topk_id), 1)
 
         self.ln_f = nn.LayerNorm(config.n_embd)
         self.epoch = 0
@@ -802,18 +791,20 @@ class MultimodalTransformer(nn.Module):
         neural_state = features['id']
         neural_history = features['id_prev']
         stimulus = features['frames']
-        neural_state_stimulus = []
         
         x = neural_state
         y = neural_history
-        z = None
+        z = stimulus
         for mod in self.neural_state_blocks:
-            x = mod(x, x, x, mask=mask)
+            x = mod(x, x, x, mask)
+        # y = x + y
         # for mod in self.neural_state_history_blocks:
-        #     x = x + mod(x, neural_history, neural_history)
+        #     x = mod(x, neural_history, neural_history)
+        # x = x + y
         for mod in self.neural_state_stimulus_blocks:
-            x = x + mod(x, stimulus, stimulus)
-        return self.ln_f(x)
+            x = mod(x, stimulus, stimulus)
+        # x = self.output_att[0](x, x, x, mask)
+        return x
 
 
 
@@ -873,7 +864,7 @@ class GPT(nn.Module):
 
         # Loss functions
         # self.truncated_loss = TruncatedLoss()
-        # self.hungarian_matcher = HungarianMatcher()
+        self.hungarian_matcher = HungarianMatcher()
 
         # CONCEPT TRANSFORMER
         # self.register_buffer("neuron_population", torch.tensor([i for i in range(config.id_vocab_size)], dtype=torch.long).unsquueze(0))
@@ -1043,8 +1034,8 @@ class GPT(nn.Module):
                 dt_logits_ = dt_logits[B, :t - P]
                 time_targets = targets['dt'][B, :t - P]
 
-                loss_id_ = F.cross_entropy(id_logits_.view(-1, id_logits_.size(-1)), id_targets.view(-1))
-                loss_time_ = F.cross_entropy(dt_logits_.view(-1, dt_logits_.size(-1)), time_targets.view(-1))
+                loss_id_ = F.cross_entropy(id_logits_.view(-1, id_logits_.size(-1)), id_targets.view(-1))    #, weight=self.class_weights_id)
+                loss_time_ = F.cross_entropy(dt_logits_.view(-1, dt_logits_.size(-1)), time_targets.view(-1))    #, weight=self.class_weights_dt)
                 # if self.config.epoch >= 15:
                     # self.truncated_loss.update_weight(id_logits[None, ...], id_targets[None, ...], id_indexes[None, ...])
                 # loss_id_ = self.truncated_loss(id_logits_[None, ...], id_targets[None, ...])
@@ -1052,12 +1043,12 @@ class GPT(nn.Module):
                 # loss_time_ = F.mse_loss(time_preds.squeeze(-1), time_targets)
                 # loss_id_ = self.poisson_loss(id_logits.view(-1, id_logits.size(-1)), F.one_hot(id_targets, self.config.vocab_size))
                 if len(id_targets) > 0:
-                    ## hungarian loss
-                    # indices = self.hungarian_matcher(id_logits_, id_targets, self.device)
-                    # probs_matching, targets_matching = id_logits_[indices[0][0]], id_targets[indices[0][1]]
-                    # probs_matching_dt, targets_matching_dt = dt_logits_[indices[0][0]], time_targets[indices[0][1]]
-                    # loss_id_ = F.cross_entropy(probs_matching, targets_matching)
-                    # loss_time_ = F.cross_entropy(probs_matching_dt, targets_matching_dt)
+                #     # hungarian loss
+                #     indices = self.hungarian_matcher(id_logits_, id_targets, self.device)
+                #     probs_matching, targets_matching = id_logits_[indices[0][0]], id_targets[indices[0][1]]
+                #     probs_matching_dt, targets_matching_dt = dt_logits_[indices[0][0]], time_targets[indices[0][1]]
+                #     loss_id_ = F.cross_entropy(probs_matching, targets_matching)
+                #     loss_time_ = F.cross_entropy(probs_matching_dt, targets_matching_dt)
 
                     ## score metrics
                     # pred_id = torch.argmax(id_logits_, dim=-1).flatten().detach().cpu().numpy().tolist()
@@ -1066,14 +1057,17 @@ class GPT(nn.Module):
                     pred_neurons = ix_top_k.detach().flatten().cpu().numpy()
                     true_neurons = id_targets.detach().flatten().cpu().numpy()
                     # for n in range(len(pred_neurons)):
-                    pred_id = pred_neurons
-                    true_id = true_neurons
+                    pred_id = set(pred_neurons)     # - set([515, 516, 517])
+                    true_id = set(true_neurons)     # - set([515, 516, 517])
                     # pred_dt = torch.argmax(dt_logits_, dim=-1)
-                    true_positives = set(true_id) & set(pred_id)
-                    false_positives = set(pred_id) - set(true_id)
-                    false_negatives = set(true_id) - set(pred_id)
-                    precision_score = len(true_positives) / (len(true_positives) + len(false_positives))
-                    recall_score = len(true_positives) / (len(true_positives) + len(false_negatives))
+                    true_positives = true_id & pred_id
+                    false_positives = pred_id - true_id
+                    false_negatives = true_id - pred_id
+                    if len(true_positives) == 0:
+                        precision_score, recall_score = 0, 0
+                    else:
+                        precision_score = len(true_positives) / (len(true_positives) + len(false_positives))
+                        recall_score = len(true_positives) / (len(true_positives) + len(false_negatives))
                     if precision_score + recall_score > 0:
                         f1_score = (2 * precision_score * recall_score) / (precision_score + recall_score)
                     else:
@@ -1085,8 +1079,8 @@ class GPT(nn.Module):
 
             loss = dict()
             # loss['frames'] = loss_frames / (b / 3)
-            loss['id'] = (4 / 4) * sum(loss_id) / b  # sum(loss_id) / (b * 2)   # / len(loss_id)
-            # loss['time'] = (1 / 4) * sum(loss_time) / b
+            loss['id'] = (3 / 4) * sum(loss_id) / b  # sum(loss_id) / (b * 2)   # / len(loss_id)
+            loss['time'] = (1 / 4) * sum(loss_time) / b
             # loss['dice'] = sum(loss_dice) / len(loss_dice)
             # loss['dt'] = loss_time / (b * 50)
             # loss['hungarian'] = sum(loss_hungarian) / (b * 2)
