@@ -81,8 +81,8 @@ def beam_decode(decoder, stoi, x, frame_end=0):
             except: TypeError
             decoder_input = n.decoder_input
 
-            if n.leng >= (t - pad + 1):  # and n.prevNode != None:
-            # if n.id.item() == stoi['EOS'] or n.leng >= x['id'].shape[1] and n.prevNode != None:
+            # if n.leng >= (t - pad + 1):  # and n.prevNode != None:
+            if n.id.item() == stoi['EOS'] or n.leng >= x['id'].shape[1] and n.prevNode != None:
                 endnodes.append((score, n))
                 # if we reached maximum number of sentences required
                 if len(endnodes) >= number_required:
@@ -94,7 +94,7 @@ def beam_decode(decoder, stoi, x, frame_end=0):
             # x['id'] = torch.where(x['id'] <= stoi['PAD'], x['id'], stoi['PAD'])
             preds, _, _ = decoder(x)
             # use logits of n.leng - 1 decoding step
-            decoder_output = torch.log(F.softmax(preds['logits'][:, tf + (n.leng - 1)], dim=-1))
+            decoder_output = torch.log(F.softmax(preds['id'][:, tf + (n.leng - 1)], dim=-1))
 
             # PUT HERE REAL BEAM SEARCH OF TOP
             log_prob, indexes = torch.topk(decoder_output, beam_width)

@@ -576,7 +576,7 @@ def predict_beam_search_time(model, loader, stoi, itos_dt, frame_end=0):
         true_raster = torch.cat((true_raster, y['id'][:, :t_id - x['pad']].flatten()))
         true_timing = torch.cat((true_timing, y['dt'][:, :t_id - x['pad']].flatten()))
         
-        ix, dt = beam_decode(model, stoi, itos_dt, x, frame_end)
+        ix, dt = beam_decode(model, stoi, x)
         predicted_raster = torch.cat((predicted_raster, ix))
         predicted_timing = torch.cat((predicted_timing, dt))
     return true_raster[1:], predicted_raster[1:], true_timing[1:], predicted_timing[1:]
@@ -742,7 +742,8 @@ def predict_raster_hungarian(model, loader, itos_dt, top_k=0, top_p=0, temp=1, d
         data['Trial'] = torch.cat((data['Trial'], x['trial'].flatten().repeat(len(ix.flatten()))))
         data['Interval'] = torch.cat((data['Interval'], x['interval'].flatten().repeat(len(ix.flatten()))))
         data['time'] = torch.cat((data['time'], y['dt'].flatten())) 
-    
+        pbar.set_description(f"len pred: {len(data['ID'])}, len true: {len(data['true'])}")
+
     for key, value in data.items():
         data[key] = data[key].to("cpu")
 
