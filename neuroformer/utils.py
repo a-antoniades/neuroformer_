@@ -395,7 +395,7 @@ def predict_raster_recursive_time(model, loader, stoi, itos_dt, get_dt=False, sa
     return data
 
 @torch.no_grad()
-def predict_raster_recursive_time_auto(model, loader, window, stoi, itos_dt, get_dt=False, sample=False, top_k=0, top_p=0, top_p_t=0, temp=1, temp_t=1, frame_end=0, gpu=False, pred_dt=True):
+def predict_raster_recursive_time_auto(model, loader, window, window_history, stoi, itos_dt, get_dt=False, sample=False, top_k=0, top_p=0, top_p_t=0, temp=1, temp_t=1, frame_end=0, gpu=False, pred_dt=True):
     """
     predict both ID and dt recursively
     """
@@ -427,10 +427,11 @@ def predict_raster_recursive_time_auto(model, loader, window, stoi, itos_dt, get
     data['Trial'] = context
     data['Interval'] = context
 
-    id_prev_stoi = context
-    dt_prev_stoi = context
+    id_prev_stoi_buffer = []
+    dt_prev_stoi_buffer = []
     pbar = tqdm(enumerate(loader), total=len(loader))
     for it, (x, y) in pbar:
+
 
         for key, value in x.items():
             x[key] = x[key].to(device)
@@ -438,6 +439,8 @@ def predict_raster_recursive_time_auto(model, loader, window, stoi, itos_dt, get
             y[key] = y[key].to(device)
         
         if it > 12:
+            id_prev_stoi = torch.cat(id_prev_stoi_buffer)
+            dt_prev_stoi = torch.cat(dt_prev_stoi_buffer)
             x['id_prev'] = [stoi['SOS']] + id_prev_stoi[-(T_id_prev - 2):].tolist()     # + [stoi['EOS']]
             x['id_prev'] = pad_x(x['id_prev'], T_id_prev, stoi['PAD'])
             if pred_dt:
@@ -502,8 +505,11 @@ def predict_raster_recursive_time_auto(model, loader, window, stoi, itos_dt, get
                 #     torch.cat((current_id_stoi, torch.tensor([stoi['EOS']])))
                 # if dtx <= window:
                 #     torch.cat((current_dt_stoi, torch.tensor([max(list(itos_dt.keys()))])))
-                id_prev_stoi = current_id_stoi
-                dt_prev_stoi = current_dt_stoi
+                context_length = int(window_history // window)
+                id_prev_stoi_buffer.append(torch.tensor(current_id_stoi))
+                dt_prev_stoi_buffer.append(torch.tensor(current_dt_stoi))
+                id_prev_stoi_buffer = id_prev_stoi_buffer[-context_length:]
+                dt_prev_stoi_buffer = dt_prev_stoi_buffer[-context_length:]
                 break
             
         dty = torch.tensor([itos_dt[int(dt)] for dt in y['dt'][:, :T_id - pad].flatten()], device=device)
