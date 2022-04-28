@@ -188,12 +188,13 @@ def dt_frames_idx(t, Tf, dt_frames=0.25):
     return int(t // Tf) // dt_frames
 
 
-def image_dataset(frame_stack):
+def image_dataset(frame_stack, size=(64, 112)):
     """ Convert frames into images tensor compatible with Resnet"""
+    H, W = size[0], size[1]
     preprocess = transforms.Compose([
     transforms.ToPILImage(),
-    transforms.Resize((64, 112)),
-    transforms.CenterCrop((64, 112)),
+    transforms.Resize((H, W)),
+    transforms.CenterCrop((H, W)),
     transforms.ToTensor(),
     # transforms.Normalize(mean=(0.43216, 0.394666, 0.37645), std=(0.22803, 0.22145, 0.216989)),
     # transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
@@ -394,7 +395,7 @@ class SpikeTimeVidData2(Dataset):
         """
 
         def __init__(self, data, frames, block_size, id_block_size, frame_block_size, id_prev_block_size, window, dt, frame_memory, 
-                     stoi, itos, neurons, stoi_dt=None, itos_dt=None, frame_feats=None, pred=False):
+                     stoi, itos, neurons, stoi_dt=None, itos_dt=None, frame_feats=None, pred=False, window_prev=None):
                 
                 pixels = [i for i in range(frames.min(), frames.max() + 1)] if frames is not None else []
                 feat_encodings = neurons + ['EOS'] + ['PAD'] + pixels                 
@@ -439,6 +440,7 @@ class SpikeTimeVidData2(Dataset):
                 self.t = self.t[self.t['Interval'] != self.t['Interval'].min()].reset_index(drop=True)
                 self.idx = 0
                 self.window = window        # interval window (prediction)
+                self.window_prev = window if window_prev is None else window_prev
                 self.interval = 0           # our current interval                
                 self.pred = pred
                 self.size = len(data) + 2 * len(self.t) # 2x = EOS , PAD
@@ -451,7 +453,7 @@ class SpikeTimeVidData2(Dataset):
             return round(base * (round(float(x)/base)), 2)
                 # return round(base * float(x)/base)
 
-        def get_interval(self, interval, trial):
+        def get_interval(self, interval, trial, block_size):
                 """
                 Returns interval[0] >= data < interval[1]
                 chunk = ID
@@ -460,15 +462,15 @@ class SpikeTimeVidData2(Dataset):
                 """
                 data = self.data[self.data['Trial'] == trial]
                 data = data[(data['Interval'] > interval[0] + 0.005) & 
-                                 (data['Interval'] <= interval[1] + 0.005)][-(self.id_block_size - 2):]
+                                 (data['Interval'] <= interval[1] + 0.005)][-(block_size - 2):]
 
 
                 # data = self.data[(self.data['Interval'] == interval) & 
                 #                  (self.data['Trial'] == trial)][-(self.id_block_size - 2):]  
                 chunk = data['ID']
                 dix = [self.stoi[s] for s in chunk]
-                dix = ([self.stoi['SOS']] + dix + [self.stoi['EOS']])[-self.id_block_size:]
-                pad_n = self.id_block_size - (len(dix) + 1 - 2) # len chunk is 1 unit bigger than x, y
+                dix = ([self.stoi['SOS']] + dix + [self.stoi['EOS']])[-block_size:]
+                pad_n = block_size - (len(dix) + 1 - 2) # len chunk is 1 unit bigger than x, y
                 dix = dix + [self.stoi['PAD']] * pad_n
 
                 # print(data['Time'], "int", interval[0])
@@ -503,10 +505,10 @@ class SpikeTimeVidData2(Dataset):
 
                 ## PREV ##
                 # get state history + dt (last 30 seconds)
-                prev_int = self.round_n(t['Interval'] - (self.window), self.dt)
+                prev_int = self.round_n(t['Interval'] - (self.window_prev), self.dt)
                 # prev_int = prev_int if prev_int > 0 else -0.5
-                prev_id_interval = prev_int, self.round_n(prev_int + self.window, self.dt)
-                id_prev, dt_prev, pad_prev = self.get_interval(prev_id_interval, t['Trial'])
+                prev_id_interval = prev_int, self.round_n(prev_int + self.window_prev, self.dt)
+                id_prev, dt_prev, pad_prev = self.get_interval(prev_id_interval, t['Trial'], self.id_prev_block_size)
                 x['id_prev'] = torch.tensor(id_prev[:-1], dtype=torch.long)
                 x['dt_prev'] = torch.tensor(dt_prev[:-1], dtype=torch.float) # + 0.5
                 x['pad_prev'] = torch.tensor(pad_prev, dtype=torch.long)
@@ -515,8 +517,7 @@ class SpikeTimeVidData2(Dataset):
                 # data_current = self.data[(self.data['Interval'] == t['Interval']) & (self.data['Trial'] == t['Trial'])][-(self.id_block_size - 2):]
                 current_int = self.round_n(t['Interval'], self.dt)
                 current_id_interval = current_int, self.round_n(current_int + self.window, self.dt)
-                id_current, dt_current, pad_current = self.get_interval(current_id_interval, t['Trial'])
-                idn, dt, pad = self.get_interval(current_id_interval, t['Trial'])
+                idn, dt, pad = self.get_interval(current_id_interval, t['Trial'], self.id_block_size)
                 x['id'] = torch.tensor(idn[:-1], dtype=torch.long)
                 x['dt'] = torch.tensor(dt[:-1], dtype=torch.float) # + 1
                 x['pad'] = torch.tensor(pad, dtype=torch.long) # to attend eos
