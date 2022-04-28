@@ -395,7 +395,7 @@ def predict_raster_recursive_time(model, loader, stoi, itos_dt, get_dt=False, sa
     return data
 
 @torch.no_grad()
-def predict_raster_recursive_time_auto(model, loader, window, window_history, stoi, itos_dt, get_dt=False, sample=False, top_k=0, top_p=0, top_p_t=0, temp=1, temp_t=1, frame_end=0, gpu=False, pred_dt=True):
+def predict_raster_recursive_time_auto(model, loader, window, window_prev, stoi, itos_dt, get_dt=False, sample=False, top_k=0, top_p=0, top_p_t=0, temp=1, temp_t=1, frame_end=0, gpu=False, pred_dt=True):
     """
     predict both ID and dt recursively
     """
@@ -499,13 +499,14 @@ def predict_raster_recursive_time_auto(model, loader, window, window_history, st
             x['id_full'] = torch.cat((x['id_full'], ix.flatten()))
             x['dt_full'] = torch.cat((x['dt_full'], ix_dt.flatten())) if pred_dt else x['dt']
 
-            if ix == stoi['EOS'] or len(data['ID']) == T: # and dtx == 0.5:    # dtx >= window:   # ix == stoi['EOS']:
+            if ix == stoi['EOS'] or len(current_id_stoi) == T_id: # and dtx == 0.5:    # dtx >= window:   # ix == stoi['EOS']:
             # if len(current_id_stoi) == T_id - x['pad']:
                 # if ix != stoi['EOS']:
                 #     torch.cat((current_id_stoi, torch.tensor([stoi['EOS']])))
                 # if dtx <= window:
                 #     torch.cat((current_dt_stoi, torch.tensor([max(list(itos_dt.keys()))])))
-                context_length = int(window_history // window)
+                print(len(current_id_stoi))
+                context_length = int(window_prev / window)
                 id_prev_stoi_buffer.append(torch.tensor(current_id_stoi))
                 dt_prev_stoi_buffer.append(torch.tensor(current_dt_stoi))
                 id_prev_stoi_buffer = id_prev_stoi_buffer[-context_length:]

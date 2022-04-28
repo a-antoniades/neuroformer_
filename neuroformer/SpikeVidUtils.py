@@ -482,6 +482,8 @@ class SpikeTimeVidData2(Dataset):
                     dt_max = 0
                 # dt_max = self.dt_max
                 dt_chunk = [0] + dt_chunk + [dt_max] * (pad_n + 1) # 0 = SOS, max = EOS
+
+                pad_n -= 1
             
                 return dix, dt_chunk, pad_n
 
