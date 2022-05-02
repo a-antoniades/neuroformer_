@@ -407,7 +407,7 @@ def predict_raster_recursive_time_auto(model, loader, window, window_prev, stoi,
         pad_n = length - len(x)
         if pad > 0:
             x = x + [pad_token] * pad_n
-            x = torch.tensor(x, dtype=torch.long, device=device)
+        x = torch.tensor(x, dtype=torch.long, device=device)
         return x.unsqueeze(0)
 
 
@@ -446,6 +446,7 @@ def predict_raster_recursive_time_auto(model, loader, window, window_prev, stoi,
             if pred_dt:
                 x['dt_prev'] = [0] + dt_prev_stoi[-(T_id_prev - 2):].tolist()           # + [max(list(itos_dt.keys()))]
                 x['dt_prev'] = pad_x(x['dt_prev'], T_id_prev, max(list(itos_dt.keys())))
+            
         
         pad = x['pad'] if 'pad' in x else 0
         x['id_full'] = x['id'][:, 0]
@@ -505,7 +506,6 @@ def predict_raster_recursive_time_auto(model, loader, window, window_prev, stoi,
                 #     torch.cat((current_id_stoi, torch.tensor([stoi['EOS']])))
                 # if dtx <= window:
                 #     torch.cat((current_dt_stoi, torch.tensor([max(list(itos_dt.keys()))])))
-                print(len(current_id_stoi))
                 context_length = int(window_prev / window)
                 id_prev_stoi_buffer.append(torch.tensor(current_id_stoi))
                 dt_prev_stoi_buffer.append(torch.tensor(current_dt_stoi))

@@ -134,6 +134,7 @@ def make_intervals(data, window):
             intervals += [rn] * len(interval)
             if rn > max(df['Time']):
                 break
+    intervals = np.array(intervals).round(2)
     return intervals
 
 def group_intervals(df, dt):
@@ -395,7 +396,7 @@ class SpikeTimeVidData2(Dataset):
         """
 
         def __init__(self, data, frames, block_size, id_block_size, frame_block_size, id_prev_block_size, window, dt, frame_memory, 
-                     stoi, itos, neurons, stoi_dt=None, itos_dt=None, frame_feats=None, pred=False, window_prev=None):
+                     stoi, itos, neurons, stoi_dt=None, itos_dt=None, frame_feats=None, pred=False, data_dict=None, window_prev=None):
                 
                 pixels = [i for i in range(frames.min(), frames.max() + 1)] if frames is not None else []
                 feat_encodings = neurons + ['EOS'] + ['PAD'] + pixels                 
@@ -420,6 +421,7 @@ class SpikeTimeVidData2(Dataset):
                 self.frame_memory = frame_memory
                 
                 self.data = data.reset_index(drop=True)
+                self.data_dict = data_dict
                 self.frame_feats = frame_feats
                 self.frames = frames
 
@@ -460,21 +462,28 @@ class SpikeTimeVidData2(Dataset):
                 dt_chunk = dt
                 pad_n
                 """
-                data = self.data[self.data['Trial'] == trial]
-                data = data[(data['Interval'] > interval[0] + 0.005) & 
-                                 (data['Interval'] <= interval[1] + 0.005)][-(block_size - 2):]
+                if self.data_dict is None:
+                    data = self.data[self.data['Trial'] == trial]
+                    data = data[(data['Interval'] > interval[0] + 0.005) & 
+                                    (data['Interval'] <= interval[1] + 0.005)][-(block_size - 2):]
+                else:
+                    data = self.data_dict[trial]
+                    if interval[1] in data:
+                        data = data[interval[1]]
+                    else:
+                        data = {'Time': np.array([]), 'ID': np.array([])}
 
 
                 # data = self.data[(self.data['Interval'] == interval) & 
                 #                  (self.data['Trial'] == trial)][-(self.id_block_size - 2):]  
-                chunk = data['ID']
+                chunk = data['ID'][-(block_size - 2):]
                 dix = [self.stoi[s] for s in chunk]
                 dix = ([self.stoi['SOS']] + dix + [self.stoi['EOS']])[-block_size:]
                 pad_n = block_size - (len(dix) + 1 - 2) # len chunk is 1 unit bigger than x, y
                 dix = dix + [self.stoi['PAD']] * pad_n
 
                 # print(data['Time'], "int", interval[0])
-                dt_chunk = (data['Time'] - (interval[0]))
+                dt_chunk = (data['Time'] - (interval[0]))[-(block_size - 2):]
                 dt_chunk = [self.stoi_dt[self.round_n(dt, self.dt)] for dt in dt_chunk]
                 if len(dt_chunk) > 0:
                     dt_max = max(dt_chunk)
@@ -483,7 +492,7 @@ class SpikeTimeVidData2(Dataset):
                 # dt_max = self.dt_max
                 dt_chunk = [0] + dt_chunk + [dt_max] * (pad_n + 1) # 0 = SOS, max = EOS
 
-                pad_n -= 1
+                # pad_n -= 1
             
                 return dix, dt_chunk, pad_n
 
