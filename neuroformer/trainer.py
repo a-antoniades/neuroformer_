@@ -169,7 +169,7 @@ class Trainer:
                     if config.show_grads is True:
                         self.plot_grad_flow(model.named_parameters())
                     
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), config.grad_norm_clip, norm_type=config.clip_norm)
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), config.grad_norm_clip)
                     optimizer.step()
 
                     lr = optimizer.param_groups[0]['lr']

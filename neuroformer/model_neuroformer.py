@@ -3,6 +3,7 @@
 from xml.etree.ElementPath import xpath_tokenizer
 
 from grpc import xds_channel_credentials
+from sympy import xfield
 from torch.nn.modules.activation import GELU, ReLU
 # from data.OneCombo3.trainer import TrainerConfig
 import math
@@ -28,6 +29,9 @@ from scipy.optimize import linear_sum_assignment
 
 from einops import rearrange
 from einops.layers.torch import Rearrange
+
+import timm
+
 
 logger = logging.getLogger(__name__)
 
@@ -192,6 +196,23 @@ class VideoEncoder(nn.Module):
 
         return x
         # return x
+
+class ViTEncoder(nn.Module):
+    def __init__(self):
+        super().__init__()
+        model = timm.create_model('vit_base_patch16_224', pretrained=True)
+        model = torch.nn.Sequential(*(list(model.children())[:3]))
+        # self.embedding = model[0:2]
+        self.backbone = model[2][:2]
+    
+    def forward(self, x):
+        x = rearrange(x, 'b t h w c -> b (t h w) c')
+        features = []
+        # for frame in x:
+            # frame = self.embedding(frame)
+        x = self.backbone(x)
+        # features.append(x)
+        return x
 
 class MultiheadfAttention(nn.Module):
     """
@@ -728,6 +749,8 @@ class BlockSequential(nn.Sequential):
         return x
 
 
+
+
 class MultimodalTransformer(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -737,6 +760,7 @@ class MultimodalTransformer(nn.Module):
         # self.neural_state_history_self_attention = BlockSequential(*[Block(config) for _ in range(config.n_state_layers)])
         # self.neural_state_stimulus = BlockSequential(*[Block(config, sparse_topk=config.sparse_topk_frame) for _ in range(config.n_stimulus_layers)])
 
+        # self.frame_encoder = _get_clones(Block(config, sparse_topk=config.sparse_topk_id), 4)
         self.neural_state_blocks = _get_clones(Block(config, sparse_topk=config.sparse_topk_id), config.n_state_layers)
         self.neural_state_history_blocks = _get_clones(Block(config, sparse_topk=config.sparse_topk_id), config.n_state_history_layers)
         # self.neural_state_history_self_attention = BlockSequential(*[Block(config) for _ in range(config.n_state_layers)])
@@ -780,9 +804,10 @@ class MultimodalTransformer(nn.Module):
             neural_history: [batch_size, seq_len_t, hidden_size]
             stimulus: [batch_size, seq_len_s, hidden_size]
         """
-        self.epoch += 1
-        if self.config.sparse_mask and self.epoch >= 15 and self.training:
-            p = 0.4 / (1 + np.exp( -self.epoch / 15))
+        self.epoch += 1/48
+        if self.epoch == 10: print(self.epoch)
+        if self.config.sparse_mask and self.epoch >= 10 and self.training:
+            p = 0.4 / (1 + np.exp( -self.epoch / 10))
             mask = self.generate_sparse_mask(p, self.config.id_block_size)   # self.config.p_sparse
             # logger.info(f"p_sparse = {p}")
         else:
@@ -794,15 +819,17 @@ class MultimodalTransformer(nn.Module):
         
         x = neural_state
         y = neural_history
-        z = stimulus
-        for mod in self.neural_state_blocks:
-            x = mod(x, x, x, mask)
+        
+        # for mod in self.frame_encoder:
+        #     stimulus = mod(stimulus, stimulus, stimulus)
         # y = x + y
-        # for mod in self.neural_state_history_blocks:
-        #     x = mod(x, neural_history, neural_history)
+        for mod in self.neural_state_history_blocks:
+            x = mod(x, neural_history, neural_history)
         # x = x + y
         for mod in self.neural_state_stimulus_blocks:
             x = mod(x, stimulus, stimulus)
+        for mod in self.neural_state_blocks:
+            x = mod(x, x, x, mask)
         # x = self.output_att[0](x, x, x, mask)
         return x
 
@@ -830,6 +857,7 @@ class GPT(nn.Module):
         
         # frame embeddings
         self.n_frames = (20 // config.kernel_size[0]) if config.conv_layer else 20
+
         assert config.frame_block_size % self.n_frames == 0, "frameblocksize not divisible by n_frames"
         # self.pos_emb_frames = nn.Parameter(torch.zeros(1, config.frame_block_size // self.n_frames, config.n_embd))
         # frame_temp_emb = torch.tensor(list(itertools.chain(*[[n * 1] * (config.frame_block_size//self.n_frames) for n in range(self.n_frames)]))).unsqueeze(1)
@@ -929,9 +957,12 @@ class GPT(nn.Module):
                 {"params": [param_dict[pn] for pn in sorted(list(no_decay))], "weight_decay": 0.0},
             ]
             optimizer = torch.optim.AdamW(optim_groups, lr=train_config.learning_rate, betas=train_config.betas)
+            # optimizer = torch.optim.SGD(optim_groups, lr=train_config.learning_rate, momentum=0.9)
+            print(f"weight_decay: {train_config.weight_decay}")
         
         else:
             parameters = self.parameters()
+            # optimizer = torch.optim.SGD(parameters, lr=train_config.learning_rate, momentum=0.9)
             optimizer = torch.optim.Adam(parameters, lr=train_config.learning_rate)
         
         return optimizer
@@ -1034,13 +1065,21 @@ class GPT(nn.Module):
                 dt_logits_ = dt_logits[B, :t - P]
                 time_targets = targets['dt'][B, :t - P]
 
-                loss_id_ = F.cross_entropy(id_logits_.view(-1, id_logits_.size(-1)), id_targets.view(-1))    #, weight=self.class_weights_id)
-                loss_time_ = F.cross_entropy(dt_logits_.view(-1, dt_logits_.size(-1)), time_targets.view(-1))    #, weight=self.class_weights_dt)
+                loss_id_ = F.cross_entropy(id_logits_.view(-1, id_logits_.size(-1)), id_targets.view(-1))    # , weight=self.class_weights_id)
+                loss_time_ = F.cross_entropy(dt_logits_.view(-1, dt_logits_.size(-1)), time_targets.view(-1))    # , weight=self.class_weights_dt)
                 # if self.config.epoch >= 15:
                     # self.truncated_loss.update_weight(id_logits[None, ...], id_targets[None, ...], id_indexes[None, ...])
                 # loss_id_ = self.truncated_loss(id_logits_[None, ...], id_targets[None, ...])
                 # loss_time_ = self.truncated_loss(dt_logits_[None, ...], time_targets[None, ...])
-                # loss_time_ = F.mse_loss(time_preds.squeeze(-1), time_targets)
+
+                id_logits_ = id_logits_.squeeze(-1)
+                # dt_logits_ = dt_logits_.squeeze(-1)
+                # id_targets_ = torch.zeros_like(id_logits_)
+                # time_targets_ = torch.zeros_like(dt_logits_)
+                # id_targets_[torch.arange(len(id_logits_)), id_targets] = 1
+                # time_targets_[torch.arange(len(dt_logits_)), time_targets] = 1
+                # loss_id_ = F.mse_loss(id_logits_, id_targets_)
+                # loss_time_ = F.mse_loss(dt_logits_, time_targets_)
                 # loss_id_ = self.poisson_loss(id_logits.view(-1, id_logits.size(-1)), F.one_hot(id_targets, self.config.vocab_size))
                 if len(id_targets) > 0:
                 #     # hungarian loss

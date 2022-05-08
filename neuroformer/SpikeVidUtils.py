@@ -214,6 +214,7 @@ def image_dataset(frame_stack, size=(64, 112)):
     print("im_sack size: {}".format(im_stack.size()))
     return im_stack
 
+
 def video_dataset(frame_stack):
     """ 
     Scale, Normalize, and Convert to format (C, T, H, W) for ResNet 3D
