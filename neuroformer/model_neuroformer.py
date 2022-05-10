@@ -750,6 +750,57 @@ class BlockSequential(nn.Sequential):
 
 
 
+def contrastive_loss(image_features, neural_features, temp=0.5):
+
+    device = image_features.device
+
+    Bid, Tid = image_features.size()
+    Bim, Tim = neural_features.size()
+
+    assert Tid==Tim, "feature sequences not equal"
+    B = Bid = Bim
+    T = Tid = Tim
+
+    # resize
+    # image_features = image_features.contiguous().view(B * T, -1) # (B x T, C) 
+    # neural_features = neural_features.contiguous().view(B * T, -1) # (B x T, C)
+
+    # normalize
+    image_features = image_features / image_features.norm(dim=-1, keepdim=True)
+    neural_features = neural_features / neural_features.norm(dim=-1, keepdim=True)
+
+    # cosine similarity as logits
+    logits_per_image = temp * image_features @ neural_features.t()
+    logits_per_neurons = temp * neural_features @ image_features.t()
+
+    # (a)symmetric loss function
+    labels = torch.arange(B).to(device)
+    loss_i = F.cross_entropy(logits_per_image, labels)
+    loss_n = F.cross_entropy(logits_per_neurons, labels)
+    loss = (1/2 * loss_i) + (1/2 * loss_n) 
+
+    return loss
+
+
+class CLIP(nn.Module):
+    def __init__ (self, config):
+        super().__init__()
+        self.frame_proj = nn.Linear(config.frame_block_size * config.n_embd, config.clip_emb)
+        self.id_proj = nn.Linear(config.id_block_size * config.n_embd, config.clip_emb)
+
+    
+    def forward(self, frame_feats, id_feats):
+        frame_feats = rearrange(frame_feats, 'b hw e -> b (hw e)')
+        id_feats = rearrange(id_feats, 'b t e -> b (t e)')
+
+        frame_proj = self.frame_proj(frame_feats)
+        id_proj = self.id_proj(id_feats)
+
+        loss = contrastive_loss(frame_proj, id_proj, temp=10)
+
+        return loss
+
+
 
 class MultimodalTransformer(nn.Module):
     def __init__(self, config):
@@ -872,6 +923,7 @@ class GPT(nn.Module):
         self.video_encoder = VideoEncoder(config)
 
         # -- Multimodal Transformer -- #
+        self.clip = CLIP(config)
         self.neural_visual_transformer = MultimodalTransformer(config)
        
         ## -- ID, dt, Logit Projections -- ##
@@ -1065,8 +1117,8 @@ class GPT(nn.Module):
                 dt_logits_ = dt_logits[B, :t - P]
                 time_targets = targets['dt'][B, :t - P]
 
-                loss_id_ = F.cross_entropy(id_logits_.view(-1, id_logits_.size(-1)), id_targets.view(-1))    # , weight=self.class_weights_id)
-                loss_time_ = F.cross_entropy(dt_logits_.view(-1, dt_logits_.size(-1)), time_targets.view(-1))    # , weight=self.class_weights_dt)
+                loss_id_ = F.cross_entropy(id_logits_.view(-1, id_logits_.size(-1)), id_targets.view(-1))   #, weight=self.class_weights_id)
+                loss_time_ = F.cross_entropy(dt_logits_.view(-1, dt_logits_.size(-1)), time_targets.view(-1))   #, weight=self.class_weights_dt)
                 # if self.config.epoch >= 15:
                     # self.truncated_loss.update_weight(id_logits[None, ...], id_targets[None, ...], id_indexes[None, ...])
                 # loss_id_ = self.truncated_loss(id_logits_[None, ...], id_targets[None, ...])
@@ -1118,9 +1170,13 @@ class GPT(nn.Module):
 
             loss = dict()
             # loss['frames'] = loss_frames / (b / 3)
-            loss['id'] = (3 / 4) * sum(loss_id) / b  # sum(loss_id) / (b * 2)   # / len(loss_id)
-            loss['time'] = (1 / 4) * sum(loss_time) / b
-            # loss['dice'] = sum(loss_dice) / len(loss_dice)
+            n = 1
+            if self.config.contrastive:
+                n = 2
+                loss['clip'] = self.clip(features['frames'], features['id']) / n 
+            loss['id'] = ((3 / 2) * sum(loss_id) / b) / n  # sum(loss_id) / (b * 2)   # / len(loss_id)
+            loss['time'] = ((1 / 4) * sum(loss_time) / b) / n
+            
             # loss['dt'] = loss_time / (b * 50)
             # loss['hungarian'] = sum(loss_hungarian) / (b * 2)
             # loss['psth'] = sum(loss_psth) / (b * 2)
