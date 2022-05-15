@@ -77,13 +77,15 @@ from SpikeVidUtils import SpikeTimeVidData
 # frame_block_size = frames.shape[-1] - 1
 
 ## resnet3d feats
+kernel_size = (20, 8, 8)
+T_FRAME = 20 // kernel_size[0]
 n_embd = 256
 n_embd_frames = 64
 frame_feats = video_stack
 
-frame_block_size = (20 * 64 * 112) // (n_embd_frames)
+frame_block_size = (20 // kernel_size[0] * 64 * 112) // (n_embd_frames)
 # frame_block_size = 560
-prev_id_block_size = 45
+prev_id_block_size = 70
 id_block_size = prev_id_block_size   # 95
 block_size = frame_block_size + id_block_size + prev_id_block_size # frame_block_size * 2  # small window for faster training
 frame_memory = 20   # how many frames back does model see
@@ -134,7 +136,7 @@ print(f'train: {len(train_dataset)}, test: {len(test_dataset)}')
 from model_neuroformer import GPT, GPTConfig, neuralGPTConfig, Decoder
 # initialize config class and model (holds hyperparameters)
 # for is_conv in [True, False]:    
-conv_layer = False
+conv_layer = True
 mconf = GPTConfig(train_dataset.population_size, block_size,    # frame_block_size
                         id_vocab_size=train_dataset.id_population_size,
                         frame_block_size=frame_block_size,
@@ -145,16 +147,18 @@ mconf = GPTConfig(train_dataset.population_size, block_size,    # frame_block_si
                         data_size=train_dataset.size,
                         class_weights=None,
                         pretrain=False,
-                        n_state_layers=1, n_state_history_layers=0, n_stimulus_layers=4,
-                        n_layer=10, n_head=8, n_embd=n_embd, n_embd_frames=n_embd_frames,
-                        conv_layer=conv_layer,
+                        n_state_layers=1, n_state_history_layers=0, n_stimulus_layers=6,
+                        n_layer=10, n_head=4, n_embd=n_embd, n_embd_frames=n_embd_frames,
+                        contrastive=True, clip_emb=1024, clip_temp=0.5,
+                        conv_layer=conv_layer, kernel_size=kernel_size,
                         temp_emb=True, pos_emb=False,
-                        id_drop=0, im_drop=0)
+                        id_drop=0.2, im_drop=0.2)
 model = GPT(mconf)
-model_path = "/Users/antonis/Downloads/simNeu3D_correct_norel_sparse_(None, None)__dt__True_perceiver_1.0_0.5_0.05_(1, 0, 4)_8_256-4.pt"
-# model.load_state_dict(torch.load(model_path, map_location='cpu'))
-
-
+# model_path = "/Users/antonis/Downloads/dict_simNeu3D_correct_norel_sparse_(None, None)__dt__True_perceiver_1.0_0.5_0.05_(1, 0, 4)_8_256-2.pt"
+# model_path = "/Users/antonis/Downloads/conv_3d_3Demb_simNeu3D_correct_norelTrue_sparse_(None, None)__dt__True_perceiver_1.0_0.5_0.05_(1, 0, 5)_4_256.pt"
+# model_path = "/Users/antonis/Downloads/3Demb_simNeu3D_correct_norelFalse_sparse_(None, None)__dt__True_perceiver_1.0_0.5_0.05_(1, 0, 5)_4_256-2.pt"
+model_path = "/Users/antonis/Downloads/contro_3_decoder_conv_3d_(20, 8, 8)_diff_embd_3Demb_simNeu3D_correct_norelTrue_sparse_(None, None)__dt__True_perceiver_1.0_0.5_0.05_(1, 0, 6)_2_256.pt"
+model.load_state_dict(torch.load(model_path, map_location='cpu'))
 
 
 from attentionVis import AttentionVis as AV
@@ -162,14 +166,15 @@ from attentionVis import AttentionVis as AV
 loader = DataLoader(train_dataset, shuffle=True, pin_memory=False,
                                   batch_size=1, num_workers=1)
 stimulus_atts_scores_agg = AV().att_interval_frames(model, model.neural_visual_transformer.neural_state_stimulus_blocks,
-                                loader, model.config.n_stimulus_layers, mconf.id_block_size, rollout=True, pad_key='pad', agg=True, stoi=stoi, max_it=10)
+                                loader, model.config.n_stimulus_layers, mconf.id_block_size, rollout=True, pad_key='pad', 
+                                agg=True, stoi=stoi, max_it=75, n_layer=5)
 
 # stimulus_atts_scores = att_interval(model, model.neural_visual_transformer.neural_state_block,
 #                              loader, model.config.n_stimulus_layers, mconf.id_block_size, 'pad', agg=True)
 # B, L, H, N, F = stimulus_atts_scores.shape
 print(stimulus_atts_scores_agg.shape)
 
-path = "/Users/antonis/projects/slab/neuroformer/neuroformer/notebooks/centroids/stim_atts_5"
+path = "/Users/antonis/projects/slab/neuroformer/neuroformer/notebooks/centroids/stim_atts_contrastive"
 paths = sorted(glob.glob(path + '/*.pt'))
 
 # for p in paths:

@@ -465,8 +465,8 @@ class SpikeTimeVidData2(Dataset):
                 """
                 if self.data_dict is None:
                     data = self.data[self.data['Trial'] == trial]
-                    data = data[(data['Interval'] > interval[0] + 0.005) & 
-                                    (data['Interval'] <= interval[1] + 0.005)][-(block_size - 2):]
+                    data = data[(data['Interval'] > interval[0]) & 
+                                    (data['Interval'] <= interval[1])][-(block_size - 2):]
                 else:
                     data = self.data_dict[trial]
                     if interval[1] in data:

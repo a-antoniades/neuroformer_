@@ -46,7 +46,7 @@ def rollout_attentions(att):
                 a = a.max(axis=0)[0]
                 a = (a + 1.0*I) / 2
                 a = a / a.sum(axis=-1, keepdims=True)
-                rollout_att = a * rollout_att
+                rollout_att = a @ rollout_att
         return rollout_att
 
 
@@ -62,7 +62,7 @@ def grad_rollout(attentions, gradients, discard_ratio=0.8, idx=None, n_layers=0)
                                 continue
                         # attention = attention if idx is None else attention[:, :, idx]
                         # grad = grad if idx is None else grad[:, :, idx] 
-                        attention_heads_fused = (grad*attention).clamp(min=0).mean(axis=1)
+                        attention_heads_fused = (grad*attention).mean(axis=1)
                         # attention_heads_fused[attenti,on_heads_fused < discard_ratio] = 0
 
                         # Drop the lowest attentions, but
@@ -120,9 +120,9 @@ def interpret(x, y, model, idx=None, n_layer=0):
         preds, _, _ = model(x)
         logits_id = preds['id']
         category_mask = torch.zeros(logits_id.size()).detach().cpu().numpy()
-        y_id = y['id'].flatten()
+        y_id = x['id'].flatten()
         y_idx = y_id if idx == None else y_id[idx]
-        category_mask[:, torch.arange(len(y_id)), y_id] = 1
+        category_mask[:, torch.arange(len(y_id)), y_idx] = 1
         category_mask = torch.from_numpy(category_mask).requires_grad_(True)
         loss = torch.sum(logits_id * category_mask)
         model.zero_grad()
@@ -139,21 +139,26 @@ def interpret(x, y, model, idx=None, n_layer=0):
                 R_id = R_id + torch.matmul(blk_att, R_id)
                 del grad
 
-        R_id_vis = torch.eye(id_vis_att[0].shape[-2], id_vis_att[0].shape[-1])
+        # R_id_vis = torch.eye(id_vis_att[0].shape[-2], id_vis_att[0].shape[-1])
+        R_id_vis = None
         R_vis = torch.eye(id_vis_att[0].shape[-1], id_vis_att[0].shape[-1])
         for i, blk_att in enumerate(id_vis_att):
                 if i < n_layer:
                         continue
                 grad = torch.autograd.grad(loss, blk_att, retain_graph=True)[0].detach()
                 blk_att = blk_att.detach()
-                blk_att = grad * blk_att
+                blk_att = grad.clamp(min=0) * blk_att
                 blk_att = blk_att.clamp(min=0).mean(dim=1)
                 # blk_att[blk_att < 0.75] = 0
-                R_id_vis = R_id_vis + torch.transpose(R_id, -1, -2) @ blk_att @ R_vis
+                R_id_vis = blk_att if R_id_vis is None else R_id_vis + blk_att
+                # R_id_vis = R_id_vis + torch.transpose(R_id, -1, -2) @ blk_att @ R_vis
                 del grad
         
         if idx is not None:
                 R_id_vis = R_id_vis[:, idx, :,]
+        
+        else:
+                R_id_vis = R_id_vis
         model.zero_grad(set_to_none=True)
 
         del loss
@@ -282,6 +287,19 @@ class AttentionVis:
                                 break
                 return grad_attentions
 
+        # def grad_attentions(self, model, x, y, stoi, n_layer=0):
+        #         grad_attentions = None
+        #         y_id = y['id'].flatten()
+        #         T = len(y_id)
+        #         y_id = y_id[: T - int(x['pad'])]
+        #         # idx = np.arange(len(y_id))
+        #         _, att = interpret(x, y, model, n_layer=n_layer)
+        #         # grad_attentions = att[None, ...] if grad_attentions is None else torch.cat((grad_attentions, att[None, ...]))
+        #         grad_attentions = att if grad_attentions is None else torch.cat((grad_attentions, att))
+        #         grad_attentions = grad_attentions[0][:T - int(x['pad'])]
+        #         model.zero_grad()
+        #         return grad_attentions
+
         
         # @torch.no_grad()
         def att_interval_frames(self, model, module, loader, n_blocks, block_size, 
@@ -336,10 +354,10 @@ class AttentionVis:
                                                 # att = np.max(att, axis=(0, 1))
                                         score = np.zeros((mconf.id_vocab_size, mconf.frame_block_size))
                                         # score = score.reshape(-1, 20, 8, 14).min(axis=1)
-                                        xid = x['id'].cpu().flatten().tolist()
+                                        xid = x['id'].cpu().flatten().tolist()[:t_seq]
                                         yid = y['id'].cpu().flatten().tolist()[:t_seq]
                                         # score[ix] = att
-                                        score[yid] = att[:t_seq]
+                                        score[xid] = att[:t_seq]
                                         # score[t_seq:] == 0
                                 else:
                                         score = att
@@ -377,7 +395,7 @@ class AttentionVis:
                         _, _, _ = model(x)
                         # scores = np.array(np.zeros(len(neurons)))
                         att = np.zeros(len(mconf.id_vocab_size))
-                        score = AttentionVis.get_attention(module, n_blocks, T, pad)
+                        score = get_attention(module, n_blocks, T, pad)
                         score = np.sum(score, axis=0)   # sum over all heads 
                         score = np.sum(score, axis=0)   # sum over all steps
                         # take attentions from last step
