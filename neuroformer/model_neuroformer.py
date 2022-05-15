@@ -785,6 +785,7 @@ def contrastive_loss(image_features, neural_features, temp=0.5):
 class CLIP(nn.Module):
     def __init__ (self, config):
         super().__init__()
+        self.temp = config.clip_temp
         self.frame_proj = nn.Linear(config.frame_block_size * config.n_embd, config.clip_emb)
         self.id_proj = nn.Linear(config.id_block_size * config.n_embd, config.clip_emb)
 
@@ -796,7 +797,7 @@ class CLIP(nn.Module):
         frame_proj = self.frame_proj(frame_feats)
         id_proj = self.id_proj(id_feats)
 
-        loss = contrastive_loss(frame_proj, id_proj, temp=10)
+        loss = contrastive_loss(frame_proj, id_proj, temp=self.temp)
 
         return loss
 
@@ -876,7 +877,6 @@ class MultimodalTransformer(nn.Module):
         # y = x + y
         for mod in self.neural_state_history_blocks:
             x = mod(x, neural_history, neural_history)
-        # x = x + y
         for mod in self.neural_state_stimulus_blocks:
             x = mod(x, stimulus, stimulus)
         for mod in self.neural_state_blocks:
@@ -923,7 +923,8 @@ class GPT(nn.Module):
         self.video_encoder = VideoEncoder(config)
 
         # -- Multimodal Transformer -- #
-        self.clip = CLIP(config)
+        if config.contrastive:
+            self.clip = CLIP(config)
         self.neural_visual_transformer = MultimodalTransformer(config)
        
         ## -- ID, dt, Logit Projections -- ##
@@ -1117,8 +1118,8 @@ class GPT(nn.Module):
                 dt_logits_ = dt_logits[B, :t - P]
                 time_targets = targets['dt'][B, :t - P]
 
-                loss_id_ = F.cross_entropy(id_logits_.view(-1, id_logits_.size(-1)), id_targets.view(-1))   #, weight=self.class_weights_id)
-                loss_time_ = F.cross_entropy(dt_logits_.view(-1, dt_logits_.size(-1)), time_targets.view(-1))   #, weight=self.class_weights_dt)
+                loss_id_ = F.cross_entropy(id_logits_.view(-1, id_logits_.size(-1)), id_targets.view(-1), weight=self.class_weights_id)
+                loss_time_ = F.cross_entropy(dt_logits_.view(-1, dt_logits_.size(-1)), time_targets.view(-1), weight=self.class_weights_dt)
                 # if self.config.epoch >= 15:
                     # self.truncated_loss.update_weight(id_logits[None, ...], id_targets[None, ...], id_indexes[None, ...])
                 # loss_id_ = self.truncated_loss(id_logits_[None, ...], id_targets[None, ...])
