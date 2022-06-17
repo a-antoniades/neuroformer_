@@ -94,9 +94,9 @@ def get_id_intervals(df, n_id, intervals):
     id_intervals[interval_counts.index.astype(int).tolist()] = interval_counts.index.astype(int).tolist()
     return id_intervals.tolist()
 
-def plot_var(ax, df, variable, values, color_map, m_s=150, l_w=1):
+def plot_var(ax, df, variable, values, color_map=None, color=None, m_s=150, l_w=1):
     for value in values:
-        color = color_map[value]
+        color = color_map[value] if color_map is not None else color
         data = df[df[variable] == value]
         data[variable] = data[variable].astype('str')
         ax.scatter(data['Time'], data[variable], color=color,    # c=data[variable].map(color_map),
@@ -120,9 +120,9 @@ def plot_var(ax, df, variable, values, color_map, m_s=150, l_w=1):
         # ax.yaxis.set_tick_params(right='off', direction='out', width=1)
 
 
-ms_firing = 25
-line_width = 0.75
-lw_scatter = 0.1
+ms_firing = 500    # 50
+line_width = 2   # 0.75
+lw_scatter = 2   # 0.3
 def plot_firing_comparison(df_1, df_2, id, trials, intervals, figure_name=None):
     '''
     get trial averaged spikes (PSTH)
@@ -202,6 +202,7 @@ def plot_firing_comparison(df_1, df_2, id, trials, intervals, figure_name=None):
     max_intervals = math.ceil(df_1['Interval'].max())
         # max_intervals = max(intervals)
     xticks, xlabels = [0,max_intervals // 2, max_intervals], [0,max_intervals // 2, max_intervals]
+    xlabels = ['', '', '']
 
     yticks, ylabels = np.arange(len(trials)), list(map(str, trials))
     for ax in axes_list:
@@ -216,7 +217,7 @@ def plot_firing_comparison(df_1, df_2, id, trials, intervals, figure_name=None):
 
     # ax_hist_1.set_xlabel('Time (s)', fontsize=20)
     ax_hist_1.set_xlabel('', fontsize=20)
-    legend = fig.legend(bbox_to_anchor=(0.25, 0.01), ncol=3, frameon=True, fontsize=17.5)  # bbox_to_anchor=(0.75, 0.55)
+    # legend = fig.legend(bbox_to_anchor=(0.25, 0.01), ncol=3, frameon=True, fontsize=17.5)  # bbox_to_anchor=(0.75, 0.55)
     ax_rast_1.set_title("{}".format(id_), fontsize=20)
 
 
@@ -283,6 +284,7 @@ def plot_firing_comparison_sweeps(df_1, df_2, id, trials, intervals, figure_name
     max_intervals = df_1['Interval'].max()
     yticks, ylabels = np.arange(len(trials)), list(map(str, trials))
     xticks, xlabels = [0,max_intervals // 2, max_intervals], [0,max_intervals // 2, max_intervals]
+    xlabels = ['', '', '']
     for ax in axes_list:
         ax = ax[0]
         tidy_axis(ax, bottom=True)
@@ -305,7 +307,7 @@ def plot_firing_comparison_sweeps(df_1, df_2, id, trials, intervals, figure_name
     # tidy_axis(ax_hist_2, bottom=True)
     ax_hist_1.set_xlabel('')
     # ax_hist_1.set_xlabel('Time (s)', fontsize=20)
-    legend = fig.legend(bbox_to_anchor=(0.25, 0.01), ncol=3, frameon=True, fontsize=17.5)  # bbox_to_anchor=(0.75, 0.55)
+    # legend = fig.legend(bbox_to_anchor=(0.25, 0.01), ncol=3, frameon=True, fontsize=17.5)  # bbox_to_anchor=(0.75, 0.55)
     list(ax_dict_pred.values())[-1].set_title("{}".format(id_), fontsize=20)
     
 
@@ -356,6 +358,8 @@ def plot_neurons_trials_psth(df_1, df_2, neurons, trials, intervals, figuresize=
     plt.rcParams['legend.fontsize']= fs
     plt.rcParams['lines.linewidth']= 2
     # plt.rcParams['fig.supylabel']= fs
+
+    color = ['black', 'red']
     
     df_1 = df_1.reset_index(drop=True)
     df_2 = df_2.reset_index(drop=True)
@@ -375,9 +379,9 @@ def plot_neurons_trials_psth(df_1, df_2, neurons, trials, intervals, figuresize=
     fig, ax = plt.subplots(nrows=nrows, ncols=ncols, figsize=fig_size)
     variable = 'Trial'
 
-    color_labels = trials
-    rgb_values = sns.color_palette("gist_ncar_r", len(trials))
-    color_map = dict(zip(color_labels, rgb_values))
+    # color_labels = trials
+    # rgb_values = sns.color_palette("gist_ncar_r", len(trials))
+    # color_map = dict(zip(color_labels, rgb_values))
 
     max_freq = 0
     for n, neuron in enumerate(neurons):
@@ -393,8 +397,8 @@ def plot_neurons_trials_psth(df_1, df_2, neurons, trials, intervals, figuresize=
 
         m_s = 45
         l_w = 0.5
-        plot_var(ax[0][n], df_1_id, variable, trials, color_map, m_s, l_w=l_w)
-        plot_var(ax[1][n], df_2_id, variable, trials, color_map, m_s, l_w=l_w)
+        plot_var(ax[0][n], df_1_id, variable, trials, color=color[0], m_s=m_s, l_w=l_w)
+        plot_var(ax[1][n], df_2_id, variable, trials, color=color[1], m_s=m_s, l_w=l_w)
 
         set_categorical_ticks(ax[0][n], yticks, ylabels, xticks, xlabels)
         set_categorical_ticks(ax[1][n], yticks, ylabels, xticks, xlabels)
@@ -423,9 +427,9 @@ def plot_neurons_trials_psth(df_1, df_2, neurons, trials, intervals, figuresize=
 
         # ax[2][n].hist([freq_id_1, freq_id_2], bins=bins, histtype='step', edgecolor=['blue', 'red'], 
         #                lw=2, alpha=0.3, facecolor=['blue', 'red'], label=['True', 'Sim'])
-        c_2, c_1 = rgb_values[2], rgb_values[-1]
-        ax[2][n].hist(df_1_id['Interval'], bins=bins, edgecolor=None, lw=2, alpha=1, facecolor=c_1, label='True')
-        ax[3][n].hist(df_2_id['Interval'], bins=bins, edgecolor=None, lw=2, alpha=1, facecolor=c_2, label='Predicted') # histtype='step'
+        # c_2, c_1 = rgb_values[2], rgb_values[-1]
+        ax[2][n].hist(df_1_id['Interval'], bins=bins, edgecolor=None, lw=2, alpha=1, facecolor=color[0], label='True')
+        ax[3][n].hist(df_2_id['Interval'], bins=bins, edgecolor=None, lw=2, alpha=1, facecolor=color[1], label='Predicted') # histtype='step'
         
         # xticks, xlabels = [0, max(intervals) // 2, max(intervals)], [0, max(intervals) // 2, max(intervals)]
         y_fs_hist = 15

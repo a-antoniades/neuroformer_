@@ -395,6 +395,20 @@ def predict_raster_recursive_time(model, loader, stoi, itos_dt, get_dt=False, sa
     return data
 
 @torch.no_grad()
+def model_ensemble(models, x):
+    """
+    Ensemble of models
+    """
+    logits_total = dict()
+    for model in models:
+        model.eval()
+        logits, _, _ = model(x)
+        logits_total['id'] = logits['id'] + logits_total['id'] if 'id' in logits_total else logits['id']
+        logits_total['dt'] = logits['dt'] + logits_total['dt'] if 'dt' in logits_total else logits['dt']
+    return logits 
+
+
+@torch.no_grad()
 def predict_raster_recursive_time_auto(model, loader, window, window_prev, stoi, itos_dt, get_dt=False, sample=False, top_k=0, top_p=0, top_p_t=0, temp=1, temp_t=1, frame_end=0, gpu=False, pred_dt=True):
     """
     predict both ID and dt recursively
@@ -412,12 +426,13 @@ def predict_raster_recursive_time_auto(model, loader, window, window_prev, stoi,
 
 
     device = 'cpu' if not gpu else torch.cuda.current_device() # torch.cuda.current_device() if torch.cuda.is_available() else "cpu"
-    model = model.to(device)
-    model.eval()
-    tf = frame_end
-    T = model.get_block_size() # model.config.id_block_size # model.get_block_size()
-    T_id = model.config.id_block_size
-    T_id_prev = model.config.prev_id_block_size
+    model = [model_n.to(device) for model_n in model] if isinstance(model, list) else model.to(device) 
+    model = [model_n.eval() for model_n in model] if isinstance(model, list) else model.eval()
+    tf = 0
+    mconf = model[0].config if isinstance(model, list) else model.config
+    # T = model.get_block_size() # model.config.id_block_size # model.get_block_size()
+    T_id = mconf.id_block_size
+    T_id_prev = mconf.prev_id_block_size
     context = torch.tensor(0, device=device).unsqueeze(0)
     data = dict()
     data['true'] = context
@@ -431,7 +446,6 @@ def predict_raster_recursive_time_auto(model, loader, window, window_prev, stoi,
     dt_prev_stoi_buffer = []
     pbar = tqdm(enumerate(loader), total=len(loader))
     for it, (x, y) in pbar:
-
 
         for key, value in x.items():
             x[key] = x[key].to(device)
@@ -447,7 +461,6 @@ def predict_raster_recursive_time_auto(model, loader, window, window_prev, stoi,
                 x['dt_prev'] = [0] + dt_prev_stoi[-(T_id_prev - 2):].tolist()           # + [max(list(itos_dt.keys()))]
                 x['dt_prev'] = pad_x(x['dt_prev'], T_id_prev, max(list(itos_dt.keys())))
             
-        
         pad = x['pad'] if 'pad' in x else 0
         x['id_full'] = x['id'][:, 0]
         x['id'] = x['id'][:, 0]
@@ -462,14 +475,21 @@ def predict_raster_recursive_time_auto(model, loader, window, window_prev, stoi,
             x['id'] = torch.cat((x['id_full'], t_pad)).unsqueeze(0).long()
             x['dt'] = torch.cat((x['dt_full'], t_pad_dt)).unsqueeze(0).long() if pred_dt else x['dt']
 
-            logits, features, _ = model(x)
-            logits['id'] = logits['id'][:, tf + i] / temp
-            logits['dt'] = logits['dt'][:, tf + i] / temp_t
+            # forward model, if list of models, then ensemble
+            if isinstance(model, list):
+                logits = model_ensemble(model, x)
+            else:
+                logits, features, _ = model(x)
             
+            logits['id'] = logits['id'][:, i]
+            logits['dt'] = logits['dt'][:, i]
             # optionally crop probabilities to only the top k / p options
             if top_k or top_p != 0:
                 logits['id'] = top_k_top_p_filtering(logits['id'], top_k=top_k, top_p=top_p)
                 logits['dt'] = top_k_top_p_filtering(logits['dt'], top_k=top_k, top_p=top_p_t)
+            
+            logits['id'] = logits['id'] / temp
+            logits['dt'] = logits['dt'] / temp_t
 
             # apply softmax to logits
             probs = F.softmax(logits['id'], dim=-1)
@@ -490,6 +510,8 @@ def predict_raster_recursive_time_auto(model, loader, window, window_prev, stoi,
             current_id_stoi = torch.cat((current_id_stoi, ix.flatten()))
             current_dt_stoi = torch.cat((current_dt_stoi, ix_dt.flatten()))
             dtx = torch.tensor(itos_dt[int(ix_dt.flatten())], device=device).unsqueeze(0)
+            # if len(current_id_stoi) >= T_id - pad:
+            #     ix = stoi['EOS']
             
             # append true and predicted in lists
             # get last unpadded token
@@ -512,6 +534,7 @@ def predict_raster_recursive_time_auto(model, loader, window, window_prev, stoi,
                 id_prev_stoi_buffer = id_prev_stoi_buffer[-context_length:]
                 dt_prev_stoi_buffer = dt_prev_stoi_buffer[-context_length:]
                 break
+
             
         dty = torch.tensor([itos_dt[int(dt)] for dt in y['dt'][:, :T_id - pad].flatten()], device=device)
         # dty = torch.tensor(itos_dt[y['dt'][:, i].item()]).unsqueeze(0)
