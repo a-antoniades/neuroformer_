@@ -816,7 +816,7 @@ class MultimodalTransformer(nn.Module):
         # self.frame_encoder = _get_clones(Block(config, sparse_topk=config.sparse_topk_id), 4)
         self.neural_state_blocks = _get_clones(Block(config, sparse_topk=config.sparse_topk_id), config.n_state_layers)
         self.neural_state_history_blocks = _get_clones(Block(config, sparse_topk=config.sparse_topk_id), config.n_state_history_layers)
-        self.neural_state_history_self_attention = BlockSequential(*[Block(config) for _ in range(config.self_att_layers)])
+        self.neural_state_history_self_attention = _get_clones(Block(config, sparse_topk=config.sparse_topk_id), config.self_att_layers)
         self.neural_state_stimulus_blocks =  _get_clones(Block(config, sparse_topk=config.sparse_topk_frame), config.n_stimulus_layers)
         # self.output_att = _get_clones(Block(config, sparse_topk=config.sparse_topk_id), 1)
 
@@ -1121,7 +1121,7 @@ class GPT(nn.Module):
                 dt_logits_ = dt_logits[B, :t - P]
                 time_targets = targets['dt'][B, :t - P]
 
-                loss_id_ = F.cross_entropy(id_logits_.view(-1, id_logits_.size(-1)), id_targets.view(-1))
+                loss_id_ = F.cross_entropy(id_logits_.view(-1, id_logits_.size(-1)), id_targets.view(-1))   # weight=self.class_weights_id)
                 loss_time_ = F.cross_entropy(dt_logits_.view(-1, dt_logits_.size(-1)), time_targets.view(-1))
                 # if self.config.epoch >= 15:
                     # self.truncated_loss.update_weight(id_logits[None, ...], id_targets[None, ...], id_indexes[None, ...])
