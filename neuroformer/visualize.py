@@ -106,7 +106,7 @@ def plot_var(ax, df, variable, values, color_map=None, color=None, m_s=150, l_w=
         ax.yaxis.set_tick_params(right='off', left='off', direction='out', width=1)
         
         ax.set_ylim(0, len(values))
-        xlim = int(max(df['Interval']))
+        xlim = int(max(df['Interval'])) if len(df['Interval']) > 0 else 64
         ax.set_xlim(0, xlim)
         ax.set_xticks(np.linspace(0, xlim, num=3))
 
@@ -120,7 +120,7 @@ def plot_var(ax, df, variable, values, color_map=None, color=None, m_s=150, l_w=
         # ax.yaxis.set_tick_params(right='off', direction='out', width=1)
 
 
-ms_firing = 500    # 50
+ms_firing = 550    # 50
 line_width = 2   # 0.75
 lw_scatter = 2   # 0.3
 def plot_firing_comparison(df_1, df_2, id, trials, intervals, figure_name=None):
@@ -226,6 +226,10 @@ def plot_firing_comparison_sweeps(df_1, df_2, id, trials, intervals, figure_name
     '''
     get trial averaged spikes (PSTH)
     '''
+    LW = 10
+    LW_scatter = 1
+
+
 
     left, width = 0.15, 0.85
     bottom, height = 0.1, 0.1
@@ -264,7 +268,7 @@ def plot_firing_comparison_sweeps(df_1, df_2, id, trials, intervals, figure_name
     colors = ['black', 'red']
 
     def plot_raster_scatter(ax, data, color, label):
-        ax.scatter(data['Interval'], data['ID'], c=color, s=ms_firing, marker='|', linewidth=lw_scatter, label=label)
+        ax.scatter(data['Interval'], data['ID'], c=color, s=ms_firing, marker='|', linewidth=LW_scatter, label=label)
         ax.set_xlabel(label)
 
     # ax.scatter(true['Interval'], true['ID'].astype('str'), color='#069AF3', marker='|')
@@ -277,8 +281,8 @@ def plot_firing_comparison_sweeps(df_1, df_2, id, trials, intervals, figure_name
         plot_raster_scatter(ax_dict_pred[trial], pred, colors[0], 'Simulated')
         plot_raster_scatter(ax_dict_true[trial], true, colors[1], 'True')
 
-        sns.kdeplot(pred['Interval'], ax=ax_hist_1, bw_adjust=.25, color=colors[0], lw=line_width, alpha=0.7)    #plot(np.array(intervals), rates_1_id, color=colors[0],  lw=3)
-        sns.kdeplot(true['Interval'], ax=ax_hist_1, bw_adjust=.25, color=colors[1], lw=line_width, alpha=0.7)   #plot(np.array(intervals), rates_2_id, color=colors[1], lw=3)
+        sns.kdeplot(pred['Interval'], ax=ax_hist_1, bw_adjust=.25, color=colors[0], lw=line_width, alpha=0.5)    #plot(np.array(intervals), rates_1_id, color=colors[0],  lw=3)
+        sns.kdeplot(true['Interval'], ax=ax_hist_1, bw_adjust=.25, color=colors[1], lw=line_width, alpha=0.5)   #plot(np.array(intervals), rates_2_id, color=colors[1], lw=3)
     
     
     max_intervals = df_1['Interval'].max()
@@ -308,7 +312,7 @@ def plot_firing_comparison_sweeps(df_1, df_2, id, trials, intervals, figure_name
     ax_hist_1.set_xlabel('')
     # ax_hist_1.set_xlabel('Time (s)', fontsize=20)
     # legend = fig.legend(bbox_to_anchor=(0.25, 0.01), ncol=3, frameon=True, fontsize=17.5)  # bbox_to_anchor=(0.75, 0.55)
-    list(ax_dict_pred.values())[-1].set_title("{}".format(id_), fontsize=20)
+    list(ax_dict_pred.values())[-1].set_title("{}".format(id_), fontsize=8)
     
 
 def get_psth(df, n_id, trials):
@@ -351,6 +355,7 @@ def no_top_right_ticks(ax):
 def plot_neurons_trials_psth(df_1, df_2, neurons, trials, intervals, figuresize=None): 
 
     fs = 15
+    LW = 3
     plt.rcParams['xtick.labelsize']= fs
     plt.rcParams['ytick.labelsize']= fs
     plt.rcParams['axes.labelsize']= fs
@@ -396,7 +401,7 @@ def plot_neurons_trials_psth(df_1, df_2, neurons, trials, intervals, figuresize=
         xticks, xlabels = [0,max_intervals // 2, max_intervals], [0,max_intervals // 2, max_intervals]
 
         m_s = 45
-        l_w = 0.5
+        l_w = 1
         plot_var(ax[0][n], df_1_id, variable, trials, color=color[0], m_s=m_s, l_w=l_w)
         plot_var(ax[1][n], df_2_id, variable, trials, color=color[1], m_s=m_s, l_w=l_w)
 
@@ -428,8 +433,9 @@ def plot_neurons_trials_psth(df_1, df_2, neurons, trials, intervals, figuresize=
         # ax[2][n].hist([freq_id_1, freq_id_2], bins=bins, histtype='step', edgecolor=['blue', 'red'], 
         #                lw=2, alpha=0.3, facecolor=['blue', 'red'], label=['True', 'Sim'])
         # c_2, c_1 = rgb_values[2], rgb_values[-1]
-        ax[2][n].hist(df_1_id['Interval'], bins=bins, edgecolor=None, lw=2, alpha=1, facecolor=color[0], label='True')
-        ax[3][n].hist(df_2_id['Interval'], bins=bins, edgecolor=None, lw=2, alpha=1, facecolor=color[1], label='Predicted') # histtype='step'
+
+        ax[2][n].hist(df_1_id['Interval'], bins=bins, edgecolor=None, lw=3, alpha=1, facecolor=color[0], label='True')
+        ax[3][n].hist(df_2_id['Interval'], bins=bins, edgecolor=None, lw=3, alpha=1, facecolor=color[1], label='Predicted') # histtype='step'
         
         # xticks, xlabels = [0, max(intervals) // 2, max(intervals)], [0, max(intervals) // 2, max(intervals)]
         y_fs_hist = 15

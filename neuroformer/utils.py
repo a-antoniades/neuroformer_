@@ -59,15 +59,19 @@ def set_plot_params():
     plt.rcParams['font.family'] = 'serif'
     plt.rcParams['font.serif'] = 'Ubuntu'
     plt.rcParams['font.monospace'] = 'Ubuntu mono'
-    plt.rcParams['axes.labelweight'] = 'bold'
+    plt.rcParams['axes.labelweight'] = 'normal'
+    plt.rcParams['axes.titleweight'] = 'normal'
+    plt.rcParams['figure.titleweight'] = 'bold'
+    plt.rcParams['axes.titleweight'] = 'normal'
     
     # # font sizes
     # plt.rcParams['font.size'] = 16
-    # plt.rcParams['axes.labelsize'] = 12
+    plt.rcParams['axes.labelsize'] = 6
     # plt.rcParams['xtick.labelsize'] = 10
     # plt.rcParams['ytick.labelsize'] = 10
     # plt.rcParams['legend.fontsize'] = 14
-    # plt.rcParams['figure.titlesize'] = 16
+    plt.rcParams['axes.titlesize'] = 8
+    plt.rcParams['figure.titlesize'] = 8
 
     ## colors
     plt.rcParams['text.color'] = 'white'
@@ -80,7 +84,7 @@ def set_plot_params():
 
 def set_plot_white():
     # Set the global font to be DejaVu Sans, size 10 (or any other sans-serif font of your choice!)
-    plt.rc('font',**{'family':'sans-serif','sans-serif':['DejaVu Sans'],'size':10})
+    # plt.rc('font',**{'family':'sans-serif','sans-serif':['DejaVu Sans'],'size':10})
 
     # Set the font used for MathJax - more on this later
     plt.rc('mathtext',**{'default':'regular'})
@@ -547,6 +551,7 @@ def predict_raster_recursive_time_auto(model, loader, window, window_prev, stoi,
         
     return data
 
+
 @torch.no_grad()
 def predict_beam_search(model, loader, stoi, frame_end=0):
     device = 'cpu' # torch.cuda.current_device() if torch.cuda.is_available() else "cpu"
@@ -881,3 +886,29 @@ def predict_and_plot_time(model, loader, config):
     plt.legend()
     plt.tight_layout()
     plt.show()
+
+
+def create_full_trial(df, n_step, n_stim, t_trial, n_start=None, n_trials=1):
+    n_start = df['Trial'].min() if n_start is None else n_start
+    trials = []
+    for n in range(n_trials):
+        df_trial = None
+        n_start += n
+        for i in range(n_stim):
+            t_now =  n_start + (i * n_step)
+            print(t_now)
+            df_t = df[df['Trial'] == t_now]
+            if df_trial is None:
+                df_trial = df_t
+            else:
+                t_start = df['Interval'].max()
+                df_t['Interval'] += t_trial
+                df_t['Time'] += t_trial
+                df_trial = pd.concat([df_trial, df_t], ignore_index=True)
+        df_trial['Trial'] = n
+        trials.append(df_trial)
+    return pd.concat(trials, ignore_index=True)
+
+
+
+
