@@ -6,6 +6,99 @@ from utils import *
 from analysis import *
 from SpikeVidUtils import *
 
+def set_plot_params():
+    ## fonts
+    # plt.rcParams['font.family'] = 'serif'
+    # plt.rcParams['font.serif'] = 'Ubuntu'
+    # plt.rcParams['font.monospace'] = 'Ubuntu mono'
+    plt.rc('font',**{'family':'sans-serif','sans-serif':['Open Sans'],'size':10})
+    plt.rcParams['axes.prop_cycle'] = plt.cycler(color=plt.cm.Set1.colors)
+    plt.rcParams['axes.labelweight'] = 'normal'
+    plt.rcParams['axes.titleweight'] = 'normal'
+    plt.rcParams['figure.titleweight'] = 'bold'
+    plt.rcParams['axes.titleweight'] = 'normal'
+    
+    # # font sizes
+    # plt.rcParams['font.size'] = 16
+    plt.rcParams['axes.labelsize'] = 6
+    # plt.rcParams['xtick.labelsize'] = 10
+    # plt.rcParams['ytick.labelsize'] = 10
+    # plt.rcParams['legend.fontsize'] = 14
+    plt.rcParams['axes.titlesize'] = 8
+    plt.rcParams['figure.titlesize'] = 8
+
+    ## colors
+    plt.rcParams['text.color'] = 'white'
+    plt.rcParams['axes.labelcolor'] = 'white'
+    plt.rcParams['xtick.color'] = 'white'
+    plt.rcParams['ytick.color'] = 'white'
+    plt.rcParams["figure.facecolor"] = '202020'
+    plt.rcParams['axes.facecolor']= '202020'
+    plt.rcParams['savefig.facecolor']= '202020'
+
+def set_plot_white():
+    # Set the global font to be DejaVu Sans, size 10 (or any other sans-serif font of your choice!)
+    # plt.rc('font',**{'family':'sans-serif','sans-serif':['DejaVu Sans'],'size':10})
+
+    # Set the font used for MathJax - more on this later
+    plt.rc('mathtext',**{'default':'regular'})
+
+    plt.rcParams['text.color'] = 'black'
+    plt.rcParams['axes.labelcolor'] = 'black'
+    plt.rcParams['xtick.color'] = 'black'
+    plt.rcParams['ytick.color'] = 'black'
+    plt.rcParams["figure.facecolor"] = 'white'
+    plt.rcParams['axes.facecolor']= 'white'
+    plt.rcParams['savefig.facecolor']= 'white'
+
+def set_plot_black():
+    plt.rcParams['text.color'] = 'white'
+    plt.rcParams['axes.labelcolor'] = 'white'
+    plt.rcParams['xtick.color'] = 'white'
+    plt.rcParams['ytick.color'] = 'white'
+    plt.rcParams["figure.facecolor"] = '202020'
+    plt.rcParams['axes.facecolor']= '202020'
+    plt.rcParams['savefig.facecolor']= '202020'
+
+def plot_losses(trainer): 
+    plt.figure(figsize=(20,5))
+    
+    # plotting train losses
+    plt.subplot(1,2,1)
+    plt.title('%s training losses' % str(trainer)[1:8])
+    for i, losses in enumerate(trainer.train_losses):
+            plt.plot(losses, label=i)
+    plt.legend(title="epoch")
+    
+    # plotting testing losses
+    plt.subplot(1,2,2)
+    plt.title('%s testing losses' % str(trainer)[1:8])
+    for i, losses in enumerate(trainer.test_losses):
+            plt.plot(losses, label=i)
+    plt.legend(title="epoch")
+
+    plt.show()
+
+def plot_losses_wattr(trainer, model_attr): 
+    plt.figure(figsize=(20,5))
+    
+    # plotting train losses
+    plt.subplot(1,2,1)
+    plt.title('%s training losses' % model_attr)
+    for i, losses in enumerate(trainer.train_losses):
+            plt.plot(losses, label=i)
+    plt.legend(title="epoch")
+    
+    # plotting testing losses
+    plt.subplot(1,2,2)
+    plt.title('%s testing losses' % model_attr)
+    for i, losses in enumerate(trainer.test_losses):
+            plt.plot(losses, label=i)
+    plt.legend(title="epoch")
+
+    plt.show()
+
+
 def tidy_axis(ax, top=False, right=False, left=False, bottom=False):
     ax.spines['top'].set_visible(top)
     ax.spines['right'].set_visible(right)
@@ -652,3 +745,167 @@ def plot_intertrial_corr(corr_true, corr_pred, trial):
     plt.ylabel('Pearson Correlation (p)')
     ax.legend(fontsize=20, title_fontsize=20)
     plt.show()
+
+
+def V1_AL_sep_hist(atts_V1_AL, atts_V1_AL_rand, corrs_V1_AL, corrs_V1_AL_rand, V1_n, AL_n):
+    set_plot_white()
+
+    SMALL_SIZE = 8
+    MEDIUM_SIZE = 10
+    BIGGER_SIZE = 12
+    labelfont = 15
+    plt.rcParams['axes.prop_cycle'] = plt.cycler(color=plt.cm.Set1.colors)
+    set_plot_white()
+
+    plt.rcParams['font.size'] = '4'
+
+    n_scale = 5
+    fig, ax = plt.subplots(2, 2, figsize=(8, 8), sharex=True, squeeze=False)
+    fig.add_subplot(111, frameon=False)
+    plt.tick_params(labelcolor='none', which='both', top=False, bottom=False, left=False, right=False)
+
+    V1_att_V1 = atts_V1_AL['V1'][V1_n]
+    V1_att_AL = atts_V1_AL['V1'][AL_n]
+    norm_val = np.max([V1_att_V1.max(), V1_att_AL.max()])
+    # V1_att_V1 = V1_att_V1 / norm_val
+    # V1_att_AL = V1_att_AL / norm_val
+
+    AL_att_V1 = atts_V1_AL['AL'][V1_n]
+    AL_att_AL = atts_V1_AL['AL'][AL_n]
+    norm_val = np.max([AL_att_V1.max(), AL_att_AL.max()])
+    # AL_att_V1 = AL_att_V1 / norm_val
+    # AL_att_AL = AL_att_AL / norm_val
+
+    V1_corrs_V1 = corrs_V1_AL['V1'][V1_n]
+    V1_corrs_AL = corrs_V1_AL['V1'][AL_n]
+    norm_val = np.max([V1_corrs_V1.max(), V1_corrs_AL.max()])
+    # V1_corrs_V1 = V1_corrs_V1 / norm_val
+
+    AL_corrs_V1 = corrs_V1_AL['AL'][V1_n]
+    AL_corrs_AL = corrs_V1_AL['AL'][AL_n]
+    norm_val = np.max([AL_corrs_V1.max(), AL_corrs_AL.max()])
+    # AL_corrs_V1 = AL_corrs_V1 / norm_val
+
+    V1_att_V1_mean = V1_att_V1.mean()
+    V1_att_AL_mean = V1_att_AL.mean()
+
+    V1_att_V1_rand = atts_V1_AL_rand['V1'][V1_n]
+    V1_att_AL_rand = atts_V1_AL_rand['V1'][AL_n]
+    norm_val = np.max([V1_att_V1_rand.max(), V1_att_AL_rand.max()])
+
+    AL_att_V1_rand = atts_V1_AL_rand['AL'][V1_n]
+    AL_att_AL_rand = atts_V1_AL_rand['AL'][AL_n]
+    norm_val = np.max([AL_att_V1_rand.max(), AL_att_AL_rand.max()])
+
+    V1_corrs_V1_rand = corrs_V1_AL_rand['V1'][V1_n]
+    V1_corrs_AL_rand = corrs_V1_AL_rand['V1'][AL_n]
+    norm_val = np.max([V1_corrs_V1_rand.max(), V1_corrs_AL_rand.max()])
+    # V1_corrs_V1_rand = V1_corrs_V1_rand / norm_val
+
+    Al_corrs_V1_rand = corrs_V1_AL_rand['AL'][V1_n]
+    Al_corrs_AL_rand = corrs_V1_AL_rand['AL'][AL_n]
+    norm_val = np.max([Al_corrs_V1_rand.max(), Al_corrs_AL_rand.max()])
+    # Al_corrs_V1_rand = Al_corrs_V1_rand / norm_val
+
+    # V1_att_V1_mean /= norm_val
+    # V1_att_AL_mean /= norm_val
+
+    plt.suptitle('Area Seperability')
+
+    def plot_bar(data, ax, x, label):
+        ax.bar(x, data.mean(), label=label)
+        ax.errorbar(x, data.mean(), yerr=data.std(), c='black', fmt='o')
+        
+
+    ax[0, 0].set_title('V1', fontsize=20, y=0.8)
+    ax[0, 0].set_ylabel('Average Attention')
+    ax[0, 0].bar(0, V1_att_V1_mean)
+    ax[0, 0].errorbar(0, V1_att_V1_mean, yerr=V1_att_V1.std(), c='black', fmt='o')
+    ax[0, 0].bar(1, V1_att_AL_mean, label='AL')
+    ax[0, 0].errorbar(1, V1_att_AL_mean, yerr=V1_att_AL.std(), c='black', fmt='o')
+    ax[0, 0].bar(2, V1_att_V1_rand.mean(), label='Rand')
+    ax[0, 0].errorbar(2, V1_att_V1_rand.mean(), yerr=V1_att_V1_rand.std(), c='black', fmt='o')
+
+    AL_att_V1_mean = AL_att_V1.mean()
+    AL_att_AL_mean = AL_att_AL.mean()
+    norm_val = np.max([AL_att_V1_mean, AL_att_AL_mean])
+    # AL_att_V1_mean /= norm_val
+    # AL_att_AL_mean /= norm_val
+
+    ax[0, 1].set_title('AL', fontsize=20, y=0.8)
+    ax[0, 1].bar(0, AL_att_V1_mean, label='V1')
+    ax[0, 1].errorbar(0, AL_att_V1_mean, yerr=AL_att_V1.std(), c='black', fmt='o')
+    ax[0, 1].bar(1, AL_att_AL_mean, label='AL')
+    ax[0, 1].errorbar(1, AL_att_AL_mean, yerr=AL_att_AL.std(), c='black', fmt='o')
+    ax[0, 1].bar(2, AL_att_V1_rand.mean(), label='Rand')
+    ax[0, 1].errorbar(2, AL_att_V1_rand.mean(), yerr=AL_att_V1_rand.std(), c='black', fmt='o')
+
+    V1_corrs_V1_mean = V1_corrs_V1.mean()
+    V1_corrs_AL_mean = V1_corrs_AL.mean()
+    norm_val = np.max([V1_corrs_V1_mean, V1_corrs_AL_mean])
+    # V1_corrs_V1_mean /= norm_val
+    # V1_corrs_AL_mean /= norm_val
+    ax[1, 0].set_ylabel('Pearson Correlation (p)')
+    ax[1, 0].bar(0, V1_corrs_V1_mean)
+    ax[1, 0].errorbar(0, V1_corrs_V1_mean, yerr=V1_corrs_V1.std(), c='black', fmt='o')
+    ax[1, 0].bar(1, V1_corrs_AL_mean)
+    ax[1, 0].errorbar(1, V1_corrs_AL_mean, yerr=V1_corrs_AL.std(), c='black', fmt='o')
+    ax[1, 0].bar(2, V1_corrs_V1_rand.mean())
+    ax[1, 0].errorbar(2, V1_corrs_AL_rand.mean(), yerr=V1_corrs_V1_rand.std(), c='black', fmt='o')
+
+    AL_corrs_V1_mean = AL_corrs_V1.mean()
+    AL_corrs_AL_mean = AL_corrs_AL.mean()
+    norm_val = np.max([AL_corrs_V1_mean, AL_corrs_AL_mean])
+    # AL_corrs_V1_mean /= norm_val
+    # AL_corrs_AL_mean /= norm_val
+    ax[1, 1].bar(0, AL_corrs_V1_mean, label='V1')
+    ax[1, 1].errorbar(0, AL_corrs_V1_mean, yerr=AL_corrs_V1.std(), c='black', fmt='o')
+    ax[1, 1].bar(1, AL_corrs_AL_mean)
+    ax[1, 1].errorbar(1, AL_corrs_AL_mean, yerr=AL_corrs_AL.std(), c='black', fmt='o')
+    ax[1, 1].bar(2, Al_corrs_AL_rand.mean(), label='Rand')
+    ax[1, 1].errorbar(2, Al_corrs_AL_rand.mean(), yerr=Al_corrs_V1_rand.std(), c='black', fmt='o')
+
+
+    ax[0, 0].get_shared_y_axes().join(ax[0, 0], ax[0, 1])
+    ax[1, 0].get_shared_y_axes().join(ax[1, 0], ax[1, 1])
+
+
+    x_ticklabels = ['V1', 'AL', 'Rand']
+    for axes in ax.flat:
+        axes.spines['right'].set_visible(False)
+        axes.spines['top'].set_visible(False)
+        axes.spines['left'].set_visible(False)
+        axes.xaxis.set_tick_params(labelsize=labelfont)
+        axes.yaxis.set_tick_params(labelsize=labelfont)
+
+    ax[0, 1].spines['left'].set_visible(False)
+    ax[1, 1].spines['left'].set_visible(False)
+    # tick_labels = [0.5 * i for i in range(5)]
+    # plt.setp(ax, yticks=tick_labels, ylim=[0, 1.3])
+    plt.setp(ax, xticks=np.arange(3), xticklabels=x_ticklabels)
+
+    ax[0, 1].set_yticklabels([])
+    # ax[0, 1].ax.axes.yaxis.set_ticks([])
+    ax[1, 1].set_yticklabels([])
+
+    # ax[0, 0].get_shared_y_axes().join(ax[0, 0], ax[0, 1])
+
+    score_list = [[V1_att_V1, V1_att_AL], [AL_att_V1, AL_att_AL], [V1_corrs_V1, V1_corrs_AL], [AL_corrs_V1, AL_corrs_AL]]
+
+    for axes in ax.flat:
+        axes.grid(alpha=0.5)
+
+    
+    return V1_att_V1, V1_att_AL, AL_att_V1, AL_att_AL, V1_corrs_V1, V1_corrs_AL, AL_corrs_V1, AL_corrs_AL, V1_att_V1_rand, V1_att_AL_rand, AL_att_V1_rand, AL_att_AL_rand, V1_corrs_V1_rand, V1_corrs_AL_rand
+    # w = 0.5
+    # for n, score in enumerate(score_list):
+    #     axis = ax.flat[n]
+    #     for i, val in enumerate(score):
+    #         axis.scatter(i + np.random.random(val.size) * w - w / 2, val, color='black', alpha=0.2)
+
+
+    # ax[1, 0].legend(loc='upper right', fontsize=20)
+
+
+    # plt.savefig('/Users/antonis/projects/slab/neuroformer/neuroformer/plots/area_seperability/area_seperability_shuffled.svg')
+    # ax.legend()

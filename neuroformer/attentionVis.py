@@ -114,10 +114,11 @@ def interpret(x, y, model, idx=None, n_layer=0):
                                 att = att[:, :, T - pad, :,]
                         atts.append(att)
                 return atts
-
+        
         model.zero_grad(set_to_none=True)
         mconf = model.config
-        preds, _, _ = model(x)
+        T_id = mconf.id_block_size - int(x['pad'])
+        preds, _, loss = model(x, y)
         logits_id = preds['id']
         category_mask = torch.zeros(logits_id.size()).detach().cpu().numpy()
         y_id = x['id'].flatten()
@@ -126,39 +127,44 @@ def interpret(x, y, model, idx=None, n_layer=0):
         category_mask = torch.from_numpy(category_mask).requires_grad_(True)
         loss = torch.sum(logits_id * category_mask)
         model.zero_grad()
- 
+       
         id_id_att = get_attention(model.neural_visual_transformer.neural_state_blocks, mconf.n_state_layers, mconf.id_block_size)
         id_vis_att = get_attention(model.neural_visual_transformer.neural_state_stimulus_blocks, mconf.n_stimulus_layers, mconf.id_block_size)
 
         R_id = torch.eye(id_id_att[0].shape[-2], id_id_att[0].shape[-1])
-        for blk_att in id_id_att:
-                grad = torch.autograd.grad(loss, blk_att, retain_graph=True)[0].detach()
-                blk_att = blk_att.detach()
-                blk_att = grad * blk_att
-                blk_att = blk_att.clamp(min=0).mean(dim=1)
-                R_id = R_id + torch.matmul(blk_att, R_id)
-                del grad
+        R_id = R_id[:T_id, :T_id]
+        # for blk_att in id_id_att:
+        #         grad = torch.autograd.grad(loss, blk_att, retain_graph=True)[0].detach()[:, :, :T_id, :T_id]
+        #         blk_att = blk_att.detach()[:, :, :T_id, :T_id]
+        #         blk_att = grad * blk_att
+        #         blk_att = blk_att.clamp(min=0).mean(dim=1)
+        #         R_id = R_id + torch.matmul(blk_att, R_id)
+        #         del grad
 
-        # R_id_vis = torch.eye(id_vis_att[0].shape[-2], id_vis_att[0].shape[-1])
+        R_id_vis = torch.eye(id_vis_att[0].shape[-2], id_vis_att[0].shape[-1])[:T_id]
         R_id_vis = None
         R_vis = torch.eye(id_vis_att[0].shape[-1], id_vis_att[0].shape[-1])
         for i, blk_att in enumerate(id_vis_att):
-                if i < n_layer:
+                if i != n_layer:
                         continue
-                grad = torch.autograd.grad(loss, blk_att, retain_graph=True)[0].detach()
-                blk_att = blk_att.detach()
-                blk_att = grad.clamp(min=0) * blk_att
-                blk_att = blk_att.clamp(min=0).mean(dim=1)
+                grad = torch.autograd.grad(loss, blk_att, retain_graph=True)[0].detach()[:, :, :T_id]
+                grad = grad.clamp(0)
+                blk_att = blk_att.detach()[:, :, :T_id]
+                blk_att = grad * blk_att
+                blk_att = blk_att.mean(dim=1)
                 # blk_att[blk_att < 0.75] = 0
                 R_id_vis = blk_att if R_id_vis is None else R_id_vis + blk_att
-                # R_id_vis = R_id_vis + torch.transpose(R_id, -1, -2) @ blk_att @ R_vis
+                # print(R_id_vis.shape, torch.transpose(R_id[0], -1, -2).shape, blk_att[0].shape, R_vis.shape)
+                # print((torch.transpose(R_id[0], -1, -2) @ blk_att[0]).shape)
+                # R_id_vis = R_id_vis + torch.transpose(R_id[0], -1, -2) @ blk_att[0] @ R_vis
+                # R_id_vis = R_id_vis + R_id @ blk_att @ R_vis
                 del grad
         
         if idx is not None:
-                R_id_vis = R_id_vis[:, idx, :,]
+                R_id_vis = R_id_vis[..., idx, :,].mean(-2).unsqueeze(0)       # R_id_vis.mean(-2)
         
         else:
-                R_id_vis = R_id_vis
+                R_id_vis = R_id_vis.unsqueeze(0)
         model.zero_grad(set_to_none=True)
 
         del loss
@@ -179,10 +185,9 @@ class VITAttentionGradRollout:
         This way we can get neuron-specific attentions.
         """
 
-        def __init__(self, model, module, attn_layer_name='attn_drop', discard_ratio=0.5, idx=None):
+        def __init__(self, model, module, attn_layer_name='attn_drop', discard_ratio=0.5):
                 self.model = model
                 self.module = module
-                self.idx = idx
                 self.discard_ratio = discard_ratio
                 for name, module in self.module.named_modules():
                         if attn_layer_name in name:
@@ -191,7 +196,12 @@ class VITAttentionGradRollout:
                 
                 self.attentions = []
                 self.attention_gradients = []
+        
+        def grad_rollout(self, atts, grads, ds=0.1):
+                cams = torch.cat(atts)
+                grads = torch.cat(grads)
 
+        
         def get_attention(self, module, input, output):
                 # output = output if self.idx is None else output[:, :, self.idx]
                 self.attentions.append(output.cpu())
@@ -204,23 +214,33 @@ class VITAttentionGradRollout:
                 self.attention_gradients.append(grad_input[0].cpu())
                 # print(grad_input[0].shape)
 
-        def __call__(self, x, y):
+        def __call__(self, x, y, idx=None, n_layer=0):
                 self.model.zero_grad()
-                preds, _, _ = self.model(x)
+                preds, _, loss = self.model(x, y)
                 logits_id = preds['id']    # if self.idx==None else preds['id'][:, self.idx]
                 # return preds['id']
                 category_mask = torch.zeros(logits_id.size()).detach().cpu().numpy()
                 y_id = y['id'].flatten()
-                y_idx = y_id if self.idx==None else y_id[self.idx]
+                y_idx = y_id if idx==None else y_id[idx]
                 # y_idx = self.idx 
-                category_mask[:, :, y_idx] = 1
-                category_mask = torch.from_numpy(category_mask).requires_grad_()
-                loss = (logits_id*category_mask).sum()
-                # loss = loss['id']
+                # category_mask[:, :, y_idx] = 1
+                # category_mask = torch.from_numpy(category_mask).requires_grad_()
+                category_mask = torch.tensor([y_idx])
+                # loss = (logits_id*category_mask).sum()
+                loss = loss['id'] if idx==None else  F.cross_entropy(logits_id[0, idx][None, ...], category_mask)
                 loss.backward()
                 
+                T = x['id'].shape[1]
+                cams = torch.cat(self.attentions[n_layer:])
+                grads = torch.cat(self.attention_gradients[n_layer:]).clamp(0)
+                # print(grads.shape)
+                gradcam = (cams * grads)[:, :T - x['pad']]      # .mean(-2) #[..., idx, :,]
+                gradcam = gradcam[..., idx, :,] if idx is not None else gradcam
+                gradcam = gradcam.sum(dim=0).min(dim=0)[0].unsqueeze(0)
+                # gradcam = self.attentions[n_layer:][:, ..., idx, :,].sum(dim=0).mean(dim=0).unsqueeze(0)
+                
                 # print(len(self.attention_gradients))
-                return grad_rollout(self.attentions, self.attention_gradients, self.discard_ratio, self.idx)
+                return gradcam.detach()
                 # return grad_att(torch.cat(self.attentions), torch.cat(self.attention_gradients))  # grad_rollout(self.attentions, self.attention_gradients, self.discard_ratio)
 
 
@@ -239,6 +259,44 @@ def get_attention(module, n_blocks, block_size, pad=0, rollout=False):
                 atts = att[None, ...] if atts is None else np.concatenate((atts, att[None, ...]))
         return atts
 
+from scipy.special import softmax
+
+def get_att_neurons(model, module, loader, n_blocks, block_size, pad_key=None, curr_state=True, sum_=False):
+    device = torch.cuda.current_device() if torch.cuda.is_available() else 'cpu'
+    model.to(device)
+    mconf = model.config
+    model = model.eval()
+    T = block_size
+    attention_scores = np.zeros((mconf.id_vocab_size, mconf.id_vocab_size))
+    pbar = tqdm(enumerate(loader), total=len(loader))
+    for it, (x, y) in pbar:
+        pad = x[pad_key] if pad_key is not None else 0
+        # place data on the correct device
+        for key, value in x.items():
+            x[key] = x[key].to(device)
+        for key, value in y.items():
+            y[key] = y[key].to(device)
+        # forward model to calculate attentions
+        _, _, _ = model(x)
+        # scores = np.array(np.zeros(len(neurons)))
+        att = np.zeros((mconf.id_vocab_size, mconf.id_vocab_size))
+        score = get_attention(module, n_blocks, T)
+        score = rollout_attentions(torch.tensor(score)).numpy()
+        real_ids = x['id'][..., :T - pad].flatten()  
+        # score = (52, 52)
+        t_seq = int(T - x['pad'])
+        xid_prev = x['id_prev'][..., :T - x['pad_prev']].flatten().tolist()
+        xid = x['id'][..., :t_seq].flatten().tolist()
+        yid = y['id'][..., :t_seq].flatten().tolist()
+        score = score[:t_seq, :T - x['pad_prev']]
+        for step in range(t_seq):
+            step_score = score[step] # / (t_seq - step + 1)
+            yid_step = yid[step] # get the id we are predicting at this step
+            att[yid_step][xid_prev] += step_score
+        attention_scores += att
+        # if sum_:
+        #     attention_scores = attention_scores.sum(axis=0)
+    return attention_scores
 
 class AttentionVis:
         '''attention Visualizer'''
@@ -725,7 +783,7 @@ class AttentionVis:
         
         
         @torch.no_grad()
-        def plot_stim_attention_time_agg(self, dataset, mconf, video_stack, attention_scores, ix_step=None):
+        def plot_stim_attention_time_agg(self, x, mconf, attention_scores, t_frame, h=4, w=7, ix_step=None):
                 '''
                 In: (I, ID, Time, Frame)
                 Out: Attention heatmaps of neurons (y) - frames (x)
@@ -740,17 +798,15 @@ class AttentionVis:
 
 
                 H, W = video_stack.shape[-2], video_stack.shape[-1]
-                xy_res = int(mconf.n_embd ** (1/2))
 
                 # step, layer, head, row = sorted_att_std # layer, head, 
                 step = ix_step   # 5, 3   # layer, head
 
-                interval_trials = dataset.t
                 x_id = dataset[int(ix_step)][0]['id'].flatten().tolist()
                 x_pad = int(dataset[int(ix_step)][0]['pad'].flatten())
                 neuron_idx = x_id[: len(x_id) - x_pad]
 
-                ncol = 10
+                ncol = t_frame
                 nrow = len(neuron_idx)
                 fig, ax = plt.subplots(figsize=(60, 4 * nrow), nrows=nrow, ncols=ncol)
 
@@ -761,31 +817,16 @@ class AttentionVis:
                         att_idx = ix_step, n  # att_idx_1[0], att_idx_1[1], att_idx_1[2], ix
                         att = attention_scores[att_idx]
                         att = att / att.max()
-                        att_im = att.reshape(1, 20, H // xy_res, W // xy_res)
+                        att_im = att.reshape(1, attention_scores.shape[-2], h, w)
                         att_im = att_im[-1, :, :, :]
-                        
-                        t = interval_trials.iloc[att_idx[0]]
-                        if video_stack.shape[0] == 1:
-                            n_stim = 0
-                        elif video_stack.shape[0] <= 4:
-                                if t['Trial'] <= 20: n_stim = 0
-                                elif t['Trial'] <= 40: n_stim = 1
-                                elif t['Trial'] <= 60: n_stim = 2
-                        elif video_stack.shape[0] <= 8:
-                                n_stim = int(t['Trial'] // 200) - 1
 
-                        # print(n_stim, math.ceil(t['Interval'] * 20))
-                        t_interval = math.ceil(t['Interval'] * 20)
-                        im_interval = video_stack[n_stim, t_interval - 20: t_interval]
-
-                        # att_grid =  softmax(att_top_std_im)
-                        att_grid = np.repeat(att_im, (H // xy_res), axis=-2)
-                        att_grid = np.repeat(att_grid, (H // xy_res), axis=-1)
-
-                        for tdx in range(10, att_grid.shape[0]):
-                                axis = ax[n][tdx - 10]
+                        att_grid = np.repeat(att_im, (H // h), axis=-2)
+                        att_grid = np.repeat(att_grid, (H // h), axis=-1)
+                        im_interval = x['frames'][0][0]
+                        for tdx in range(att_grid.shape[0]):
+                                axis = ax[n][tdx]
                                 # print(att_grid[tdx, :, :].shape)
-                                axis.imshow(im_interval[tdx, 0], cmap='gray')
+                                axis.imshow(im_interval[tdx], cmap='gray')
                                 # clim = (att_trials_id[ix_step].min(), att_trials_id[ix_step].max())
                                 self.heatmap2d(att_grid[tdx, :, :], ax=axis, alpha=0.6, clim=None)
                                 axis.axis('off')
@@ -797,7 +838,7 @@ class AttentionVis:
                 # plt.savefig(f"SimNeu3D_Combo4, Interval {int(t['Interval'])} Trial {int(t['Trial'])}.png")
 
         
-        def plot_stim_att_layer_head(self, dataset, mconf, video_stack, attention_scores, n_embd, ix_step=None):
+        def plot_stim_att_layer_head(self, x, mconf, attention_scores, n_embd, t_frame=20, h=4, w=7, ix_step=None):
                 """
                 In: (I, Layer, Head, ID, Frame)
                 Out: Attention heatmaps for neurons
@@ -811,22 +852,18 @@ class AttentionVis:
                 ncol = mconf.n_head
                 nrow = mconf.n_stimulus_layers
 
+                H, W = x['frames'].shape[-2], x['frames'].shape[-1]
+
                 # sorted_att_std = np.unravel_index(np.argsort(-att_trials_id_std.ravel()), att_trials_id_std.shape)
                 # step, layer, head, row = sorted_att_std # layer, head, 
                 # step = ix_step   # 5, 3   # layer, head
 
                 for step in ix_step:
-                        interval_trials = dataset.t
-
-                        H, W = video_stack[0].shape[-2], video_stack[0].shape[-1]
                         xy_res = int(n_embd ** (1/2))
 
                         # # step, layer, head, row = sorted_att_std # layer, head, 
                         # step = ix_step   # 5, 3   # layer, head
 
-                        interval_trials = dataset.t
-                        dataset_step = dataset[step]
-                        x, y = dataset_step[0], dataset_step[1]
                         x_id = x['id'].flatten().tolist()
                         x_pad = int(x['pad'].flatten())
                         neuron_idx = x_id[: len(x_id) - x_pad]
@@ -841,25 +878,21 @@ class AttentionVis:
                                         for head in range(att_n.shape[1]):
                                                 att_l_h = att_n[layer, head]
                                                 att_l_h = att_l_h / att_l_h.max()
-                                                att_im = att_l_h.reshape(1, 20, H // xy_res, W // xy_res)
+                                                att_im = att_l_h.reshape(1, t_frame, h, w)
                                                 att_im = att_im[-1, :, :, :]
                                                 
-                                                t = interval_trials.iloc[ix_step]
-                                                t_trial = t['Trial'].item()
-
                                                 # print(n_stim, math.ceil(t['Interval'] * 20))
-                                                frame_idx = get_frame_idx(t['Interval'], 1/20)
-                                                frame_idx = frame_idx if frame_idx >= 20 else 20
-                                                im_interval = x['frames'][0]
+                                                im_interval = x['frames'][0][0]
                                                 # att_grid =  softmax(att_top_std_im)
                                                 att_grid = F.interpolate(torch.as_tensor(att_im[None, ...]), size=(H, W), mode='bilinear', align_corners=True).numpy()[0]
                                                 axis = ax if nrow and ncol == 1 else ax[layer][head]
                                                 # plt.subplot(nrow, ncol, n + layer + head + 1)
-                                                axis.imshow(im_interval[10], cmap='gray')
-                                                self.heatmap2d(att_grid[10, :, :], ax=axis, alpha=0.6, blur=0, clim=None)
+                                                f_idx = t_frame // 2
+                                                axis.imshow(im_interval[f_idx], cmap='gray')
+                                                self.heatmap2d(att_grid[f_idx, :, :], ax=axis, alpha=0.6, blur=0, clim=None)
                                                 axis.axis('off')
                                                 axis.set_title(f'Layer {layer}, Head {head}', fontsize=15)
-                                plt.suptitle(f"Interval {int(t['Interval'])}, Neuron {neuron_idx[int(xid_n)]}", y=0.97, fontsize=30)
+                                plt.suptitle(f"Interval {float(x['interval'])}, Neuron {neuron_idx[int(xid_n)]}", y=0.97, fontsize=30)
                 # plt.savefig(f"SimNeu_att_layer_head_{neuron_idx[int(xid_n)]}_interval_{t_interval}.png")
         
         
