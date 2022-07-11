@@ -909,3 +909,19 @@ def V1_AL_sep_hist(atts_V1_AL, atts_V1_AL_rand, corrs_V1_AL, corrs_V1_AL_rand, V
 
     # plt.savefig('/Users/antonis/projects/slab/neuroformer/neuroformer/plots/area_seperability/area_seperability_shuffled.svg')
     # ax.legend()
+
+def plot_distribution(df_1, df_2):
+    plt.figure(figsize=(30,20))
+    freq_true = df_1.groupby(['ID']).size()
+    freq_pred = df_2.groupby(['ID']).size()
+    plt.bar(freq_pred.index, freq_pred, label='predicted', alpha=0.5)
+    plt.bar(freq_true.index, freq_true, label='true', alpha=0.5)
+    print(len(freq_true.index))
+    plt.title('Neuron Firing Distribution', fontsize=40)
+    plt.legend(fontsize=30)
+    plt.xlabel('Neuron ID (n)', fontsize=30)
+    plt.ylabel('Count (N)', fontsize=30)
+    plt.xticks(fontsize=30)
+    plt.yticks(fontsize=30)
+    plt.show()
+

@@ -436,7 +436,7 @@ def predict_raster_recursive_time_auto(model, loader, window, window_prev, stoi,
             x['id_full'] = torch.cat((x['id_full'], ix.flatten()))
             x['dt_full'] = torch.cat((x['dt_full'], ix_dt.flatten())) if pred_dt else x['dt']
 
-            if ix == stoi['EOS'] or len(current_id_stoi) == T_id: # and dtx == 0.5:    # dtx >= window:   # ix == stoi['EOS']:
+            if ix == stoi['EOS']:   # or len(current_id_stoi) == T_id: # and dtx == 0.5:    # dtx >= window:   # ix == stoi['EOS']:
             # if len(current_id_stoi) == T_id - x['pad']:
                 # if ix != stoi['EOS']:
                 #     torch.cat((current_id_stoi, torch.tensor([stoi['EOS']])))
@@ -799,6 +799,14 @@ def predict_and_plot_time(model, loader, config):
 
 
 def create_full_trial(df, n_step, n_stim, t_trial, n_start=None, n_trials=1):
+    """
+    
+    n_stim: how many stimuli
+    n_step: how many trials per stimulus
+    n_start: min trial to start from
+    n_trials: how many trials PER STIMULUS
+
+    """
     n_start = df['Trial'].min() if n_start is None else n_start
     trials = []
     for n in range(n_trials):
@@ -806,7 +814,6 @@ def create_full_trial(df, n_step, n_stim, t_trial, n_start=None, n_trials=1):
         n_start += n
         for i in range(n_stim):
             t_now =  n_start + (i * n_step)
-            print(t_now)
             df_t = df[df['Trial'] == t_now]
             if df_trial is None:
                 df_trial = df_t
@@ -817,7 +824,7 @@ def create_full_trial(df, n_step, n_stim, t_trial, n_start=None, n_trials=1):
                 df_trial = pd.concat([df_trial, df_t], ignore_index=True)
         df_trial['Trial'] = n
         trials.append(df_trial)
-    return pd.concat(trials, ignore_index=True)
+    return pd.concat(trials, ignore_index=True).sort_values(by=['Trial', 'Time'])
 
 
 
