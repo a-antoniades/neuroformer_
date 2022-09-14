@@ -60,6 +60,22 @@ def set_plot_black():
     plt.rcParams['axes.facecolor']= '202020'
     plt.rcParams['savefig.facecolor']= '202020'
 
+def set_fontsize():
+    fs = 5
+    LW = 0.001
+    plt.rcParams['xtick.labelsize']= fs
+    plt.rcParams['ytick.labelsize']= fs
+    plt.rcParams['axes.labelsize']= fs
+    plt.rcParams['axes.titlesize']= 6
+    plt.rcParams['legend.fontsize']= fs
+    # plt.rcParams['lines.linewidth']= 2
+    plt.rcParams['xtick.major.size'] = 1
+    plt.rcParams['ytick.major.size'] = 0.5
+    
+    plt.rcParams['axes.linewidth'] = 1.5 / 50
+
+
+
 def plot_losses(trainer): 
     plt.figure(figsize=(20,5))
     
@@ -104,8 +120,8 @@ def tidy_axis(ax, top=False, right=False, left=False, bottom=False):
     ax.spines['right'].set_visible(right)
     ax.spines['left'].set_visible(left)
     ax.spines['bottom'].set_visible(bottom)
-    ax.xaxis.set_tick_params(top='off', direction='out', width=1)
-    ax.yaxis.set_tick_params(right='off', left='off', direction='out', width=1)
+    ax.xaxis.set_tick_params(top='off', direction='out', width=0.5)
+    ax.yaxis.set_tick_params(right='off', left='off', direction='out', width=0.5)
 
 def plot_neurons(ax, df, neurons, color_map):
     # print(df.head())
@@ -187,7 +203,7 @@ def get_id_intervals(df, n_id, intervals):
     id_intervals[interval_counts.index.astype(int).tolist()] = interval_counts.index.astype(int).tolist()
     return id_intervals.tolist()
 
-def plot_var(ax, df, variable, values, color_map=None, color=None, m_s=150, l_w=1):
+def plot_var(ax, df, variable, values, color_map=None, color=None, m_s=150, l_w=0.5):
     for value in values:
         color = color_map[value] if color_map is not None else color
         data = df[df[variable] == value]
@@ -203,13 +219,13 @@ def plot_var(ax, df, variable, values, color_map=None, color=None, m_s=150, l_w=
         ax.set_xlim(0, xlim)
         ax.set_xticks(np.linspace(0, xlim, num=3))
 
-        ax.tick_params(axis='y', labelsize=10) 
-        ax.tick_params(axis='x', labelsize=10)       
+        ax.tick_params(axis='y', labelsize=5) 
+        ax.tick_params(axis='x', labelsize=5)       
 
         # ax.spines['top'].set_visible(False)
         # ax.spines['right'].set_visible(False)
         # ax.spines['left'].set_visible(False)
-        ax.xaxis.set_tick_params(top='off', direction='out', width=1)
+        ax.xaxis.set_tick_params(top='off', direction='out', width=l_w)
         # ax.yaxis.set_tick_params(right='off', direction='out', width=1)
 
 
@@ -313,31 +329,32 @@ def plot_firing_comparison(df_1, df_2, id, trials, intervals, figure_name=None):
     # legend = fig.legend(bbox_to_anchor=(0.25, 0.01), ncol=3, frameon=True, fontsize=17.5)  # bbox_to_anchor=(0.75, 0.55)
     ax_rast_1.set_title("{}".format(id_), fontsize=20)
 
-
-
 def plot_firing_comparison_sweeps(df_1, df_2, id, trials, intervals, figure_name=None):
     '''
     get trial averaged spikes (PSTH)
     '''
-    LW = 10
-    LW_scatter = 1
-
-
-
-    left, width = 0.15, 0.85
-    bottom, height = 0.1, 0.1
-    spacing = 0.005
-
-    height_hist = 0.10
-    rect_hist1 = [left, bottom*2, width, height_hist]
-    # rect_hist2 = [left, bottom*1, width, height_hist]
-    # rect_histy = [left + width + spacing, bottom, 0.2, height]
 
     if figure_name is None:
         # fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(10, 10))
         fig = plt.subplot()
     else:
         fig = figure_name
+
+    default_size = (156.93750000000003, 53.706045112781794)
+    current_size = fig.bbox.width, fig.bbox.height
+    scale = current_size[0] / default_size[0], current_size[1] / default_size[1]
+    
+    line_width = 6 * scale[0]
+    LW_scatter = 2.5 * scale[0]
+    ms_firing = 7.75  * scale[1]
+
+    scale = (1, 1)
+    left, width = 0.05, 0.95
+    bottom, height = 0.05 * scale[1] * 2, 0.1 * scale[1] * 2
+    height_hist = 0.3 * scale[1]
+    rect_hist1 = [left, bottom*2, width, height_hist]
+    # rect_hist2 = [left, bottom*1, width, height_hist]
+    # rect_histy = [left + width + spacing, bottom, 0.2, height]
 
     tidy_axis(fig)
     no_top_right_ticks(fig)
@@ -348,8 +365,8 @@ def plot_firing_comparison_sweeps(df_1, df_2, id, trials, intervals, figure_name
     ax_dict_true = dict()
     ax_dict_pred = dict()
     for n, trial in enumerate(trials):
-        ax_dict_true[trial] = fig.inset_axes([left, bottom * (3+n), width, height_hist])
-        ax_dict_pred[trial] = fig.inset_axes([left, bottom * (3+n+len(trials)), width, height_hist], sharex=ax_dict_true[trial])
+        ax_dict_true[trial] = fig.inset_axes([left, bottom * (5 + (n)), width, height_hist])
+        ax_dict_pred[trial] = fig.inset_axes([left, bottom * (5 + (len(trials) + n)), width, height_hist], sharex=ax_dict_true[trial])
 
         ax_dict_true[trial].axis('off')
         ax_dict_pred[trial].axis('off')
@@ -374,9 +391,8 @@ def plot_firing_comparison_sweeps(df_1, df_2, id, trials, intervals, figure_name
         plot_raster_scatter(ax_dict_pred[trial], pred, colors[0], 'Simulated')
         plot_raster_scatter(ax_dict_true[trial], true, colors[1], 'True')
 
-        sns.kdeplot(pred['Interval'], ax=ax_hist_1, bw_adjust=.25, color=colors[0], lw=line_width, alpha=0.5)    #plot(np.array(intervals), rates_1_id, color=colors[0],  lw=3)
-        sns.kdeplot(true['Interval'], ax=ax_hist_1, bw_adjust=.25, color=colors[1], lw=line_width, alpha=0.5)   #plot(np.array(intervals), rates_2_id, color=colors[1], lw=3)
-    
+        sns.kdeplot(pred['Interval'], ax=ax_hist_1, bw_adjust=.25, color=colors[0], lw=line_width, alpha=0.75)    #plot(np.array(intervals), rates_1_id, color=colors[0],  lw=3)
+        sns.kdeplot(true['Interval'], ax=ax_hist_1, bw_adjust=.25, color=colors[1], lw=line_width, alpha=0.75)   #plot(np.array(intervals), rates_2_id, color=colors[1], lw=3)
     
     max_intervals = df_1['Interval'].max()
     yticks, ylabels = np.arange(len(trials)), list(map(str, trials))
@@ -391,7 +407,6 @@ def plot_firing_comparison_sweeps(df_1, df_2, id, trials, intervals, figure_name
         ax.set_xticklabels(xlabels)
         ax.set_yticks([])
         ax.set_yticklabels([])
-    # ax_hist_1.set_xlim(0, max(intervals))
 
 
     # sns.distplot(true['Interval'], hist=False)
@@ -405,7 +420,9 @@ def plot_firing_comparison_sweeps(df_1, df_2, id, trials, intervals, figure_name
     ax_hist_1.set_xlabel('')
     # ax_hist_1.set_xlabel('Time (s)', fontsize=20)
     # legend = fig.legend(bbox_to_anchor=(0.25, 0.01), ncol=3, frameon=True, fontsize=17.5)  # bbox_to_anchor=(0.75, 0.55)
-    list(ax_dict_pred.values())[-1].set_title("{}".format(id_), fontsize=8)
+    # list(ax_dict_pred.values())[-1].set_title("{}".format(id_), fontsize=5)
+
+    set_fontsize()
     
 
 def get_psth(df, n_id, trials):
@@ -427,8 +444,8 @@ def set_categorical_ticks(ax, yticks=None, ylabels=None, xticks=None, xlabels=No
         ax.set_xticklabels(xlabels)
     ax.spines['right'].set_visible(False)
     ax.spines['top'].set_visible(False)
-    ax.tick_params(axis='x', labelsize=10)
-    ax.tick_params(axis='y', labelsize=fs)
+    ax.tick_params(axis='x')
+    ax.tick_params(axis='y')
     ax.get_xaxis().tick_bottom()   # remove unneeded ticks 
     ax.get_yaxis().tick_left()
 
@@ -438,30 +455,27 @@ def no_top_right_ticks(ax):
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     ax.spines['left'].set_visible(False)
-    ax.yaxis.set_tick_params(top='off', direction='out', width=1)
-    ax.yaxis.set_tick_params(top='off', right='off', left='on', direction='out', width=1)
+    ax.yaxis.set_tick_params(top='off', direction='out')
+    ax.yaxis.set_tick_params(top='off', right='off', left='on', direction='out')
     ax.tick_params(labelright='off', labeltop='off')
     ax.tick_params(axis='both', direction='out')
     ax.get_xaxis().tick_bottom()   # remove unneeded ticks 
     ax.get_yaxis().tick_left()
 
-def plot_neurons_trials_psth(df_1, df_2, neurons, trials, intervals, figuresize=None): 
+def plot_neurons_trials_psth(df_1, df_2, neurons, trials, intervals, fig_title, figuresize=None): 
 
-    fs = 15
-    LW = 3
-    plt.rcParams['xtick.labelsize']= fs
-    plt.rcParams['ytick.labelsize']= fs
-    plt.rcParams['axes.labelsize']= fs
-    plt.rcParams['axes.titlesize']= fs
-    plt.rcParams['legend.fontsize']= fs
-    plt.rcParams['lines.linewidth']= 2
+    fs = 6
+    LW = 0.001
     # plt.rcParams['fig.supylabel']= fs
+    line_width = 0.2
 
-    color = ['black', 'red']
+    set_fontsize()
+
+    colors = ['black', 'red']
     
     df_1 = df_1.reset_index(drop=True)
     df_2 = df_2.reset_index(drop=True)
-    dt = 4
+    dt = 5
     intervals_dt = [dt * n for n in range(int((intervals[-1]) // dt) + 1)]
     df_1['Interval_dt'] = pd.cut(df_1['Interval'], intervals_dt, include_lowest=True)
     df_2['Interval_dt'] = pd.cut(df_2['Interval'], intervals_dt, include_lowest=True)
@@ -493,18 +507,27 @@ def plot_neurons_trials_psth(df_1, df_2, neurons, trials, intervals, figuresize=
         yticks, ylabels = np.arange(len(trials)), list(map(str, trials))
         xticks, xlabels = [0,max_intervals // 2, max_intervals], [0,max_intervals // 2, max_intervals]
 
-        m_s = 45
-        l_w = 1
-        plot_var(ax[0][n], df_1_id, variable, trials, color=color[0], m_s=m_s, l_w=l_w)
-        plot_var(ax[1][n], df_2_id, variable, trials, color=color[1], m_s=m_s, l_w=l_w)
+        m_s = 3
+        l_w = 0.25
+        plot_var(ax[0][n], df_1_id, variable, trials, color=colors[0], m_s=m_s, l_w=l_w)
+        plot_var(ax[1][n], df_2_id, variable, trials, color=colors[1], m_s=m_s, l_w=l_w)
 
         set_categorical_ticks(ax[0][n], yticks, ylabels, xticks, xlabels)
         set_categorical_ticks(ax[1][n], yticks, ylabels, xticks, xlabels)
 
+        # ax[0][n].hist2d(df_1_id['Interval'], df_1_id['Trial'], bins=intervals)
+        # ax[1][n].hist2d(df_2_id['Interval'], df_2_id['Trial'], bins=intervals)
+
         ax[0][n].set_yticks([])
         ax[1][n].set_yticks([])
+        x_margins = 10000
+        ax[0][n].margins(x=x_margins)
+        ax[1][n].margins(x=x_margins)
 
-        if n > 0:
+        # sns.kdeplot(df_1['Interval'], ax=ax[0][n], bw_adjust=.25, color=colors[0], lw=line_width, alpha=0.75)    #plot(np.array(intervals), rates_1_id, color=colors[0],  lw=3)
+        # sns.kdeplot(df_2['Interval'], ax=ax[1][n], bw_adjust=.25, color=colors[1], lw=line_width, alpha=0.75)   #plot(np.array(intervals), rates_2_id, color=colors[1], lw=3)
+
+        if n >= 1:
             no_top_right_ticks(ax[0][n])
             no_top_right_ticks(ax[1][n])
 
@@ -514,7 +537,7 @@ def plot_neurons_trials_psth(df_1, df_2, neurons, trials, intervals, figuresize=
         neuron_int = int(neuron)
         df_1_id = df_1[df_1['ID'] == neuron_int]
         df_2_id = df_2[df_2['ID'] == neuron_int]
-        # rates_1 = get_rates(df_1, [neuron_int], intervals_dt)[neuron_int]
+        # rates_1 = get_rates(df_1, [neuron_int], intervals_dt)[neuroplotn_int]
         # rates_2 = get_rates(df_2, [neuron_int], intervals_dt)[neuron_int]
 
         freq_id_1 = df_1_id['Interval'].value_counts().reindex(intervals, fill_value=0)
@@ -527,27 +550,30 @@ def plot_neurons_trials_psth(df_1, df_2, neurons, trials, intervals, figuresize=
         #                lw=2, alpha=0.3, facecolor=['blue', 'red'], label=['True', 'Sim'])
         # c_2, c_1 = rgb_values[2], rgb_values[-1]
 
-        ax[2][n].hist(df_1_id['Interval'], bins=bins, edgecolor=None, lw=3, alpha=1, facecolor=color[0], label='True')
-        ax[3][n].hist(df_2_id['Interval'], bins=bins, edgecolor=None, lw=3, alpha=1, facecolor=color[1], label='Predicted') # histtype='step'
-        
+        ax[2][n].hist(df_1_id['Interval'], bins=bins, edgecolor=None, alpha=1, facecolor=colors[0], label='True')
+        ax[3][n].hist(df_2_id['Interval'], bins=bins, edgecolor=None, alpha=1, facecolor=colors[1], label='Predicted') # histtype='step'
+        ax[2][n].xaxis.set_tick_params(top='off', direction='out', width=l_w)
+        ax[3][n].xaxis.set_tick_params(top='off', direction='out', width=l_w)
         # xticks, xlabels = [0, max(intervals) // 2, max(intervals)], [0, max(intervals) // 2, max(intervals)]
-        y_fs_hist = 15
-        set_categorical_ticks(ax[2][n], None, None, xticks, xlabels, y_fs_hist)
+        set_categorical_ticks(ax[2][n], None, None, xticks, xlabels)
+        ax[0][n].spines['left'].set_visible(False)
+        ax[1][n].spines['left'].set_visible(False)
         ax[2][n].spines['right'].set_visible(False)
         ax[2][n].spines['top'].set_visible(False)
 
-        set_categorical_ticks(ax[3][n], None, None, xticks, xlabels, y_fs_hist)
+        set_categorical_ticks(ax[3][n], None, None, xticks, xlabels)
         ax[3][n].spines['right'].set_visible(False)
         ax[3][n].spines['top'].set_visible(False)
 
-        if n > 0:
+        if n >= 0:
             no_top_right_ticks(ax[2][n])
             ax[3][n].get_shared_y_axes().join(ax[2][n], ax[2][n-1])
             no_top_right_ticks(ax[3][n])
         max_lim = (max(ax[2][n].get_ylim()[1], ax[3][n].get_ylim()[1]))
         ax[0][n].set_xticklabels([])
         ax[1][n].set_xticklabels([])
-        ax[2][n].set_xticklabels([])
+        # ax[2][n].set_xticklabels([])
+        # ax[3][n].set_xticklabels([])
         ax[2][n].set_ylim(0, max_lim)
         ax[3][n].set_ylim(0, max_lim)
         ax[2][n].get_shared_y_axes().join(ax[3][n], ax[3][n-1])
@@ -560,17 +586,19 @@ def plot_neurons_trials_psth(df_1, df_2, neurons, trials, intervals, figuresize=
     plt.setp(ax[0])
 
     # ax[0][0].set_ylim(0, 32)
-    ax[0][0].set_ylabel('Ground Truth')
-    ax[1][0].set_ylabel('Simulated')
+    # ax[0][0].set_ylabel('True')
+    # ax[1][0].set_ylabel('Sim')
     # ax[2][0].set_ylabel('PSTH, True')
     # ax[3][0].set_ylabel('PSTH, Simulation')
     # ax[2][-1].legend()
 
 
-    ax[0][0].legend(bbox_to_anchor=(0,0,1,1))
+    # ax[0][0].legend(bbox_to_anchor=(0,0,1,1))
     # fig.supxlabel('Time (S)', fontsize=15, y=0.07)
     # fig.supylabel('Trials')
-    fig.suptitle('Gabor 3D Sim', fontsize=20, y=0.925)
+    fig.suptitle(fig_title, fontsize=5, y=0.925)
+
+    set_fontsize()
     # fig.gca().set_aspect('equal', adjustable='box')
     # plt.autoscale()
     # plt.tight_layout()

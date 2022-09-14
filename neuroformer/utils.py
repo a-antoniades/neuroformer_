@@ -65,20 +65,26 @@ def print_full(df, length=None):
 
 # results = predict_raster_recursive_time_auto(model, loader, window, stoi, itos_dt, sample=True, top_p=0.95, top_p_t=0.95, frame_end=0, get_dt=True, gpu=False)
 
-def process_predictions(results, stoi, window):
+def process_predictions(results, stoi, itos, window):
     pred_keys = ['ID', 'dt', 'Trial', 'Interval']
     predicted_dict = {k: results[k] for k in results if k in pred_keys}
     df_pred = pd.DataFrame(predicted_dict)
-    df_pred['Time'] = df_pred['dt'] + df_pred['Interval'] - 0.5
-    df_pred = df_pred[(df_pred['ID'] <= stoi['SOS']) & (df_pred['dt'] <= window) & (df_pred['Time'] >= 0)]
+    df_pred['Time'] = df_pred['dt'] + df_pred['Interval']
+    df_pred = df_pred[df_pred['Interval'] > 0]
+    # df_pred = df_pred[(df_pred['ID'] <= stoi['SOS']) & (df_pred['dt'] <= window) & (df_pred['Time'] >= 0)]
     true_keys = ['true', 'time']
     true_dict = {k: results[k] for k in results if k in true_keys}
     df_true = pd.DataFrame(true_dict)
-    df_true = df_true[df_true['true'] <= stoi['SOS']]
+    if 'SOS' in stoi:
+        sos_id = list(itos.keys())[list(itos.values()).index('SOS')]
+        df_true = df_true[df_true['true'] != sos_id]
+    if 'EOS' in stoi:
+        eos_id = list(itos.keys())[list(itos.values()).index('EOS')]
+        df_true = df_true[df_true['true'] != eos_id]
     df_true.rename({'true':'ID', 'time':'dt'}, axis=1, inplace=True)
     # df_true['time'] = df_true['dt'] + df_true['interval'] - 0.5
 
-    return df_pred, df_true
+    return df_pred.reset_index(drop=True), df_true.reset_index(drop=True)
 
 @torch.no_grad()
 def sample(model, x, steps, temperature=1.0, sample=False, top_k=None):
@@ -323,7 +329,7 @@ def model_ensemble(models, x):
 
 
 @torch.no_grad()
-def predict_raster_recursive_time_auto(model, loader, window, window_prev, stoi, itos_dt, get_dt=False, sample=False, top_k=0, top_p=0, top_p_t=0, temp=1, temp_t=1, frame_end=0, gpu=False, pred_dt=True):
+def predict_raster_recursive_time_auto(model, loader, window, window_prev, stoi, itos_dt, itos=None, get_dt=False, sample=False, top_k=0, top_p=0, top_p_t=0, temp=1, temp_t=1, frame_end=0, gpu=False, pred_dt=True):
     """
     predict both ID and dt recursively
     """
@@ -366,7 +372,7 @@ def predict_raster_recursive_time_auto(model, loader, window, window_prev, stoi,
         for key, value in y.items():
             y[key] = y[key].to(device)
         
-        if it > 12:
+        if it > 1:
             id_prev_stoi = torch.cat(id_prev_stoi_buffer)
             dt_prev_stoi = torch.cat(dt_prev_stoi_buffer)
             x['id_prev'] = [stoi['SOS']] + id_prev_stoi[-(T_id_prev - 2):].tolist()     # + [stoi['EOS']]
@@ -429,27 +435,29 @@ def predict_raster_recursive_time_auto(model, loader, window, window_prev, stoi,
             
             # append true and predicted in lists
             # get last unpadded token
-            data['ID'] = torch.cat((data['ID'], ix.flatten()))
-            data['dt'] = torch.cat((data['dt'], dtx))
-            data['Trial'] = torch.cat((data['Trial'], x['trial']))
-            data['Interval'] = torch.cat((data['Interval'], x['interval']))
-            x['id_full'] = torch.cat((x['id_full'], ix.flatten()))
-            x['dt_full'] = torch.cat((x['dt_full'], ix_dt.flatten())) if pred_dt else x['dt']
-
-            if ix == stoi['EOS']:   # or len(current_id_stoi) == T_id: # and dtx == 0.5:    # dtx >= window:   # ix == stoi['EOS']:
+            # print(T_id - int(x['pad']))
+            # if it == T_id - int(x['pad']):
+            if ix == stoi['EOS']:    # T_id - int(x['pad']):   # or len(current_id_stoi) == T_id: # and dtx == 0.5:    # dtx >= window:   # ix == stoi['EOS']:
             # if len(current_id_stoi) == T_id - x['pad']:
                 # if ix != stoi['EOS']:
-                #     torch.cat((current_id_stoi, torch.tensor([stoi['EOS']])))
+                    # torch.cat((current_id_stoi, torch.tensor([stoi['EOS']])))
                 # if dtx <= window:
-                #     torch.cat((current_dt_stoi, torch.tensor([max(list(itos_dt.keys()))])))
+                    # torch.cat((current_dt_stoi, torch.tensor([max(list(itos_dt.keys()))])))
                 context_length = int(window_prev / window)
                 id_prev_stoi_buffer.append(torch.tensor(current_id_stoi))
                 dt_prev_stoi_buffer.append(torch.tensor(current_dt_stoi))
                 id_prev_stoi_buffer = id_prev_stoi_buffer[-context_length:]
                 dt_prev_stoi_buffer = dt_prev_stoi_buffer[-context_length:]
                 break
-
             
+            ix_itos = torch.tensor(itos[int(ix.flatten())]).unsqueeze(0)
+            data['ID'] = torch.cat((data['ID'], ix_itos))
+            data['dt'] = torch.cat((data['dt'], dtx))
+            data['Trial'] = torch.cat((data['Trial'], x['trial']))
+            data['Interval'] = torch.cat((data['Interval'], x['interval']))
+            x['id_full'] = torch.cat((x['id_full'], ix.flatten()))
+            x['dt_full'] = torch.cat((x['dt_full'], ix_dt.flatten())) if pred_dt else x['dt']
+
         dty = torch.tensor([itos_dt[int(dt)] for dt in y['dt'][:, :T_id - pad].flatten()], device=device)
         # dty = torch.tensor(itos_dt[y['dt'][:, i].item()]).unsqueeze(0)
         data['time'] = torch.cat((data['time'], dty))   
@@ -460,7 +468,6 @@ def predict_raster_recursive_time_auto(model, loader, window, window_prev, stoi,
         data[key] = data[key].to("cpu")
         
     return data
-
 
 @torch.no_grad()
 def predict_beam_search(model, loader, stoi, frame_end=0):
@@ -798,34 +805,138 @@ def predict_and_plot_time(model, loader, config):
     plt.show()
 
 
-def create_full_trial(df, n_step, n_stim, t_trial, n_start=None, n_trials=1):
-    """
+# def create_full_trial(df, n_step, n_stim, t_trial, n_start=None, n_trials=1):
+#     """
     
-    n_stim: how many stimuli
-    n_step: how many trials per stimulus
-    n_start: min trial to start from
-    n_trials: how many trials PER STIMULUS
+#     n_stim: how many stimuli
+#     n_step: how many trials per stimulus does dataset have
+#     n_start: min trial to start from
+#     n_trials: how many trials PER STIMULUS do you want to keep
 
-    """
-    n_start = df['Trial'].min() if n_start is None else n_start
-    trials = []
-    for n in range(n_trials):
-        df_trial = None
-        n_start += n
-        for i in range(n_stim):
-            t_now =  n_start + (i * n_step)
-            df_t = df[df['Trial'] == t_now]
-            if df_trial is None:
-                df_trial = df_t
-            else:
-                t_start = df['Interval'].max()
-                df_t['Interval'] += t_trial
-                df_t['Time'] += t_trial
-                df_trial = pd.concat([df_trial, df_t], ignore_index=True)
-        df_trial['Trial'] = n
-        trials.append(df_trial)
-    return pd.concat(trials, ignore_index=True).sort_values(by=['Trial', 'Time'])
+#     """
+#     n_start = df['Trial'].min() if n_start is None else n_start
+#     trials = []
+#     for n in range(n_trials):
+#         df_trial = None
+#         n_start += n
+#         for i in range(n_stim):
+#             t_now =  n_start + (i * n_step)
+#             df_t = df[df['Trial'] == t_now]
+#             if df_trial is None:
+#                 df_trial = df_t
+#             else:
+#                 t_start = df['Interval'].max()
+#                 df_t['Interval'] += t_trial
+#                 df_t['Time'] += t_trial
+#                 df_trial = pd.concat([df_trial, df_t], ignore_index=True)
+#         df_trial['Trial'] = n
+#         trials.append(df_trial)
+#     return pd.concat(trials, ignore_index=True).sort_values(by=['Trial', 'Time'])
+
+# from utils import *
+
+def get_class_weights(dataset, stoi, stoi_dt):
+    dt = []
+    id = []
+    for x, y in dataset:
+        id.extend([stoi['SOS']] + y['id'][:len(y['id']) - x['pad']].flatten().tolist())    # *x['pad']) # -1 in pad to include PAD token
+        dt.extend([stoi_dt[0]] + y['dt'][:len(y['dt']) - x['pad']].flatten().tolist())   #*x['pad']) # -1 in pad to include PAD token
+
+    n_samples = len(id)
+    n_classes = len(stoi.keys()) - 1
+
+    id = pd.DataFrame(id)
+    dt = pd.DataFrame(dt)
+
+    id_freq = id.groupby([0]).size()
+    dt_freq = dt.groupby([0]).size()
+
+    id_ones = np.ones(dataset.id_population_size)
+    dt_ones = np.ones(dataset.dt_population_size)
+    id_freq_max = id_freq[:-1].max()
+    dt_freq_max = dt_freq[:-1].max()
+
+    id_ones[id_freq.index] = n_samples / (n_classes *  id_freq)
+    dt_ones[dt_freq.index] = n_samples / (n_classes *  dt_freq)
+    
+    class_freq = dict()
+    class_freq['id'] = torch.tensor(id_ones, dtype=torch.float32)
+    class_freq['dt'] = torch.tensor(dt_ones, dtype=torch.float32)
+    
+    return class_freq 
+
+    class_weights = get_class_weights(train_dataset)
+
+    cmax_weight = class_weights['id'].mean() + (class_weights['id'].std())
+
+    c_weights = class_weights['id']
+
+    cw_mean = 1 # c_weights.mean()
+    cw_shrink = 3/4
+    c_weights = cw_mean + cw_shrink * (c_weights - cw_mean)
+
+    class_weights['id'] = c_weights
+    class_weights['id'] = class_weights['id'].clamp(min=0.5, max=6)
+
+    plt.bar(np.arange(len(class_weights['id'])), class_weights['id'])
+    # plt.bar(np.arange(len(c_weights)), c_weights)
 
 
+# # precision_score = collections.defaultdict(list)
+# # recall_score = collections.defaultdict(list)
+# # f1_score = collections.defaultdict(list)
+# device = 'cuda'
+# width = 1
+# trials = test_data['Trial'].unique()
 
+# precision = []
+# recall = []
+# f1 = []
+# df_1 = []
+# df_2 = []
+# for n, trial in enumerate(trials):
+#     trial_2 = int(20 * (trial // 20) + np.random.choice([i for i in range(1, 21)], 1))
+#     if trial_2 == trial:
+#         trial_2 = trial + 1
+#     df_data_trial = df[df['Trial'] == trial]
+#     df_data_2_trial = df[df['Trial'] == trial_2]
+#     df_1.append(df_data_trial)
+#     df_2.append(df_data_2_trial)
+#     if n > 0 and n % 4 == 0:
+#         df_1 = pd.concat(df_1).sort_values(by=['Trial', 'Time'])
+#         df_2 = pd.concat(df_2).sort_values(by=['Trial', 'Time'])
+#         for n_id in df_data_trial['ID'].unique():
+#             spikes_true = df_1['Time'][df_1['ID'] == n_id]
+#             spikes_pred = df_2['Time'][df_2['ID'] == n_id]
+#             if len(spikes_pred) > 0:
+#                 [cos_score, cos_prec, cos_call, y, y_hat, t_y] = compute_score(width, spikes_true, spikes_pred)
+#             else:
+#                 continue
+#             # scores = compute_scores(df_trial_true, df_trial_pred)
+            
+#             precision.append(cos_prec)
+#             recall.append(cos_call)
+#             f1.append(cos_score)
+#         df_1 = []
+#         df_2 = []
+#     # for n_id in df_data_trial['ID'].unique():
+#     #     # spikes_true = np.array(df_true_trial[df_true_trial['ID'] == n_id]['Time'])
+#     #     # spikes_pred = np.array(df_pred_trial[df_pred_trial['ID'] == n_id]['Time'])
+#     #     spikes_true = df_data_trial['Time'][df_data_trial['ID'] == n_id]
+#     #     spikes_pred = df_data_2_trial['Time'][df_data_2_trial['ID'] == n_id]
+#     #     if len(spikes_pred) > 0:
+#     #         [cos_score, cos_prec, cos_call, y, y_hat, t_y] = compute_score(width, spikes_true, spikes_pred)
+#     #     else:
+#     #         cos_score = 0
+#     #         cos_prec = 0
+#     #         cos_call = 0
+#         # precision.append(cos_prec)
+#         # recall.append(cos_call)
+#         # f1.append(cos_score)
+# # precision_score[len(precision_score.keys())].append(np.mean(np.nan_to_num(precision)))
+# # recall_score[len(recall_score.keys())].append(np.mean(np.nan_to_num(recall)))
+# # f1_score[len(f1_score.keys())].append(np.mean(np.nan_to_num(f1)))
 
+# precision_score['Ground Truth'] = np.mean(np.nan_to_num(precision))
+# recall_score['Ground Truth'] = np.mean(np.nan_to_num(recall))
+# f1_score['Ground Truth'] = np.mean(np.nan_to_num(f1))

@@ -6,9 +6,9 @@ import numpy as np
 
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
-from utils import set_plot_params
-set_plot_params()
-plt.rcParams["figure.figsize"] = (20,20)
+# from utils import set_plot_params
+# set_plot_params()
+# plt.rcParams["figure.figsize"] = (20,20)
 
 import torch
 import torch.nn.functional as F
@@ -76,6 +76,13 @@ class Trainer:
             self.device = torch.cuda.current_device()
             self.model = torch.nn.DataParallel(self.model).to(self.device)
             self.criterion = self.criterion.to(self.device)
+        
+        # if torch.backends.mps.is_available():
+        #     print('Moving model to MPS')
+        #     self.device = torch.device('mps')
+        #     print(self.device)
+        #     self.model = self.model = self.model.to(self.device)
+        #     self.criterion = self.criterion.to(self.device)
         
         self.writer.add_scalar(f"model/no_parameters", sum(p.numel() for p in model.parameters())) 
 

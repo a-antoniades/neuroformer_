@@ -19,7 +19,7 @@ from torch.autograd import Variable
 
 import copy
 
-# from torchvision.models.video import r3d_18
+from torchvision.models.video import r3d_18
 # from ResNet3D import r3d_18
 # from torchvision.models._utils import IntermediateLayerGetter
 
@@ -76,6 +76,7 @@ class GPTConfig:
     sparse_topk = None
     conv_layer = False
     self_att_layers = 0
+    resnet_backbone = False
 
 
     def __init__(self, vocab_size, block_size, **kwargs):
@@ -99,6 +100,9 @@ class neuralGPTConfig:
     epoch = 0
     step = 0
     sparse_topk = None
+    conv_layer = False
+    self_att_layers = 0
+    sparse_topk = None
 
     def __init__(self, vocab_size, block_size, **kwargs):
         self.vocab_size = vocab_size
@@ -114,27 +118,28 @@ class GPT1Config(GPTConfig):
     n_embd = 768
 
 
-# class VideoFeaturesExtractor(nn.Module):
-#     """ 
-#     R3D: (3 x T x H x W)
-#     H, W = 112
-#     """
-    
-#     # def __init__(self):
-#     #     super().__init__()
-#     #     self.backbone = torch.nn.Sequential(*(list(r3d_18(pretrained=True).children())[:-2]))
-#     #     convert_weights(self.backbone)
-#     #     # # freeze backbone
-#     #     # for k, v in self.backbone.named_parameters():
-#     #     #     v.requires_grad = False
 
-#     # def forward(self, x):
-#     #     # B = Batch, T, C, Fm, H, W
-#     #     features = self.backbone(x)     # (B, C, T, H, W)
-#     #     B, C, T, H, W = features.shape
-#     #     features = features.permute(0, 2, 3, 4, 1)
-#     #     features = features.view(B, -1, C)
-#     #     return features
+class Resnet3DBackbone(nn.Module):
+    """ 
+    R3D: (3 x T x H x W)
+    H, W = 112
+    """
+    
+    def __init__(self):
+        super().__init__()
+        self.backbone = torch.nn.Sequential(*(list(r3d_18(pretrained=True).children())[:4]))
+        convert_weights(self.backbone)
+        # freeze backbone
+        for k, v in self.backbone.named_parameters():
+            v.requires_grad = False
+
+    def forward(self, x):
+        # B = Batch, T, C, Fm, H, W
+        features = self.backbone(x)     # (B, C, T, H, W)
+        B, C, T, H, W = features.shape
+        features = rearrange(features, 'B C T H W -> B T H W C')
+        return features
+
 
 #     def __init__(self, config):
 #         super().__init__()
@@ -310,6 +315,7 @@ class MultiheadfAttention(nn.Module):
         # Explicit Sparse Attention - Use top-K qk values
         if self.sparse_topk is not None and self.sparse_topk < att.shape[-1]:
             top, _ = torch.topk(att, self.sparse_topk, dim=-1)
+            # print(top.shape)
             vk = top[..., -1].unsqueeze(-1).expand_as(att)
             mask = att < vk
             att.masked_fill_(mask, float('-inf'))
@@ -787,22 +793,52 @@ class CLIP(nn.Module):
     def __init__ (self, config):
         super().__init__()
         self.temp = config.clip_temp
-        self.frame_proj = nn.Linear(config.frame_block_size * config.n_embd, config.clip_emb)
-        self.id_proj = nn.Linear(config.id_block_size * config.n_embd, config.clip_emb)
+        self.frame_proj = nn.Linear(config.frame_block_size * config.n_embd, config.clip_emb, bias=False)
+        self.id_proj = nn.Linear(config.id_block_size * config.n_embd, config.clip_emb, bias=False)
+        print(config.frame_block_size * config.n_embd)
 
     
     def forward(self, frame_feats, id_feats):
-        frame_feats = rearrange(frame_feats, 'b hw e -> b (hw e)')
-        id_feats = rearrange(id_feats, 'b t e -> b (t e)')
 
-        frame_proj = self.frame_proj(frame_feats)
-        id_proj = self.id_proj(id_feats)
+        # frame_feats = rearrange(frame_feats, 'b hw e -> b (hw e)')
+        # id_feats = rearrange(id_feats, 'b t e -> b (t e)')
 
-        loss = contrastive_loss(frame_proj, id_proj, temp=self.temp)
+        # frame_proj = self.frame_proj(frame_feats)
+        # id_proj = self.id_proj(id_feats)
+
+        # frame_proj = frame_feats
+        # id_proj = id_feats
+
+        loss = contrastive_loss(frame_feats, id_feats, temp=self.temp)
 
         return loss
 
+class FeatureEncoder(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.config = config
+        self.neural_state_blocks = _get_clones(Block(config, sparse_topk=config.sparse_topk_id), config.n_state_layers)
+        self.frame_state_blocks = _get_clones(Block(config, sparse_topk=config.sparse_topk_frame), config.n_stimulus_layers)
 
+        self.register_buffer("mask", self.build_mask(config.id_block_size))  
+    
+    def build_mask(self, block_size):
+        mask = torch.tril(torch.ones((block_size, block_size)),
+                                     ).view(1, 1, block_size, block_size)
+        return mask
+    
+    def forward(self, neural, visual):
+        for mod in self.neural_state_blocks:
+            neural = mod(neural, neural, neural, self.mask)
+        for mod in self.frame_state_blocks:
+            visual = mod(visual, visual, visual)
+        
+        features = dict()
+        features['id'] = neural
+        features['frames'] = visual
+        
+        return features
+        
 
 class MultimodalTransformer(nn.Module):
     def __init__(self, config):
@@ -910,9 +946,9 @@ class GPT(nn.Module):
             self.temp_emb_prev = LearntTemporalEmbedding(config.prev_id_block_size, config.n_embd)
         
         # frame embeddings
-        self.n_frames = (20 // config.kernel_size[0]) if config.conv_layer else 20
-
-        assert config.frame_block_size % self.n_frames == 0, "frameblocksize not divisible by n_frames"
+        # if config.conv_layer:
+        #     self.n_frames = (20 // config.kernel_size[0])
+        #     assert config.frame_block_size % self.n_frames == 0, "frameblocksize not divisible by n_frames"
         # self.pos_emb_frames = nn.Parameter(torch.zeros(1, config.frame_block_size // self.n_frames, config.n_embd))
         # frame_temp_emb = torch.tensor(list(itertools.chain(*[[n * 1] * (config.frame_block_size//self.n_frames) for n in range(self.n_frames)]))).unsqueeze(1)
         # self.register_buffer("frame_temp_emb_seq", frame_temp_emb)
@@ -923,7 +959,14 @@ class GPT(nn.Module):
         self.drop = nn.Dropout(config.embd_pdrop)
 
         # -- Visual Backbone -- #
-        self.video_encoder = VideoEncoder(config)
+        if config.resnet_backbone is False:
+            self.video_encoder = VideoEncoder(config)
+        else:
+            self.video_encoder = Resnet3DBackbone()
+            print("Using Resnet Backbone")
+
+        # -- feature encoder -- # 
+        self.feature_encoder = FeatureEncoder(config)
 
         # -- Multimodal Transformer -- #
         if config.contrastive:
@@ -1046,7 +1089,6 @@ class GPT(nn.Module):
         prev_id_temporal_embeddings = self.temp_emb_prev(dtx_prev.float()) if self.config.temp_emb else 0
         id_position_embeddings = self.pos_emb if self.config.pos_emb else 0
         id_temporal_embeddings = self.temp_emb(dtx.float()) if self.config.temp_emb else 0
-        im_3d_embeddings = self.frame_3d_emb(frames)
         # frame_position_embeddings = self.pos_emb_frames.repeat(1, self.n_frames, 1)
         # frame_temporal_embeddings = self.temp_emb_frames(self.frame_temp_emb_seq)
         
@@ -1058,27 +1100,25 @@ class GPT(nn.Module):
 
         # Extract image features and add time embeddings
         frame_embeddings = frames    # self.tok_emb(frames)
+        im_3d_embeddings = self.frame_3d_emb(frames)
         frame_embeddings = frames + im_3d_embeddings
         frame_embeddings = rearrange(frames, 'b t h w e -> b (t h w) e')
+        frame_sos = token_embeddings[:, 0].unsqueeze(1)
+        frame_embeddings = torch.cat([frame_sos, frame_embeddings], dim=1)
         # frame_embeddings = frame_embeddings + frame_position_embeddings + frame_temporal_embeddings
         frame_embeddings = self.im_drop(frame_embeddings)   # separate pos emb?
+
+        features = self.feature_encoder(token_embeddings, frame_embeddings)
+        token_embeddings, frame_embeddings = features['id'], features['frames']
         
         # Tidy up
         features = dict()
         features['id_prev'] = prev_token_embeddings
         features['id'] = token_embeddings
         features['frames'] = frame_embeddings
+        features['raw_frames'] = frames
         
         return features, pad
-
-    def perceiver(self, features, pad):
-        x = self.state_decoder(tgt=features['id'], memory=features['id_prev'], pad=pad)
-        x = self.ln_f_state_dec(x)
-        x = self.stimulus_decoder(tgt=features['id'], memory=features['frames'], pad=pad)
-        x = self.ln_f_stimulus_dec(x)
-        logits = self.head(x)
-
-        return logits, x
 
     def forward(self, x, targets=None):
         idx = x['id']
@@ -1121,8 +1161,8 @@ class GPT(nn.Module):
                 dt_logits_ = dt_logits[B, :t - P]
                 time_targets = targets['dt'][B, :t - P]
 
-                loss_id_ = F.cross_entropy(id_logits_.view(-1, id_logits_.size(-1)), id_targets.view(-1))   # weight=self.class_weights_id)
-                loss_time_ = F.cross_entropy(dt_logits_.view(-1, dt_logits_.size(-1)), time_targets.view(-1))
+                loss_id_ = F.cross_entropy(id_logits_.view(-1, id_logits_.size(-1)), id_targets.view(-1))    # , weight=self.class_weights_id)
+                loss_time_ = F.cross_entropy(dt_logits_.view(-1, dt_logits_.size(-1)), time_targets.view(-1))    # , weight=self.class_weights_dt)
                 # if self.config.epoch >= 15:
                     # self.truncated_loss.update_weight(id_logits[None, ...], id_targets[None, ...], id_indexes[None, ...])
                 # loss_id_ = self.truncated_loss(id_logits_[None, ...], id_targets[None, ...])
@@ -1177,9 +1217,9 @@ class GPT(nn.Module):
             n = 1
             if self.config.contrastive:
                 n = 2
-                loss['clip'] = self.clip(features['frames'], features['id']) / n 
-            loss['id'] = ((3 / 4) * sum(loss_id) / b) / n  # sum(loss_id) / (b * 2)   # / len(loss_id)
-            loss['time'] = ((1 / 4) * sum(loss_time) / b) / n
+                loss['clip'] = self.clip(features['frames'][:, 0], features['id'][:, 0]) * (1 / n) 
+            loss['id'] = ((9 / 10) * sum(loss_id) / b) * (1 - 1 / n)   # sum(loss_id) / (b * 2)   # / len(loss_id)
+            loss['time'] = ((1 / 10) * sum(loss_time) / b) * (1 - 1 / n) 
             
             # loss['dt'] = loss_time / (b * 50)
             # loss['hungarian'] = sum(loss_hungarian) / (b * 2)

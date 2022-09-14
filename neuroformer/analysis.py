@@ -31,6 +31,7 @@ def get_rates(df, intervals):
     return rates_true, rates_pred
 
 def get_rates(df, ids, intervals, interval='Interval'):
+    intervals = np.array(intervals)
     df = df.groupby(['ID', interval]).count().unstack(fill_value=0).stack()['Time']
     def set_rates(df, id, intervals):
         rates = np.zeros_like(intervals, dtype=np.float32)
@@ -39,8 +40,9 @@ def get_rates(df, ids, intervals, interval='Interval'):
         else:
             df = df[id]
             for i in df.index:
-                n = int((i * 2) - 1)
-                rates[n] = df.loc[i]            
+                if i in intervals:
+                    n = np.where(intervals == i)[0][0]
+                    rates[n] = df.loc[i]            
             return rates
     rates = dict()
     for id in ids:
@@ -56,12 +58,15 @@ def calc_corr_psth(rates1, rates2):
     return pearson_r
 
 def get_rates_trial(df, intervals):
+    intervals = np.array(intervals)
     df_rates = df.groupby(['ID', 'Interval']).count().unstack(fill_value=0).stack()
     def set_rates(df, id, intervals):
         df = df.loc[id]
         rates = np.zeros_like(intervals, dtype=np.float32)
         for i in df.index:
-            n = int((i * 2) - 2)
+            if i not in intervals:
+                continue
+            n = np.where(intervals == i)[0][0]
             rates[n] = df['Time'].loc[i] 
         return rates
     rates = dict()
