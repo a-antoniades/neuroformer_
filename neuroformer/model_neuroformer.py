@@ -77,6 +77,7 @@ class GPTConfig:
     conv_layer = False
     self_att_layers = 0
     resnet_backbone = False
+    vit_encoder = True
 
 
     def __init__(self, vocab_size, block_size, **kwargs):
@@ -818,8 +819,10 @@ class FeatureEncoder(nn.Module):
         super().__init__()
         self.config = config
         self.neural_state_blocks = _get_clones(Block(config, sparse_topk=config.sparse_topk_id), config.n_state_layers)
-        self.frame_state_blocks = _get_clones(Block(config, sparse_topk=config.sparse_topk_frame), config.n_stimulus_layers)
-
+        if config.vit_encoder:
+            self.frame_state_blocks = _get_clones(Block(config, sparse_topk=config.sparse_topk_frame), config.n_stimulus_layers)
+        else:
+            self.frame_state_blocks = None
         self.register_buffer("mask", self.build_mask(config.id_block_size))  
     
     def build_mask(self, block_size):
@@ -830,9 +833,10 @@ class FeatureEncoder(nn.Module):
     def forward(self, neural, visual):
         for mod in self.neural_state_blocks:
             neural = mod(neural, neural, neural, self.mask)
-        for mod in self.frame_state_blocks:
-            visual = mod(visual, visual, visual)
-        
+        if self.frame_state_blocks is not None:
+            for mod in self.frame_state_blocks:
+                visual = mod(visual, visual, visual)
+            
         features = dict()
         features['id'] = neural
         features['frames'] = visual
@@ -908,10 +912,7 @@ class MultimodalTransformer(nn.Module):
         
         x = neural_state
         y = neural_history
-        
-        # for mod in self.frame_encoder:
-        #     stimulus = mod(stimulus, stimulus, stimulus)
-        # y = x + y
+
         for mod in self.neural_state_history_blocks:
             x = mod(x, neural_history, neural_history)
         for mod in self.neural_state_history_self_attention:
@@ -1214,10 +1215,10 @@ class GPT(nn.Module):
 
             loss = dict()
             # loss['frames'] = loss_frames / (b / 3)
-            n = 1
+            n = float('inf')
             if self.config.contrastive:
                 n = 2
-                loss['clip'] = self.clip(features['frames'][:, 0], features['id'][:, 0]) * (1 / n) 
+                loss['clip'] = self.clip(features['frames'][:, 0], features['id'][:, -1]) * (1 / n) 
             loss['id'] = ((9 / 10) * sum(loss_id) / b) * (1 - 1 / n)   # sum(loss_id) / (b * 2)   # / len(loss_id)
             loss['time'] = ((1 / 10) * sum(loss_time) / b) * (1 - 1 / n) 
             
