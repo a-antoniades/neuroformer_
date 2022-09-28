@@ -239,7 +239,7 @@ def get_scores(model, width, data, trials, stoi, itos_dt, window, window_prev, d
 
     return av_precision, av_recall, av_f1
 
-def get_scores(model, width, data, trials, stoi, itos_dt, window, window_prev, device):
+def get_scores(model, data, df, trials, device):
     precision = []
     recall = []
     f1 = []
@@ -250,11 +250,12 @@ def get_scores(model, width, data, trials, stoi, itos_dt, window, window_prev, d
     frame_block_size = mconf.frame_block_size
     prev_id_block_size = mconf.prev_id_block_size
     for n, trial in enumerate(trials):
-        df_trial_true = data[data['Trial'] == trial]
-        trial_dataset = SpikeTimeVidData2(df_trial_true, None, mconf.block_size, id_block_size, frame_block_size, prev_id_block_size, window, dt, frame_memory, stoi, itos, neurons, stoi_dt, itos_dt, frame_feats, pred=False)
+        df_trial_true = df[df['Trial'] == trial]
+        trial_dataset = SpikeTimeVidData2(df_trial_true, None, data.block_size, id_block_size, frame_block_size, prev_id_block_size, data.window, data.dt, data.frame_memory, data.stoi, data.itos, data.neurons, data.stoi_dt, data.itos_dt, data.frame_feats, pred=False,
+                                          frame_window=data.frame_window)        
         trial_loader = DataLoader(trial_dataset, shuffle=False, pin_memory=False)
-        results_trial = predict_raster_recursive_time_auto(model, trial_loader, window, window_prev, stoi, itos_dt, sample=True, top_p=0.9, top_p_t=0.95, temp=1, temp_t=1, frame_end=0, get_dt=True, gpu=False, pred_dt=True)
-        df_trial_pred, _ = process_predictions(results_trial, stoi, window)
+        results_trial = predict_raster_recursive_time_auto(model, trial_loader, data.window, data.window_prev, data.stoi, data.itos_dt, itos=data.itos, sample=True, top_p=0.75, top_p_t=0.9, temp=1.3, temp_t=1, frame_end=0, get_dt=True, gpu=False, pred_dt=True)
+        df_trial_pred, _ = process_predictions(results_trial, data.stoi, data.window)
         df_true.append(df_trial_true)
         df_pred.append(df_trial_pred)
         if n > 0 and n % 4 == 0:
@@ -266,14 +267,15 @@ def get_scores(model, width, data, trials, stoi, itos_dt, window, window_prev, d
                 spikes_true = df_true['Time'][df_true['ID'] == n_id]
                 spikes_pred = df_pred['Time'][df_pred['ID'] == n_id]
                 if len(spikes_pred) > 0:
-                    [cos_score, cos_prec, cos_call, y, y_hat, t_y] = compute_score(width, spikes_true, spikes_pred)
-                else:
+                    # [cos_score, cos_prec, cos_call, y, y_hat, t_y] = compute_score(width, spikes_true, spikes_pred)
+                    scores = compute_scores(spikes_true, spikes_pred)
+                # else:
                     continue
                 # scores = compute_scores(df_trial_true, df_trial_pred)
                 
-                precision.append(cos_prec)
-                recall.append(cos_call)
-                f1.append(cos_score)
+                precision.append(scores['precision'])
+                recall.append(scores['recall'])
+                f1.append(scores['F1'])
             df_true = []
             df_pred = []
     av_precision = np.mean(np.nan_to_num(precision))

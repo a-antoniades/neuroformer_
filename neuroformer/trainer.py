@@ -1,5 +1,6 @@
 import math
 import logging
+import pickle
 
 from tqdm import tqdm
 import numpy as np
@@ -26,7 +27,7 @@ import collections
 import os
 parent_path = os.path.dirname(os.path.dirname(os.getcwd())) + "/"
 
-from utils import predict_raster, predict_and_plot_time
+from utils import predict_raster, predict_and_plot_time, save_object
 
 
 class TrainerConfig:
@@ -91,6 +92,8 @@ class Trainer:
         raw_model = self.model.module if hasattr(self.model, "module") else self.model
         logger.info("saving %s", self.config.ckpt_path)
         torch.save(raw_model.state_dict(), self.config.ckpt_path)
+        save_object(self.mconf, self.config.ckpt_path[:-3] + "_mconf.pkl")
+        save_object(self.config, self.config.ckpt_path[:-3] + "_tconf.pkl")
                     
     def plot_grad_flow(self, named_parameters):
         '''Plots the gradients flowing through different layers in the net during training.

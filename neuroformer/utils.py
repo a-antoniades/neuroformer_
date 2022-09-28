@@ -1,4 +1,5 @@
 import logging
+import pickle
 import random
 import numpy as np
 import pandas as pd
@@ -62,6 +63,10 @@ def print_full(df, length=None):
     print(df)
     pd.reset_option('display.max_rows')
     torch.set_printoptions(threshold=1e3)
+
+def save_object(obj, filename):
+    with open(filename, 'wb') as outp:  # Overwrites any existing file.
+        pickle.dump(obj, outp, pickle.HIGHEST_PROTOCOL)
 
 # results = predict_raster_recursive_time_auto(model, loader, window, stoi, itos_dt, sample=True, top_p=0.95, top_p_t=0.95, frame_end=0, get_dt=True, gpu=False)
 
@@ -395,6 +400,7 @@ def predict_raster_recursive_time_auto(model, loader, window, window_prev, stoi,
             x['id'] = torch.cat((x['id_full'], t_pad)).unsqueeze(0).long()
             x['dt'] = torch.cat((x['dt_full'], t_pad_dt)).unsqueeze(0).long() if pred_dt else x['dt']
 
+            # print(x['id'], x['dt'])
             # forward model, if list of models, then ensemble
             if isinstance(model, list):
                 logits = model_ensemble(model, x)

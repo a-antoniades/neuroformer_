@@ -468,6 +468,7 @@ class SpikeTimeVidData2(Dataset):
 
                 # print(data['Time'], "int", interval[0])
                 dt_chunk = (data['Time'] - (interval[0]))[-(block_size - 2):]
+                dt_chunk = (data['Time'] - data['Interval'] + self.window)[-(block_size - 2):]
                 # print(f"interval: {interval}, stim: {n_stim}, trial: {trial}")
                 # print(data['Time'])
                 dt_chunk = [self.stoi_dt[self.round_n(dt, self.dt)] for dt in dt_chunk]
