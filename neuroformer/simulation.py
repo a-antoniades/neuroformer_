@@ -117,6 +117,12 @@ def load_V1_AL():
 
 
 def generate_simulation(dataset_name, model_dir):
+
+    '''
+    from simulation import generate_simulation
+
+    data = generate_simulation('V1_AL', model_dir)
+    '''
     if dataset_name == 'V1_AL':
         video_stack, df_full, top_p_ids = load_V1_AL()
     
