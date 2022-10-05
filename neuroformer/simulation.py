@@ -46,7 +46,7 @@ import matplotlib.pyplot as plt
 from utils import *
 from visualize import *
 set_plot_params()
-parent_path = os.path.dirname(os.path.dirname(os.getcwd())) + "/"
+# parent_path = os.path.dirname(os.path.dirname(os.getcwd())) + "/"
 
 
 from model_neuroformer import GPT, GPTConfig, neuralGPTConfig, Decoder
@@ -67,30 +67,35 @@ from SpikeVidUtils import create_full_trial
 
 
 
-def load_V1_AL():
-    stim_folder = "/home/antonis/projects/slab/git/slab/transformer_exp/code/data/OneCombo3/stimuli"
-    im_path = ['/Combined Stimuli 3-grating.tif',
-            '/Combined Stimuli 3-Movie2.tif',
-            '/Combined Stimuli 3-Movie3.tif']
+def load_V1_AL(stimulus_path, response_path):
+    if stimulus_path is None:
+        stimulus_path = "/home/antonis/projects/slab/git/slab/transformer_exp/code/data/SImNew3D/stimulus/tiff"
+    if response_path is None:
+        response_path = "/home/antonis/projects/slab/git/slab/transformer_exp/code/data/SImNew3D/neural/NatureMoviePart1-A/20-NatureMovie_part1-A_spikes(1).mat"
+    
+    stim_names = ['/Combined Stimuli 3-grating.tif',
+                  '/Combined Stimuli 3-Movie2.tif',
+                  '/Combined Stimuli 3-Movie3.tif']
 
-    video_stack = [skimage.io.imread(stim_folder + vid) for vid in im_path]
+    # video_stack = [skimage.io.imread(os.path.join(stimulus_path, vid)) for vid in stim_names]
+    video_stack = [skimage.io.imread(str(stimulus_path + vid)) for vid in stim_names]
     # print(glob.glob(train_path + '/*.tif'))
     video_stack = np.concatenate(video_stack, axis=0)
 
     video_stack = image_dataset(video_stack)
     video_stack = video_stack[::3]  # convert from 60 to 20 fps
     video_stack = video_stack.view(3, video_stack.shape[0] // 3, video_stack.shape[1], video_stack.shape[2], video_stack.shape[3])
-
+    video_stack = video_stack.transpose(1, 2)
     print(video_stack.shape)
     # spike_path = "/home/antonis/projects/slab/git/slab/transformer_exp/code/data/SImNew3D/neural/NatureMoviePart1-A" # "code/data/SImIm/simNeu_3D_WithNorm__Combo3.mat" 
     n_V1_AL = (351, 514)
-    video_stack.transpose(1, 2)
+
 
     df = None
     filenames = ['Combo3_V1.mat', 'Combo3_AL.mat']
     files = []
     for filename in filenames: 
-        spike_data = scipyio.loadmat(os.path.join("/home/antonis/projects/slab/git/neuroformer/data/Combo3_V1AL", filename))
+        spike_data = scipyio.loadmat(os.path.join(response_path, filename))
         spike_data = np.squeeze(spike_data['spiketrain'].T, axis=-1)
         spike_data = [trial_df_combo3(spike_data, n_stim) for n_stim in range(3)]
         spike_data = pd.concat(spike_data, axis=0)
@@ -145,7 +150,7 @@ def load_natural_movie(stimulus_path=None, response_path=None):
 
 
 
-def generate_simulation(dataset_name, model_dir, save_data=True):
+def generate_simulation(dataset_name, model_dir, stimulus_path=None, response_path=None, save_data=True):
 
     '''
     from simulation import generate_simulation
@@ -153,9 +158,9 @@ def generate_simulation(dataset_name, model_dir, save_data=True):
     data = generate_simulation('V1_AL', model_dir)
     '''
     if dataset_name == 'V1_AL':
-        video_stack, df_full, top_p_ids = load_V1_AL()
+        video_stack, df_full, top_p_ids = load_V1_AL(stimulus_path, response_path)
     elif dataset_name == 'natural_movie':
-        video_stack, df_full, top_p_ids = load_natural_movie()
+        video_stack, df_full, top_p_ids = load_natural_movie(stimulus_path, response_path)
     
     model_path = glob.glob(os.path.join(model_dir, "*.pt"))[0]
     mconf_path = glob.glob(os.path.join(model_dir, "*_mconf.pkl"))[0]
@@ -212,7 +217,6 @@ def generate_simulation(dataset_name, model_dir, save_data=True):
     kernel_size = (int(20 * frame_window), 8, 8)
     n_embd = 256
     n_embd_frames = 64
-    frame_feats = video_stack
 
     frame_block_size = int(((frame_window * 20 // kernel_size[0] * 64 * 112) // (n_embd_frames)))
     # frame_block_size = 5 * 14 * 14
