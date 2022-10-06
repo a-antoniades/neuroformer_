@@ -7,6 +7,7 @@ import json
 import sys
 import glob
 from pathlib import Path, PurePath
+from unicodedata import name
 path = Path.cwd()
 parent_path = path.parents[1]
 sys.path.append(str(PurePath(parent_path, 'neuroformer')))
@@ -119,7 +120,15 @@ def load_V1_AL(stimulus_path, response_path):
     top_p = 0.75
     top_p_ids = df.groupby('ID').count().sort_values(by='Trial', ascending=False)[:int(top_p * len(df['ID'].unique()))].index.tolist()
 
-    return video_stack, df, top_p
+    test_trials = []
+    n_trial = [2, 8, 14, 19]
+    for n_stim in range(df['Trial'].max() // 20):
+        # n_trial = [2, 4, 6, 8, 10, 12, 14, 18]
+        for n_t in n_trial:
+            trial = (n_stim + 1) * 20 - (n_t)
+            test_trials.append(trial)
+
+    return video_stack, df, n_trial, top_p
 
 
 def load_natural_movie(stimulus_path=None, response_path=None):
@@ -142,7 +151,9 @@ def load_natural_movie(stimulus_path=None, response_path=None):
     top_p = 0.75
     top_p_ids = df.groupby('ID').count().sort_values(by='Trial', ascending=False)[:int(top_p * len(df['ID'].unique()))].index.tolist()
 
-    return video_stack, df, top_p
+    n_trial = [4]
+
+    return video_stack, df, n_trial, top_p
 
 
 
@@ -158,9 +169,9 @@ def generate_simulation(dataset_name, model_dir, stimulus_path=None, response_pa
     data = generate_simulation('V1_AL', model_dir)
     '''
     if dataset_name == 'V1_AL':
-        video_stack, df_full, top_p_ids = load_V1_AL(stimulus_path, response_path)
+        video_stack, df_full, test_trials, top_p_ids = load_V1_AL(stimulus_path, response_path)
     elif dataset_name == 'natural_movie':
-        video_stack, df_full, top_p_ids = load_natural_movie(stimulus_path, response_path)
+        video_stack, df_full, test_trials, top_p_ids = load_natural_movie(stimulus_path, response_path)
     
     model_path = glob.glob(os.path.join(model_dir, "*.pt"))[0]
     mconf_path = glob.glob(os.path.join(model_dir, "*_mconf.pkl"))[0]
@@ -200,6 +211,7 @@ def generate_simulation(dataset_name, model_dir, stimulus_path=None, response_pa
     # top_p = 0.75
     top_p_ids = df.groupby('ID').count().sort_values(by='Trial', ascending=False)[:int(top_p_ids * len(df['ID'].unique()))].index.tolist()
     df = df[df['ID'].isin(top_p_ids)].reset_index(drop=True)
+    print(f"------{len(df['ID'].unique())}-------")
 
     # n_dt = sorted((df['Interval_dt'].unique()).round(2)) 
     max_window = max(window, window_prev)
@@ -231,8 +243,8 @@ def generate_simulation(dataset_name, model_dir, stimulus_path=None, response_pa
     # translate neural embeddings to separate them from ID embeddings
     # frames = frames + [*id_stoi.keys()][-1] 
     # neurons = [i for i in range(df['ID'].min(), df['ID'].max() + 1)]
-    neurons = sorted(list(set(df['ID'].unique())))
-    # pixels = sorted(np.unique(frames).tolist())
+    # neurons = sorted(list(set(df['ID'].unique())))
+    neurons = [i for i in range(df['ID'].min(), df['ID'].max() + 1)]
     trial_tokens = [f"Trial {n}" for n in df['Trial'].unique()]
     feat_encodings = neurons + ['SOS'] + ['EOS'] + ['PAD']  # + pixels 
     stoi = { ch:i for i,ch in enumerate(feat_encodings) }
@@ -248,19 +260,11 @@ def generate_simulation(dataset_name, model_dir, stimulus_path=None, response_pa
     # train_data = df[:train_len]
     # test_data = df[train_len:train_len + test_len].reset_index().drop(['index'], axis=1)
 
-    test_trials = []
-    n_trial = [2, 8, 14, 19]
-    for n_stim in range(df['Trial'].max() // 20):
-        # n_trial = [2, 4, 6, 8, 10, 12, 14, 18]
-        for n_t in n_trial:
-            trial = (n_stim + 1) * 20 - (n_t)
-            test_trials.append(trial)
-    train_data = df[~df['Trial'].isin(test_trials)].reset_index(drop=True)
-    test_data = df[df['Trial'].isin(test_trials)].reset_index(drop=True)
-    small_data = df[df['Trial'].isin([5])].reset_index(drop=True)
-
     # trials = np.random.choice(train_data['Trial'].unique(), size=12)
+    test_data = df[df['Trial'].isin(test_trials)].reset_index(drop=True)
     trials = test_data['Trial'].unique()
+
+    print(f"TRIALS -------------------{trials}")
     # trials = train_data['Trial'].unique()[::4]
 
     # trials = [start + (i * 20) for i in range(3)]
@@ -274,81 +278,87 @@ def generate_simulation(dataset_name, model_dir, stimulus_path=None, response_pa
     # stoi['SOS'] = 2000
     for trial in trials:    # test_data['Trial'].unique():
         # with io.capture_output() as captured:
-            df_trial = df[df['Trial'] == trial]
-            trial_dataset = SpikeTimeVidData2(df_trial, None, block_size, id_block_size, frame_block_size, prev_id_block_size, window, dt, frame_memory, stoi, itos, neurons, stoi_dt, itos_dt, frame_feats, pred=False,
-                                            frame_window=frame_window)
-            trial_loader = DataLoader(trial_dataset, shuffle=False, pin_memory=False)
-            results_trial = predict_raster_recursive_time_auto(model, trial_loader, window, window_prev, stoi, itos_dt, itos=itos, sample=True, top_p=0.75, top_p_t=0.9, temp=1.3, temp_t=1, frame_end=0, get_dt=True, gpu=False, pred_dt=True)
-            # results_trial = predict_raster_hungarian(model, loader, itos_dt, top_p=0.75, temp=1)
-            # print(f"MAX ID ---- {sorted(results_trial['ID'].unique()[-10])}")
-            df_trial_pred, df_trial_true = process_predictions(results_trial, stoi, itos, window)
-            print(f"pred: {df_trial_pred.shape}, true: {df_trial_true.shape}" )
-            if df_pred is None:
-                df_pred = df_trial_pred
-                df_true = df_trial_true
-            else:
-                df_pred = pd.concat([df_pred, df_trial_pred])
-                df_true = pd.concat([df_true, df_trial_true])
+        df_trial = df[df['Trial'] == trial]
+        trial_dataset = SpikeTimeVidData2(df_trial, None, block_size, id_block_size, frame_block_size, prev_id_block_size, window, dt, frame_memory, stoi, itos, neurons, stoi_dt, itos_dt, frame_feats, pred=False,
+                                        frame_window=frame_window)
+        trial_loader = DataLoader(trial_dataset, shuffle=False, pin_memory=False)
+        results_trial = predict_raster_recursive_time_auto(model, trial_loader, window, window_prev, stoi, itos_dt, itos=itos, sample=True, top_p=0.75, top_p_t=0.9, temp=1.3, temp_t=1, frame_end=0, get_dt=True, gpu=False, pred_dt=True)
+        # results_trial = predict_raster_hungarian(model, loader, itos_dt, top_p=0.75, temp=1)
+        # print(f"MAX ID ---- {sorted(results_trial['ID'].unique()[-10])}")
+        df_trial_pred, df_trial_true = process_predictions(results_trial, stoi, itos, window)
+        print(f"pred: {df_trial_pred.shape}, true: {df_trial_true.shape}" )
+        if df_pred is None:
+            df_pred = df_trial_pred
+            df_true = df_trial_true
+        else:
+            df_pred = pd.concat([df_pred, df_trial_pred])
+            df_true = pd.concat([df_true, df_trial_true])
 
     # df_preds[n] = df_pred
     # print(f"--- n: {n}, n_p: {n_p}, temp: {temp} ---")
-    scores = compute_scores(df[df['Trial'].isin(trials)], df_pred)
-    print(scores)
-    print(f"pred: {len(df_pred)}, true: {len(df_true)}" )
-    # results_dict[n] = (scores)
 
     # train_len = round(len(df)*(4/5))
     # test_len = round(len(df) - train_len)
 
     # train_data = df[:train_len]
     # test_data = df[train_len:train_len + test_len].reset_index().drop(['index'], axis=1)
-    n_trial = [2, 8, 14, 19]
+    if dataset_name == 'V1_AL':
+    
+        n_trial = [2, 8, 14, 19]
 
-    n_1 = []
-    for n_stim in range(3): # range(df['Trial'].max() // 20):
-        for n_t in n_trial:
-            trial = (n_stim + 1) * 20 - (n_t - 2)
-            n_1.append(trial)
-    test2_data = df[df['Trial'].isin(n_1)].reset_index(drop=True)
-    small_data = df[df['Trial'].isin([5])].reset_index(drop=True)
+        n_1 = []
+        for n_stim in range(3): # range(df['Trial'].max() // 20):
+            for n_t in n_trial:
+                trial = (n_stim + 1) * 20 - (n_t - 2)
+                n_1.append(trial)
+        test2_data = df[df['Trial'].isin(n_1)].reset_index(drop=True)
+        small_data = df[df['Trial'].isin([5])].reset_index(drop=True)
 
 
-    n_2 = []
-    for n_stim in range(3): # range(df['Trial'].max() // 20):
-        for n_t in n_trial:
-            trial = (n_stim + 1) * 20 - (n_t - 1)
-            n_2.append(trial)
-    test3_data = df[df['Trial'].isin(n_2)].reset_index(drop=True)
-    # small_data = df[df['Trial'].isin([5])].reset_index(drop=True)
+        n_2 = []
+        for n_stim in range(3): # range(df['Trial'].max() // 20):
+            for n_t in n_trial:
+                trial = (n_stim + 1) * 20 - (n_t - 1)
+                n_2.append(trial)
+        test3_data = df[df['Trial'].isin(n_2)].reset_index(drop=True)
+        # small_data = df[df['Trial'].isin([5])].reset_index(drop=True)
 
-    print(f"trials: {test2_data['Trial'].unique()}")
-    print(f"trials: {test3_data['Trial'].unique()}")
+        print(f"trials: {test2_data['Trial'].unique()}")
+        print(f"trials: {test3_data['Trial'].unique()}")
 
-    # df_1 = df_pred[df_pred['ID'] < stoi['SO`S']].reset_index(drop=True)
-    # df_2 = test_data[test_data['Trial'].isin(trials)].reset_index(drop=True)
+        # df_1 = df_pred[df_pred['ID'] < stoi['SO`S']].reset_index(drop=True)
+        # df_2 = test_data[test_data['Trial'].isin(trials)].reset_index(drop=True)
 
-    # df_1 = df[df['Trial'].isin(range(10))]
-    # df_2 = df[df['Trial'].isin(range(11, 20))]
+        # df_1 = df[df['Trial'].isin(range(10))]
+        # df_2 = df[df['Trial'].isin(range(11, 20))]
 
-    df_pred_full = create_full_trial(df_pred)
-    df_1 = create_full_trial(df, trials)
-    df_2 = create_full_trial(df, n_1)
-    df_3 = create_full_trial(df, n_2)
+        df_pred_full = create_full_trial(df_pred)
+        df_1 = create_full_trial(df, trials)
+        df_2 = create_full_trial(df, n_1)
+        df_3 = create_full_trial(df, n_2)
 
-    # df_2['Interval'] += 0.5
-    # df_pred_full['Interval'] += 0.5
+        # df_2['Interval'] += 0.5
+        # df_pred_full['Interval'] += 0.5
 
-    # df_1 = create_full_trial(df, t_trial=t_trial, n_start=df_pred['Trial'].min(), n_stim=3, n_step=20, n_trials=10)
-    # df_2 = create_full_trial(df, t_trial=t_trial, n_start=df_pred['Trial'].min() + 1, n_stim=3, n_step=20, n_trials=10)
-    # df_3 = create_full_trial(df, t_trial=t_trial, n_start=df_pred['Trial'].min() + 2, n_stim=3, n_step=20, n_trials=10)
+        # df_1 = create_full_trial(df, t_trial=t_trial, n_start=df_pred['Trial'].min(), n_stim=3, n_step=20, n_trials=10)
+        # df_2 = create_full_trial(df, t_trial=t_trial, n_start=df_pred['Trial'].min() + 1, n_stim=3, n_step=20, n_trials=10)
+        # df_3 = create_full_trial(df, t_trial=t_trial, n_start=df_pred['Trial'].min() + 2, n_stim=3, n_step=20, n_trials=10)
 
-    # df_1 = df_1[(df_1['Interval'].isin(df_pred_full['Interval'].unique()))].reset_index(drop=True)
-    # df_2 = df_2[(df_2['Interval'].isin(df_pred_full['Interval'].unique()))].reset_index(drop=True)
-    # df_3 = df_3[(df_3['Interval'].isin(df_pred_full['Interval'].unique()))].reset_index(drop=True)
+        # df_1 = df_1[(df_1['Interval'].isin(df_pred_full['Interval'].unique()))].reset_index(drop=True)
+        # df_2 = df_2[(df_2['Interval'].isin(df_pred_full['Interval'].unique()))].reset_index(drop=True)
+        # df_3 = df_3[(df_3['Interval'].isin(df_pred_full['Interval'].unique()))].reset_index(drop=True)
+    
+    elif dataset_name == 'natural_movie':
+        n_1, n_2, n_3 = test_data['Trial'].unique(), 2, 7
+        df_1 = test_data
+        df_2 = df[df['Trial'] == n_2]
+        df_3 = df[df['Trial'] == n_3]
+        df_pred_full = df_pred
+
 
     window_pred = None
 
-    df_list = [df_pred_full, df_1, df_2, df_3]
+    df_list = [df_pred, df_1, df_2, df_3]
 
     for df_ in df_list:
         window_pred = 0.5
@@ -384,9 +394,22 @@ def generate_simulation(dataset_name, model_dir, stimulus_path=None, response_pa
         with open(os.path.join(inference_path, "scores.json"), "w") as f:
             json.dump(pred_scores, f, indent=4)
 
-        df.to_csv(os.path.join(inference_path, "df_pred.csv"))
+        df_pred_full.to_csv(os.path.join(inference_path, "df_pred.csv"))
 
-    return df_pred_full, df_1, df_2, df_3, rates_pred, rates_1, rates_2, rates_3, top_corr_pred, top_corr_real, top_corr_real_2, scores, pred_scores
+    return df_pred_full, df_1, df_2, rates_pred, rates_1, rates_2, top_corr_pred, top_corr_real, scores, pred_scores
+
+
+if __name__ == "__main__":
+    print('george')
+    experiment_path = "/home/antonis/projects/slab/git/neuroformer/models/tensorboard/Naturalmovie/window_comparison"
+    f_windows = os.listdir(experiment_path)
+
+    for f_w in f_windows:
+        f_w_path = os.path.join(experiment_path, f_w)
+        w_windows = os.listdir(f_w_path)
+        for w_w in w_windows:
+            model_dir = os.path.join(experiment_path, f_w, w_w)
+            generate_simulation('natural_movie', model_dir, save_data=True)
 
 
 
