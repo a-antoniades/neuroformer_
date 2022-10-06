@@ -154,4 +154,5 @@ dmypy.json
 */plots
 **/tensorboard
 **/neuroformer_manuscript
+**/.vscode
 
