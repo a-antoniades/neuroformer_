@@ -68,6 +68,31 @@ def save_object(obj, filename):
     with open(filename, 'wb') as outp:  # Overwrites any existing file.
         pickle.dump(obj, outp, pickle.HIGHEST_PROTOCOL)
 
+def load_object(filename):
+    with open(filename, 'rb') as inp:
+        return pickle.load(inp)
+
+def set_model_attr(mconf):
+    for a in dir(mconf):
+        if not a.startswith('__'):
+            globals()[a] = value = getattr(mconf, a)
+
+
+def load_model(model_dir):
+    model_path = glob.glob(os.path.join(model_dir, "*.pt"))[0]
+    mconf_path = glob.glob(os.path.join(model_dir, "*_mconf.pkl"))[0]
+    tconf_path = glob.glob(os.path.join(model_dir, "*_tconf.pkl"))[0]
+
+    with open(mconf_path, 'rb') as handle:
+        mconf = pickle.load(handle)
+    with open(tconf_path, 'rb') as handle:
+        tconf = pickle.load(handle)
+    
+    model = GPT(mconf)
+    model.load_state_dict(torch.load(model_path))
+    return model, mconf, tconf
+
+
 # results = predict_raster_recursive_time_auto(model, loader, window, stoi, itos_dt, sample=True, top_p=0.95, top_p_t=0.95, frame_end=0, get_dt=True, gpu=False)
 
 def process_predictions(results, stoi, itos, window):
