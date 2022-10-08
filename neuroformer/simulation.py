@@ -156,7 +156,148 @@ def load_natural_movie(stimulus_path=None, response_path=None):
     return video_stack, df, n_trial, top_p
 
 
+@torch.no_grad()
+def predict_raster_recursive_time_auto(model, loader, window, window_prev, stoi, itos_dt, itos=None, get_dt=False, sample=False, top_k=0, top_p=0, top_p_t=0, temp=1, temp_t=1, frame_end=0, gpu=False, pred_dt=True):
+    """
+    predict both ID and dt recursively
+    """
 
+    def pad_x(x, length, pad_token):
+        """
+        pad x with pad_token to length
+        """
+        pad_n = length - len(x)
+        if pad > 0:
+            x = x + [pad_token] * pad_n
+        x = torch.tensor(x, dtype=torch.long, device=device)
+        return x.unsqueeze(0)
+
+
+    device = 'cpu' if not gpu else torch.cuda.current_device() # torch.cuda.current_device() if torch.cuda.is_available() else "cpu"
+    model = [model_n.to(device) for model_n in model] if isinstance(model, list) else model.to(device) 
+    model = [model_n.eval() for model_n in model] if isinstance(model, list) else model.eval()
+    tf = 0
+    mconf = model[0].config if isinstance(model, list) else model.config
+    # T = model.get_block_size() # model.config.id_block_size # model.get_block_size()
+    T_id = mconf.id_block_size
+    T_id_prev = mconf.prev_id_block_size
+    context = torch.tensor(0, device=device).unsqueeze(0)
+    data = dict()
+    data['true'] = context
+    data['ID'] = context
+    data['time'] = context
+    data['dt'] = context
+    data['Trial'] = context
+    data['Interval'] = context
+
+    id_prev_stoi_buffer = []
+    dt_prev_stoi_buffer = []
+    pbar = tqdm(enumerate(loader), total=len(loader))
+    for it, (x, y) in pbar:
+
+        for key, value in x.items():
+            x[key] = x[key].to(device)
+        for key, value in y.items():
+            y[key] = y[key].to(device)
+        
+        if it > 1:
+            id_prev_stoi = torch.cat(id_prev_stoi_buffer)
+            dt_prev_stoi = torch.cat(dt_prev_stoi_buffer)
+            x['id_prev'] = [stoi['SOS']] + id_prev_stoi[-(T_id_prev - 2):].tolist()     # + [stoi['EOS']]
+            x['id_prev'] = pad_x(x['id_prev'], T_id_prev, stoi['PAD'])
+            if pred_dt:
+                x['dt_prev'] = [0] + dt_prev_stoi[-(T_id_prev - 2):].tolist()           # + [max(list(itos_dt.keys()))]
+                x['dt_prev'] = pad_x(x['dt_prev'], T_id_prev, max(list(itos_dt.keys())))
+            
+        pad = x['pad'] if 'pad' in x else 0
+        x['id_full'] = x['id'][:, 0]
+        x['id'] = x['id'][:, 0]
+        x['dt_full'] = x['dt'][:, 0] if pred_dt else x['dt']
+        x['dt'] = x['dt'][:, 0] if pred_dt else x['dt']
+
+        current_id_stoi = torch.empty(0, device=device)
+        current_dt_stoi = torch.empty(0, device=device)
+        for i in range(T_id):
+            t_pad = torch.tensor([stoi['PAD']] * (T_id - x['id_full'].shape[-1]), device=device)
+            t_pad_dt = torch.tensor([0] * (T_id - x['dt_full'].shape[-1]), device=device)
+            x['id'] = torch.cat((x['id_full'], t_pad)).unsqueeze(0).long()
+            x['dt'] = torch.cat((x['dt_full'], t_pad_dt)).unsqueeze(0).long() if pred_dt else x['dt']
+
+            # print(x['id'], x['dt'])
+            # forward model, if list of models, then ensemble
+            if isinstance(model, list):
+                logits = model_ensemble(model, x)
+            else:
+                logits, features, _ = model(x)
+            
+            logits['id'] = logits['id'][:, i]
+            logits['dt'] = logits['dt'][:, i]
+            # optionally crop probabilities to only the top k / p options
+            if top_k or top_p != 0:
+                logits['id'] = top_k_top_p_filtering(logits['id'], top_k=top_k, top_p=top_p)
+                logits['dt'] = top_k_top_p_filtering(logits['dt'], top_k=top_k, top_p=top_p_t)
+            
+            logits['id'] = logits['id'] / temp
+            logits['dt'] = logits['dt'] / temp_t
+
+            # apply softmax to logits
+            probs = F.softmax(logits['id'], dim=-1)
+            probs_dt = F.softmax(logits['dt'], dim=-1)
+            if sample:
+                ix = torch.multinomial(probs, num_samples=1)
+                ix_dt = torch.multinomial(probs_dt, num_samples=1)
+                # ix = torch.poisson(torch.exp(logits), num_samples=1)
+            else:
+                # choose highest topk (1) sample
+                _, ix = torch.topk(probs, k=1, dim=-1)
+                _, ix_dt = torch.topk(probs_dt, k=1, dim=-1)
+            
+            # if ix > stoi['PAD']:
+            #     ix = torch.tensor([513])
+            
+            # convert ix_dt to dt and add to current time
+            # if len(current_id_stoi) >= T_id - pad:
+            #     ix = stoi['EOS']
+            
+            # append true and predicted in lists
+            # get last unpadded token
+            # print(T_id - int(x['pad']))
+            # if it == T_id - int(x['pad']):
+            if ix == stoi['EOS']:    # T_id - int(x['pad']):   # or len(current_id_stoi) == T_id: # and dtx == 0.5:    # dtx >= window:   # ix == stoi['EOS']:
+            # if len(current_id_stoi) == T_id - x['pad']:
+                # if ix != stoi['EOS']:
+                    # torch.cat((current_id_stoi, torch.tensor([stoi['EOS']])))
+                # if dtx <= window:
+                    # torch.cat((current_dt_stoi, torch.tensor([max(list(itos_dt.keys()))])))
+                context_length = int(window_prev / window)
+                id_prev_stoi_buffer.append(torch.tensor(current_id_stoi))
+                dt_prev_stoi_buffer.append(torch.tensor(current_dt_stoi))
+                id_prev_stoi_buffer = id_prev_stoi_buffer[-context_length:]
+                dt_prev_stoi_buffer = dt_prev_stoi_buffer[-context_length:]
+                break
+            
+            current_id_stoi = torch.cat((current_id_stoi, ix.flatten()))
+            current_dt_stoi = torch.cat((current_dt_stoi, ix_dt.flatten()))
+            dtx = torch.tensor(itos_dt[int(ix_dt.flatten())], device=device).unsqueeze(0)
+            
+            ix_itos = torch.tensor(itos[int(ix.flatten())]).unsqueeze(0)
+            data['ID'] = torch.cat((data['ID'], ix_itos))
+            data['dt'] = torch.cat((data['dt'], dtx))
+            data['Trial'] = torch.cat((data['Trial'], x['trial']))
+            data['Interval'] = torch.cat((data['Interval'], x['interval']))
+            x['id_full'] = torch.cat((x['id_full'], ix.flatten()))
+            x['dt_full'] = torch.cat((x['dt_full'], ix_dt.flatten())) if pred_dt else x['dt']
+
+        dty = torch.tensor([itos_dt[int(dt)] for dt in y['dt'][:, :T_id - pad].flatten()], device=device)
+        # dty = torch.tensor(itos_dt[y['dt'][:, i].item()]).unsqueeze(0)
+        data['time'] = torch.cat((data['time'], dty))   
+        data['true'] = torch.cat((data['true'], y['id'][:, :T_id - pad].flatten()))
+        pbar.set_description(f"len pred: {len(data['ID'])}, len true: {len(data['true'])}")
+
+    for key, value in data.items():
+        data[key] = data[key].to("cpu")
+        
+    return data
 
 
 
