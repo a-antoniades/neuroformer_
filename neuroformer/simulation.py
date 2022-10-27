@@ -157,8 +157,12 @@ def load_natural_movie(stimulus_path=None, response_path=None, top_p_ids=None):
     return video_stack, df, n_trial
 
 
-@torch.no_grad()
-def generate_simulation(dataset_name, model_dir, top_p_ids=0.75, stimulus_path=None, response_path=None, save_data=True):
+
+
+
+
+
+def generate_simulation(dataset_name, model_dir, stimulus_path=None, response_path=None, save_data=True):
 
     '''
     from simulation import generate_simulation

@@ -60,9 +60,11 @@ def set_plot_black():
     plt.rcParams['axes.facecolor']= '202020'
     plt.rcParams['savefig.facecolor']= '202020'
 
-def set_fontsize():
+def set_research_params():
     fs = 5
     LW = 0.001
+    plt.rcParams['axes.prop_cycle'] = plt.cycler(color=plt.cm.Set1.colors)
+    plt.rcParams['font.family'] = 'arial'
     plt.rcParams['xtick.labelsize']= fs
     plt.rcParams['ytick.labelsize']= fs
     plt.rcParams['axes.labelsize']= fs
