@@ -410,6 +410,8 @@ class SpikeTimeVidData2(Dataset):
                 # (i.e did not fit in block)
                 # self.t = self.data['Interval'].unique()
                 self.window = window        # interval window (prediction)
+                self.window_prev = window if window_prev is None else window_prev
+                # assert self.window_prev % self.window == 0, "window_prev must be a multiple of window"
                 self.frame_window = 1.0
                 if dataset is None:
                     self.t = self.data.drop_duplicates(subset=['Interval', 'Trial'])[['Interval', 'Trial']] # .sample(frac=1).reset_index(drop=True) # interval-trial unique pairs
@@ -435,7 +437,7 @@ class SpikeTimeVidData2(Dataset):
             return round(base * (round(float(x)/base)), 2)
                 # return round(base * float(x)/base)
 
-        def get_interval(self, interval, trial, block_size, n_stim=None):
+        def get_interval(self, interval, trial, block_size, n_stim=None, pad=True):
                 """
                 Returns interval[0] >= data < interval[1]
                 chunk = ID
@@ -463,12 +465,12 @@ class SpikeTimeVidData2(Dataset):
                 # trial_token = self.stoi['Trial ' + str(int(trial))]
                 dix = ([self.stoi['SOS']] + dix + [self.stoi['EOS']])[-block_size:]
                 # dix = ([trial_token] + dix + [self.stoi['EOS']])[-block_size:]
-                pad_n = block_size - (len(dix) + 1 - 2) # len chunk is 1 unit bigger than x, y
+                pad_n = block_size - (len(dix) + 1 - 2) if pad else 0 # len chunk is 1 unit bigger than x, y
                 dix = dix + [self.stoi['PAD']] * pad_n
 
                 # print(data['Time'], "int", interval[0])
                 dt_chunk = (data['Time'] - (interval[0]))[-(block_size - 2):]
-                dt_chunk = (data['Time'] - data['Interval'] + self.window)[-(block_size - 2):]
+                # dt_chunk = (data['Time'] - data['Interval'] + self.window)[-(block_size - 2):]
                 # print(f"interval: {interval}, stim: {n_stim}, trial: {trial}")
                 # print(data['Time'])
                 dt_chunk = [self.stoi_dt[self.round_n(dt, self.dt)] for dt in dt_chunk]
@@ -506,15 +508,14 @@ class SpikeTimeVidData2(Dataset):
                 ## PREV ##
                 # get state history + dt (last 30 seconds)
                 prev_int = self.round_n(t['Interval'] - (self.window_prev), self.dt)
-                # prev_int = prev_int if prev_int > 0 else -0.5
                 prev_id_interval = self.round_n(prev_int - self.window_prev, self.dt), prev_int
                 id_prev, dt_prev, pad_prev = self.get_interval(prev_id_interval, t['Trial'], self.id_prev_block_size, n_stim)
+                # prev_pad = True if self.window_prev == self.window else False
                 x['id_prev'] = torch.tensor(id_prev[:-1], dtype=torch.long)
                 x['dt_prev'] = torch.tensor(dt_prev[:-1], dtype=torch.float) # + 0.5
                 x['pad_prev'] = torch.tensor(pad_prev, dtype=torch.long)
                 
                 ## CURRENT ##
-                # data_current = self.data[(self.data['Interval'] == t['Interval']) & (self.data['Trial'] == t['Trial'])][-(self.id_block_size - 2):]
                 current_int = self.round_n(t['Interval'], self.dt)
                 current_id_interval = self.round_n(current_int - self.window, self.dt), current_int
                 idn, dt, pad = self.get_interval(current_id_interval, t['Trial'], self.id_block_size, n_stim)
