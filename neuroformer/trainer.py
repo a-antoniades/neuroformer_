@@ -49,6 +49,7 @@ class TrainerConfig:
     show_grads = False
     shuffle = True
     score_metrics = ['precision', 'recall', 'F1']
+    no_pbar = True
 
 
     def __init__(self, **kwargs):
@@ -146,7 +147,7 @@ class Trainer:
 
             scores = collections.defaultdict(list)
             losses = collections.defaultdict(list)
-            pbar = tqdm(enumerate(loader), total=len(loader)) if is_train else enumerate(loader)
+            pbar = tqdm(enumerate(loader), total=len(loader), disable=self.config.no_pbar) if is_train else enumerate(loader)
             for it, (x, y) in pbar:
                 # place data on the correct device
                 for key, value in x.items():
