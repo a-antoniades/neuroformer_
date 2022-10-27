@@ -9,7 +9,9 @@ import torch.nn as nn
 from torch.nn import functional as F
 from tqdm import tqdm
 from beam_search import beam_decode
+import collections
 logger = logging.getLogger(__name__)
+
 
 
 def set_seed(seed):
@@ -67,6 +69,25 @@ def print_full(df, length=None):
 def save_object(obj, filename):
     with open(filename, 'wb') as outp:  # Overwrites any existing file.
         pickle.dump(obj, outp, pickle.HIGHEST_PROTOCOL)
+
+def set_model_attributes(mconf):
+    for a in dir(mconf):
+        if not a.startswith('__'):
+            globals()[a] = getattr(mconf, a)
+
+
+class NestedDefaultDict(collections.defaultdict):
+    def __init__(self, *args, **kwargs):
+        super(NestedDefaultDict, self).__init__(NestedDefaultDict, *args, **kwargs)
+
+    def __repr__(self):
+        return repr(dict(self))
+
+def varname(variable):
+    for name in list(globals().keys()):
+        expression = f'id({name})'
+        if id(variable) == eval(expression):
+            return name
 
 # results = predict_raster_recursive_time_auto(model, loader, window, stoi, itos_dt, sample=True, top_p=0.95, top_p_t=0.95, frame_end=0, get_dt=True, gpu=False)
 
@@ -334,7 +355,9 @@ def model_ensemble(models, x):
 
 
 @torch.no_grad()
-def predict_raster_recursive_time_auto(model, loader, window, window_prev, stoi, itos_dt, itos=None, get_dt=False, sample=False, top_k=0, top_p=0, top_p_t=0, temp=1, temp_t=1, frame_end=0, gpu=False, pred_dt=True):
+def predict_raster_recursive_time_auto(model, loader, window, window_prev, stoi, itos_dt, itos=None, 
+                                      get_dt=False, sample=False, top_k=0, top_p=0, top_p_t=0, temp=1, temp_t=1, 
+                                      frame_end=0, gpu=False, pred_dt=True, p_bar=False):
     """
     predict both ID and dt recursively
     """
@@ -343,11 +366,40 @@ def predict_raster_recursive_time_auto(model, loader, window, window_prev, stoi,
         """
         pad x with pad_token to length
         """
+        if torch.is_tensor(x):
+            x = x.tolist()
+            
         pad_n = length - len(x)
-        if pad > 0:
+        if pad_n < 0:
+            x = x[-(length + 1):]
+        if pad_n > 0:
             x = x + [pad_token] * pad_n
         x = torch.tensor(x, dtype=torch.long, device=device)
-        return x.unsqueeze(0)
+        return x
+    
+    def add_sos_eos(x, sos_token=None, eos_token=None, idx_excl=None):
+        """
+        add sos and eos tokens to x
+        """
+        # if isinstance(x, list) and len(x) > 0:
+        # #     print("TRUEEEEEE")
+        # #     print(x)
+        #     x = x
+        # print(x.shape)
+        if sos_token is not None:
+            idx_excl = []
+            x_clean = []
+            for n, i in enumerate(x):
+                if i not in (eos_token, sos_token):
+                    x_clean.append(i)
+                else:
+                    idx_excl.append(n)
+        else:
+            x_clean = [i for n, i in enumerate(x) if n not in idx_excl]
+            sos_token, eos_token = min(list(itos_dt.keys())), max(list(itos_dt.keys()))
+        x = torch.tensor([sos_token] + x_clean + [eos_token], dtype=torch.long, device=device)
+        return x, idx_excl
+
 
 
     device = 'cpu' if not gpu else torch.cuda.current_device() # torch.cuda.current_device() if torch.cuda.is_available() else "cpu"
@@ -359,6 +411,7 @@ def predict_raster_recursive_time_auto(model, loader, window, window_prev, stoi,
     T_id = mconf.id_block_size
     T_id_prev = mconf.prev_id_block_size
     context = torch.tensor(0, device=device).unsqueeze(0)
+    # data = pd.DataFrame(columns=['true', 'pred', 'time', 'time_pred', 'trial', 'interval'])
     data = dict()
     data['true'] = context
     data['ID'] = context
@@ -367,9 +420,11 @@ def predict_raster_recursive_time_auto(model, loader, window, window_prev, stoi,
     data['Trial'] = context
     data['Interval'] = context
 
-    id_prev_stoi_buffer = []
-    dt_prev_stoi_buffer = []
-    pbar = tqdm(enumerate(loader), total=len(loader))
+    time_seq = [float(context)]
+
+    id_prev_stoi_buffer = [stoi['SOS']]
+    dt_prev_stoi_buffer = [float(context)]
+    pbar = tqdm(enumerate(loader), total=len(loader), disable=p_bar)
     for it, (x, y) in pbar:
 
         for key, value in x.items():
@@ -377,14 +432,34 @@ def predict_raster_recursive_time_auto(model, loader, window, window_prev, stoi,
         for key, value in y.items():
             y[key] = y[key].to(device)
         
-        if it > 1:
-            id_prev_stoi = torch.cat(id_prev_stoi_buffer)
-            dt_prev_stoi = torch.cat(dt_prev_stoi_buffer)
-            x['id_prev'] = [stoi['SOS']] + id_prev_stoi[-(T_id_prev - 2):].tolist()     # + [stoi['EOS']]
-            x['id_prev'] = pad_x(x['id_prev'], T_id_prev, stoi['PAD'])
+        if x['interval'] > window_prev + 0.5:
+            t_seq_df = pd.DataFrame(time_seq, columns=['time'])
+            context_idx = t_seq_df[(t_seq_df >= x['interval'] - window_prev) & (t_seq_df < x['interval'] - window)].index
+            # context_idx_range = range(context_idx.min(), context_idx.max() + 1)
+            # context_idx = [i for i in context_idx_range]
+            assert len(id_prev_stoi_buffer) == len(t_seq_df), f"len(id_prev_stoi_buffer) = {len(id_prev_stoi_buffer)}, len(t_seq_df) = {len(t_seq_df)}"
+            id_prev_stoi = [int(id_prev_stoi_buffer[i]) for i in context_idx]
+            dt_prev_stoi = [int(dt_prev_stoi_buffer[i]) for i in context_idx]
+            
+            id_prev_stoi, idx_excl = add_sos_eos(id_prev_stoi, stoi['SOS'], stoi['EOS'])
+            dt_prev_stoi, _ = add_sos_eos(dt_prev_stoi, idx_excl=idx_excl)
+
+            id_prev_stoi = pad_x(id_prev_stoi, T_id_prev, stoi['PAD']).unsqueeze(0)
+            dt_prev_stoi = pad_x(dt_prev_stoi, T_id_prev, stoi['PAD']).unsqueeze(0)
+
+
+            # id_prev_stoi = torch.cat(id_prev_stoi_buffer)
+            # dt_prev_stoi = torch.cat(dt_prev_stoi_buffer)
+
+
+
+            # x['id_prev'] = [stoi['SOS']] + id_prev_stoi[-(T_id_prev - 2):].tolist()     # + [stoi['EOS']]
+            # x['id_prev'] = pad_x(x['id_prev'], T_id_prev, stoi['PAD'])
+            x['id_prev'] = id_prev_stoi
             if pred_dt:
-                x['dt_prev'] = [0] + dt_prev_stoi[-(T_id_prev - 2):].tolist()           # + [max(list(itos_dt.keys()))]
-                x['dt_prev'] = pad_x(x['dt_prev'], T_id_prev, max(list(itos_dt.keys())))
+                # x['dt_prev'] = [0] + dt_prev_stoi[-(T_id_prev - 2):].tolist()           # + [max(list(itos_dt.keys()))]
+                # x['dt_prev'] = pad_x(x['dt_prev'], T_id_prev, max(list(itos_dt.keys())))
+                x['dt_prev'] = dt_prev_stoi
             
         pad = x['pad'] if 'pad' in x else 0
         x['id_full'] = x['id'][:, 0]
@@ -450,17 +525,22 @@ def predict_raster_recursive_time_auto(model, loader, window, window_prev, stoi,
                 # if dtx <= window:
                     # torch.cat((current_dt_stoi, torch.tensor([max(list(itos_dt.keys()))])))
                 context_length = int(window_prev / window)
-                id_prev_stoi_buffer.append(torch.tensor(current_id_stoi))
-                dt_prev_stoi_buffer.append(torch.tensor(current_dt_stoi))
-                id_prev_stoi_buffer = id_prev_stoi_buffer[-context_length:]
-                dt_prev_stoi_buffer = dt_prev_stoi_buffer[-context_length:]
+                # id_prev_stoi_buffer.extend(current_id_stoi.flatten())
+                # dt_prev_stoi_buffer.extend(current_dt_stoi.flatten())
+                # id_prev_stoi_buffer = id_prev_stoi_buffer[-context_length:]
+                # dt_prev_stoi_buffer = dt_prev_stoi_buffer[-context_length:]
                 break
             
+            id_prev_stoi_buffer.extend(ix.flatten())
+            dt_prev_stoi_buffer.extend(dtx.flatten())
             ix_itos = torch.tensor(itos[int(ix.flatten())]).unsqueeze(0)
             data['ID'] = torch.cat((data['ID'], ix_itos))
             data['dt'] = torch.cat((data['dt'], dtx))
             data['Trial'] = torch.cat((data['Trial'], x['trial']))
             data['Interval'] = torch.cat((data['Interval'], x['interval']))
+
+            time_seq.extend(dtx + x['interval'] - window)
+
             x['id_full'] = torch.cat((x['id_full'], ix.flatten()))
             x['dt_full'] = torch.cat((x['dt_full'], ix_dt.flatten())) if pred_dt else x['dt']
 
