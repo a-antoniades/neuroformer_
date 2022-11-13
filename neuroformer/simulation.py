@@ -95,10 +95,13 @@ def load_V1_AL(stimulus_path, response_path, top_p_ids=None):
 
     df = None
     filenames = ['Combo3_V1.mat', 'Combo3_AL.mat']
+    # filenames = ['Combo3_V1_shuffle.mat', 'Combo3_AL_shuffle.mat']
+
     files = []
     for filename in filenames: 
         spike_data = scipyio.loadmat(os.path.join(response_path, filename))
         spike_data = np.squeeze(spike_data['spiketrain'].T, axis=-1)
+        # spike_data = np.squeeze(spike_data['spiketrain_shuffle'].T, axis=-1)
         spike_data = [trial_df_combo3(spike_data, n_stim) for n_stim in range(3)]
         spike_data = pd.concat(spike_data, axis=0)
 
@@ -117,8 +120,9 @@ def load_V1_AL(stimulus_path, response_path, top_p_ids=None):
     df = df.sort_values(['Trial', 'Time']).reset_index(drop=True)
     df_full = df.copy()
     del spike_data
-    # top_p_ids = df.groupby('ID').count().sort_values(by='Trial', ascending=False)[:int(top_p_ids * len(df['ID'].unique()))].index.tolist()
     if top_p_ids is not None:
+        if isinstance(top_p_ids, int) or isinstance(top_p_ids, float):
+            top_p_ids = df.groupby('ID').count().sort_values(by='Trial', ascending=False)[:int(top_p_ids * len(df['ID'].unique()))].index.tolist()
         df = df[df['ID'].isin(top_p_ids)]
 
     test_trials = []
@@ -157,12 +161,8 @@ def load_natural_movie(stimulus_path=None, response_path=None, top_p_ids=None):
     return video_stack, df, n_trial
 
 
-
-
-
-
-
-def generate_simulation(dataset_name, model_dir, stimulus_path=None, response_path=None, save_data=True):
+@torch.no_grad()
+def generate_simulation(dataset_name, model_dir, top_p_ids=0.75, stimulus_path=None, response_path=None, save_data=True):
 
     '''
     from simulation import generate_simulation
@@ -185,36 +185,30 @@ def generate_simulation(dataset_name, model_dir, stimulus_path=None, response_pa
     with open(tconf_path, 'rb') as handle:
         tconf = pickle.load(handle)
     
-    """ used if windows not specified in mconf"""
-    window, window_prev, frame_window, dt = 0.1, 0.1, 1, 0.05
-
-    for config in [mconf, tconf]:
-        config.window = window
-        config.window_prev = window_prev
-        config.frame_window = frame_window
-        config.dt = dt
+    # """ used if windows not specified in mconf"""
+    # window, window_prev, frame_window, dt = 0.05, 0.5, 0.5 , 0.05
+    # for config in [mconf, tconf]:
+    #     config.window = window
+    #     config.window_prev = window_prev
+    #     config.frame_window = frame_window
+    #     config.dt = dt
     
     model = GPT(mconf)
     model.load_state_dict(torch.load(model_path, map_location='cpu'))
     model.eval()
 
-    # frame_window = mconf.frame_window if hasattr(mconf, 'frame_window') else tconf.window
-    # window = mconf.window if hasattr(mconf, 'window') else tconf.window
-    # window_prev = mconf.window_prev if hasattr(mconf, 'window_prev') else float(model_dir.split('/')[-2].split(':')[-1])
+    frame_window = mconf.frame_window if hasattr(mconf, 'frame_window') else tconf.window
+    window = mconf.window if hasattr(mconf, 'window') else tconf.window
+    window_prev = mconf.window_prev if hasattr(mconf, 'window_prev') else float(model_dir.split('/')[-2].split(':')[-1])
     
-    frame_window = round(float(model_dir.split('/')[-3].split(':')[-1]), 2)
-    window = round(float(model_dir.split('/')[-2].split(':')[-1]), 2)
-    window_prev = round(float(model_dir.split('/')[-1].split(':')[-1]), 2)
+    # frame_window = round(float(model_dir.split('/')[-3].split(':')[-1]), 2)
+    # window = round(float(model_dir.split('/')[-2].split(':')[-1]), 2)
+    # window_prev = round(float(model_dir.split('/')[-1].split(':')[-1]), 2)
     dt = mconf.dt if hasattr(mconf, 'dt') else tconf.dt
     model_path
     print(f"--- Window {window}, Frame Window {frame_window} ---")
 
     df = df_full.copy()
-
-    max_window = max(window, window_prev)
-    dt_range = math.ceil(max_window / dt) + 1  # add first / last interval for SOS / EOS'
-    n_dt = [round(dt * n, 2) for n in range(dt_range)]
-    df['Time'] = df['Time'].round(4)
 
     df['Interval'] = make_intervals(df, window)
     df = df.reset_index(drop=True)
@@ -225,13 +219,7 @@ def generate_simulation(dataset_name, model_dir, stimulus_path=None, response_pa
     dt_range = math.ceil(max_window / dt) + 1  # add first / last interval for SOS / EOS'
     n_dt = [round(dt * n, 2) for n in range(dt_range)]
     df['Time'] = df['Time'].round(4)
-
-    # df.groupby(['Interval', 'Trial']).size().plot.bar()
-    # df.groupby(['Interval', 'Trial']).agg(['nunique'])
-    n_unique = len(df.groupby(['Interval', 'Trial']).size())
-    df.groupby(['Interval', 'Trial']).size().nlargest(int(0.2 * n_unique))
-    # df.groupby(['Interval_2', 'Trial']).size().mean()
-
+    
     ## resnet3d feats
     kernel_size = mconf.kernel_size
     n_embd = 256
@@ -247,11 +235,7 @@ def generate_simulation(dataset_name, model_dir, stimulus_path=None, response_pa
     frame_memory = int(frame_window * 20)   # how many frames back does model see
 
     # translate neural embeddings to separate them from ID embeddings
-    # frames = frames + [*id_stoi.keys()][-1] 
-    # neurons = [i for i in range(df['ID'].min(), df['ID'].max() + 1)]
-    # neurons = sorted(list(set(df['ID'].unique())))
     neurons = sorted(list(set(df['ID'].unique())))
-    # pixels = sorted(np.unique(frames).tolist())
     trial_tokens = [f"Trial {n}" for n in df['Trial'].unique()]
     feat_encodings = neurons + ['SOS'] + ['EOS'] + ['PAD']  # + pixels 
     stoi = { ch:i for i,ch in enumerate(feat_encodings) }
@@ -261,8 +245,14 @@ def generate_simulation(dataset_name, model_dir, stimulus_path=None, response_pa
     max(list(itos_dt.values()))
 
     # set model attributes according to configs
-    set_model_attributes(mconf)
-    set_model_attributes(tconf)
+    # set_model_attributes(mconf)
+    # set_model_attributes(tconf)
+    for a in dir(tconf):
+        if not a.startswith('__'):
+            globals()[a] = getattr(tconf, a)
+    for a in dir(mconf):
+        if not a.startswith('__'):
+            globals()[a] = getattr(mconf, a)
 
     test_data = df[df['Trial'].isin(test_trials)].reset_index(drop=True)
     trials = test_data['Trial'].unique()
@@ -275,11 +265,12 @@ def generate_simulation(dataset_name, model_dir, stimulus_path=None, response_pa
     for trial in trials:    # test_data['Trial'].unique():
         # with io.capture_output() as captured:
         df_trial = df[df['Trial'] == trial]
-        trial_dataset = SpikeTimeVidData2(df_trial, None, block_size, id_block_size, frame_block_size, prev_id_block_size, window, dt, frame_memory, stoi, itos, neurons, stoi_dt, itos_dt, frame_feats, pred=False,
-                                        frame_window=frame_window)
+        trial_dataset = SpikeTimeVidData2(df_trial, None, block_size, id_block_size, frame_block_size, prev_id_block_size, 
+                                          window, dt, frame_memory, stoi, itos, neurons, stoi_dt, itos_dt, frame_feats, 
+                                          pred=False, window_prev=window_prev, frame_window=frame_window)
         trial_loader = DataLoader(trial_dataset, shuffle=False, pin_memory=False)
         results_trial = predict_raster_recursive_time_auto(model, trial_loader, window, window_prev, stoi, itos_dt, itos=itos, 
-                        sample=True, top_p=0.75, top_p_t=0.9, temp=0.9, temp_t=1.15, frame_end=0, get_dt=True, gpu=False, pred_dt=True)
+                        sample=True, top_p=0.75, top_p_t=0.9, temp=1.25, temp_t=1, frame_end=0, get_dt=True, gpu=False, pred_dt=True)
         # results_trial = predict_raster_hungarian(model, loader, itos_dt, top_p=0.75, temp=1)
         # print(f"MAX ID ---- {sorted(results_trial['ID'].unique()[-10])}")
         df_trial_pred, df_trial_true = process_predictions(results_trial, stoi, itos, window)
@@ -293,6 +284,8 @@ def generate_simulation(dataset_name, model_dir, stimulus_path=None, response_pa
 
 
     if dataset_name == 'V1_AL':
+
+        df = df[df['Interval'] > 2]
     
         n_trial = [2, 8, 14, 19]
 
@@ -392,29 +385,30 @@ if __name__ == "__main__":
     from simulation import generate_simulation
     from utils import NestedDefaultDict
 
-    results = NestedDefaultDict()
+    # results = NestedDefaultDict()
 
-    model_dirs = "/home/antonis/projects/slab/git/neuroformer/models/tensorboard/V1_AL/window_comparison_2"
-    model_paths = glob.glob(os.path.join(model_dirs, "**/*.pt"), recursive=True)
-    model_tit = '25_Cont:True_window:0.3_f_window:1.0_df:0.05_blocksize:35_sparseFalse_conv_True_shuffle:True_batch:192_sparse_(None_None)_blocksz182_pos_emb:False_temp_emb:True_drop:0.35_dt:True_2.0_0.3_max0.05_(2, 2, 4)_2_256_nembframe64_(20, 8, 8).pt'
+    # model_dirs = "/home/antonis/projects/slab/git/neuroformer/models/tensorboard/V1_AL/window_comparison_2"
+    # model_paths = glob.glob(os.path.join(model_dirs, "**/*.pt"), recursive=True)
+    # model_tit = '25_Cont:True_window:0.3_f_window:1.0_df:0.05_blocksize:35_sparseFalse_conv_True_shuffle:True_batch:192_sparse_(None_None)_blocksz182_pos_emb:False_temp_emb:True_drop:0.35_dt:True_2.0_0.3_max0.05_(2, 2, 4)_2_256_nembframe64_(20, 8, 8).pt'
 
-    for model_path in model_paths:
-        model_dir = os.path.dirname(model_path)
-        model_title = os.path.basename(model_path)
-        if model_title != model_tit:
-            continue
-        # mconf = glob.glob(os.path.join(model_dir, "**/mconf.pkl"), recursive=True)[0]
-        # tconf = glob.glob(os.path.join(model_dir, "**/tconf.pkl"), recursive=True)[0]
+    # for model_path in model_paths:
+    #     model_dir = os.path.dirname(model_path)
+    #     model_title = os.path.basename(model_path)
+    #     if model_title != model_tit:
+    #         continue
+    #     # mconf = glob.glob(os.path.join(model_dir, "**/mconf.pkl"), recursive=True)[0]
+    #     # tconf = glob.glob(os.path.join(model_dir, "**/tconf.pkl"), recursive=True)[0]
 
-        sim = generate_simulation("V1_AL", model_dir)
+    model_dir = "/home/antonis/projects/slab/git/neuroformer/models/tensorboard/V1_AL/shuffle/not_shuffled2"
+    sim = generate_simulation("V1_AL", model_dir)
 
-        mconf = sim['mconf']
-        tconf = sim['tconf']
-        window = tconf.window if hasattr(tconf, 'window') else mconf.window
-        window_prev = tconf.window_prev if hasattr(tconf, 'window_prev') else mconf.window_prev
-        frame_window = tconf.frame_window if hasattr(tconf, 'frame_window') else mconf.frame_window
-        
-        results[frame_window][window][window_prev] = sim['pred_scores']
+    mconf = sim['mconf']
+    tconf = sim['tconf']
+    # window = tconf.window if hasattr(tconf, 'window') else mconf.window
+    # window_prev = tconf.window_prev if hasattr(tconf, 'window_prev') else mconf.window_prev
+    # frame_window = tconf.frame_window if hasattr(tconf, 'frame_window') else mconf.frame_window
+    
+    # results[frame_window][window][window_prev] = sim['pred_scores']
 
 
 

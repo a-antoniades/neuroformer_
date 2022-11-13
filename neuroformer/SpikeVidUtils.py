@@ -349,6 +349,61 @@ def neuron_dict(df):
     
     return d
 
+def round_n(x, base):
+    return round(base * (round(float(x)/base)), 2)
+        # return round(base * float(x)/base)
+
+def get_interval(data, stoi, stoi_dt, dt, interval, trial, block_size, data_dict=None, n_stim=None, pad=True):
+    """
+    Returns interval[0] >= data < interval[1]
+    chunk = ID
+    dt_chunk = dt
+    pad_n
+    """
+    window = max(list(stoi_dt.keys()))
+    if data_dict is None:
+        data = data[data['Trial'] == trial]
+        data = data[(data['Interval'] > interval[0]) & 
+                        (data['Interval'] <= interval[1])][-(block_size - 2):]
+        if n_stim is not None:
+            data = data[data['Stimulus'] == n_stim]
+    else:
+        data = data_dict[trial]
+        if interval[1] in data:
+            data = data[interval[1]]
+        else:
+            data = {'Time': np.array([]), 'ID': np.array([])}
+
+
+    # data = self.data[(self.data['Interval'] == interval) & 
+    #                  (self.data['Trial'] == trial)][-(self.id_block_size - 2):]  
+    chunk = data['ID'][-(block_size - 2):]
+    dix = [stoi[s] for s in chunk]
+    # trial_token = self.stoi['Trial ' + str(int(trial))]
+    dix = ([stoi['SOS']] + dix + [stoi['EOS']])[-block_size:]
+    # dix = ([trial_token] + dix + [self.stoi['EOS']])[-block_size:]
+    pad_n = block_size - (len(dix) + 1 - 2) if pad else 0 # len chunk is 1 unit bigger than x, y
+    dix = dix + [stoi['PAD']] * pad_n
+
+    # print(data['Time'], "int", interval[0])
+    dt_chunk = (data['Time'] - (interval[0]))[-(block_size - 2):]
+    # dt_chunk = (data['Time'] - data['Interval'] + self.window)[-(block_size - 2):]
+    # print(f"interval: {interval}, stim: {n_stim}, trial: {trial}")
+    # print(data['Time'])
+    
+    dt_chunk = [dt_ if dt_<= window else window for dt_ in dt_chunk]
+    dt_chunk = [stoi_dt[round_n(dt_, dt)] for dt_ in dt_chunk]
+    if len(dt_chunk) > 0:
+        dt_max = max(dt_chunk)
+    else:
+        dt_max = 0
+    # dt_max = self.dt_max
+    dt_chunk = [0] + dt_chunk + [dt_max] * (pad_n + 1) # 0 = SOS, max = EOS
+
+    # pad_n -= 1
+
+    return dix, dt_chunk, pad_n
+
 
 # dataloader class
 class SpikeTimeVidData2(Dataset):
@@ -413,12 +468,14 @@ class SpikeTimeVidData2(Dataset):
                 self.window_prev = window if window_prev is None else window_prev
                 # assert self.window_prev % self.window == 0, "window_prev must be a multiple of window"
                 self.frame_window = 1.0
+                # start_interval = window_prev + window
+                start_interval = 2
                 if dataset is None:
                     self.t = self.data.drop_duplicates(subset=['Interval', 'Trial'])[['Interval', 'Trial']] # .sample(frac=1).reset_index(drop=True) # interval-trial unique pairs
                 elif dataset == 'combo_v2':
                     self.t = self.data.drop_duplicates(subset=['Interval', 'Trial', 'Stimulus'])[['Interval', 'Trial', 'Stimulus']]
                 print(self.t['Interval'].min())
-                self.t = self.t[self.t['Interval'] != self.t['Interval'].min()].reset_index(drop=True)
+                self.t = self.t[self.t['Interval'] > start_interval].reset_index(drop=True)
                 self.idx = 0
                 self.window = window        # interval window (prediction)
                 self.window_prev = window if window_prev is None else window_prev
@@ -432,12 +489,12 @@ class SpikeTimeVidData2(Dataset):
 
         def __len__(self):
                 return len(self.t)
-        
+
         def round_n(self, x, base):
             return round(base * (round(float(x)/base)), 2)
-                # return round(base * float(x)/base)
+        # return round(base * float(x)/base)
 
-        def get_interval(self, interval, trial, block_size, n_stim=None, pad=True):
+        def get_interval(self, interval, trial, block_size, data_dict=None, n_stim=None, pad=True):
                 """
                 Returns interval[0] >= data < interval[1]
                 chunk = ID
@@ -511,8 +568,8 @@ class SpikeTimeVidData2(Dataset):
                 prev_id_interval = self.round_n(prev_int - self.window_prev, self.dt), prev_int
                 id_prev, dt_prev, pad_prev = self.get_interval(prev_id_interval, t['Trial'], self.id_prev_block_size, n_stim)
                 # prev_pad = True if self.window_prev == self.window else False
-                x['id_prev'] = torch.tensor(id_prev[:-1], dtype=torch.long)
-                x['dt_prev'] = torch.tensor(dt_prev[:-1], dtype=torch.float) # + 0.5
+                x['id_prev'] = torch.tensor(id_prev, dtype=torch.long)
+                x['dt_prev'] = torch.tensor(dt_prev, dtype=torch.float) # + 0.5
                 x['pad_prev'] = torch.tensor(pad_prev, dtype=torch.long)
                 
                 ## CURRENT ##
@@ -539,7 +596,6 @@ class SpikeTimeVidData2(Dataset):
                     elif t['Trial'] <= 60: n_stim = 2
                 elif self.dataset is 'combo_v2':
                     n_stim = n_stim
-
                 
                 # t['Interval'] += self.window
                 frame_idx = get_frame_idx(t['Interval'], 1/20)     # get last 1 second of frames
