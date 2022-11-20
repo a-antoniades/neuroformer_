@@ -520,7 +520,7 @@ class SpikeTimeVidData2(Dataset):
                 chunk = data['ID'][-(block_size - 2):]
                 dix = [self.stoi[s] for s in chunk]
                 # trial_token = self.stoi['Trial ' + str(int(trial))]
-                dix = ([self.stoi['SOS']] + dix + [self.stoi['EOS']])[-block_size:]
+                dix = ([self.stoi['SOS']] + dix + [self.stoi['`EOS']])[-block_size:]
                 # dix = ([trial_token] + dix + [self.stoi['EOS']])[-block_size:]
                 pad_n = block_size - (len(dix) + 1 - 2) if pad else 0 # len chunk is 1 unit bigger than x, y
                 dix = dix + [self.stoi['PAD']] * pad_n
