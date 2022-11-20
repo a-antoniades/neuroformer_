@@ -9,7 +9,6 @@ import torch.nn as nn
 from torch.nn import functional as F
 from tqdm import tqdm
 from beam_search import beam_decode
-import collections
 logger = logging.getLogger(__name__)
 
 
@@ -96,7 +95,7 @@ def load_object(filename):
 def set_model_attr(mconf):
     for a in dir(mconf):
         if not a.startswith('__'):
-            globals()[a] = getattr(mconf, a)
+            globals()[a] = value = getattr(mconf, a)
 
 
 def load_model(model_dir):

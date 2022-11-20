@@ -941,7 +941,7 @@ class GPT(nn.Module):
         self.tok_emb = nn.Embedding(config.id_vocab_size, config.n_embd)
         if config.pos_emb:
             self.pos_emb = nn.Parameter(torch.zeros(1, config.id_block_size, config.n_embd))
-            self.pos_emb_prev = nn.Parameter(torch.zeros(1, config.prev_id_block_size, config.n_embd))
+        self.pos_emb_prev = nn.Parameter(torch.zeros(1, config.prev_id_block_size, config.n_embd))
         if config.temp_emb:
             self.temp_emb = LearntTemporalEmbedding(config.id_block_size, config.n_embd)
             self.temp_emb_prev = LearntTemporalEmbedding(config.prev_id_block_size, config.n_embd)
@@ -1095,9 +1095,7 @@ class GPT(nn.Module):
         
         # Extract ID features
         prev_token_embeddings = self.id_drop(self.tok_emb(p_idx) + prev_id_temporal_embeddings + prev_id_position_embeddings)
-        token_embeddings = self.tok_emb(idx) # each index maps to a (learnable) vector
-        token_embeddings = token_embeddings + id_temporal_embeddings + id_position_embeddings
-        token_embeddings = self.id_drop(token_embeddings)
+        token_embeddings = self.id_drop(self.tok_emb(idx) + id_temporal_embeddings + id_position_embeddings) # each index maps to a (learnable) vector
 
         # Extract image features and add time embeddings
         frame_embeddings = frames    # self.tok_emb(frames)
