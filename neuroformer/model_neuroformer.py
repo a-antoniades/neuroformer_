@@ -941,7 +941,7 @@ class GPT(nn.Module):
         self.tok_emb = nn.Embedding(config.id_vocab_size, config.n_embd)
         if config.pos_emb:
             self.pos_emb = nn.Parameter(torch.zeros(1, config.id_block_size, config.n_embd))
-        self.pos_emb_prev = nn.Parameter(torch.zeros(1, config.prev_id_block_size, config.n_embd))
+            self.pos_emb_prev = nn.Parameter(torch.zeros(1, config.prev_id_block_size, config.n_embd))
         if config.temp_emb:
             self.temp_emb = LearntTemporalEmbedding(config.id_block_size, config.n_embd)
             self.temp_emb_prev = LearntTemporalEmbedding(config.prev_id_block_size, config.n_embd)

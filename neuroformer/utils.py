@@ -1,5 +1,8 @@
+import glob
+import os
 import logging
 import pickle
+import collections
 import random
 import numpy as np
 import pandas as pd
@@ -10,6 +13,8 @@ from torch.nn import functional as F
 from tqdm import tqdm
 from beam_search import beam_decode
 logger = logging.getLogger(__name__)
+
+from model_neuroformer import GPT
 
 
 
