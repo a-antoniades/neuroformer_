@@ -30,6 +30,10 @@ def top_k_logits(logits, k):
     out[out < v[:, [-1]]] = -float('inf')
     return out
 
+def top_k_arr(a, k):
+    idx = np.argpartition(-a.ravel(),k)[:k]
+    return np.column_stack(np.unravel_index(idx, a.shape))
+
 def convert_weights(model: nn.Module):
     """Convert applicable model parameters to fp16"""
 
