@@ -873,7 +873,7 @@ class AttentionVis:
             x_pad = int(x['pad'].flatten())
             neuron_idx = x_id[: len(x_id) - x_pad]
 
-            fig, ax = plt.subplots(figsize=(60, 4 * nrow), nrows=nrow, ncols=ncol)
+            fig, ax = plt.subplots(figsize=(15, 4 * nrow), nrows=nrow, ncols=ncol)
 
             for n, idx in enumerate([ix_step]):
                 print(idx)
@@ -899,8 +899,8 @@ class AttentionVis:
                         axis.axis('off')
                         axis.set_title(f'Layer {layer}, Head {head}', fontsize=15)
                 plt.suptitle(f"Interval {float(x['interval'])}, Neuron {neuron_idx[int(xid_n)]}", y=0.97, fontsize=30)
-        # plt.savefig(f"SimNeu_att_layer_head_{neuron_idx[int(xid_n)]}_interval_{t_interval}.png")
-    
+        plt.savefig(f"/Users/antonis/projects/slab/neuroformer/neuroformer/plots/paper/attention/neuron-image/2/svg/SimNeu_att_layer_head_{neuron_idx[int(xid_n)]}_interval.svg")
+        plt.savefig(f"/Users/antonis/projects/slab/neuroformer/neuroformer/plots/paper/attention/neuron-image/2/png/SimNeu_att_layer_head_{neuron_idx[int(xid_n)]}_interval.png")
     
     def export_att_frames(self, model, module, mconf, loader, video_stack, xy_res, path):
         """
