@@ -136,7 +136,7 @@ dmypy.json
 **/data/**.mat
 **/data/**.npy
 **/data/**.pt
-**/**.ipynb
+training/**.ipynb
 **/**.png
 **/**.mat
 **/**.csv
@@ -155,4 +155,5 @@ dmypy.json
 **/tensorboard
 **/neuroformer_manuscript
 **/.vscode
+**/paper_plots/
 
