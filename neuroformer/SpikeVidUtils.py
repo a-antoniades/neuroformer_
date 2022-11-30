@@ -579,56 +579,57 @@ class SpikeTimeVidData2(Dataset):
                 x['id'] = torch.tensor(idn[:-1], dtype=torch.long)
                 x['dt'] = torch.tensor(dt[:-1], dtype=torch.float) # + 1
                 x['pad'] = torch.tensor(pad, dtype=torch.long) # to attend eos
-                
-                # for backbone:
-                if isinstance(self.frame_feats, dict):
-                    n_stim = int(t['Stimulus'])
-                elif len(self.frame_feats) == 8:
-                    if self.t['Trial'].max() <= 8:
-                        n_stim = int(t['Trial'])
-                    else:
-                        n_stim = int(t['Trial'] // 200) - 1
-                elif self.frame_feats.shape[0] == 1:
-                    n_stim = 0
-                elif self.frame_feats.shape[0] <= 4 and self.dataset is None:
-                    if t['Trial'] <= 20: n_stim = 0
-                    elif t['Trial'] <= 40: n_stim = 1
-                    elif t['Trial'] <= 60: n_stim = 2
-                elif self.dataset is 'combo_v2':
-                    n_stim = n_stim
-                
-                # t['Interval'] += self.window
-                frame_idx = get_frame_idx(t['Interval'], 1/20)     # get last 1 second of frames
-                frame_window = self.frame_window
-                n_frames = math.ceil(20 * frame_window)
-                frame_idx = frame_idx if frame_idx >= n_frames else n_frames
-                f_b = n_frames
-                # f_f = n_frames - f_b
-                frame_feats_stim = self.frame_feats[n_stim]
-                frame_idx = frame_idx if frame_idx < frame_feats_stim.shape[1] else frame_feats_stim.shape[1]
-                f_diff = frame_idx - n_frames
-                if f_diff < 0:
-                    f_b = frame_idx
-                    # f_f = 0
-                # x['idx'] = torch.tensor([frame_idx, n_stim], dtype=torch.float16)
-                if self.frame_feats is not None:
-                    x['frames'] = frame_feats_stim[:, frame_idx - f_b:frame_idx].type(torch.float32)
 
                 y['id'] = torch.tensor(idn[1:], dtype=torch.long)
                 y['dt'] = torch.tensor(dt[1:], dtype=torch.long)
-                
-                # if self.pred:
-                #     dt_real = np.array(dt_chunk[1:]) + data_current['Time'].min()
-                #     y['time'] = torch.tensor(dt_real, dtype=torch.float)
-
-                # y['indexes'] = torch.linspace(1, len(y['id']), len(y['id'])).long() + self.idx
-                # self.idx += len(y['id']) - x['pad']
-
-                # x['pad'] += 1   # if +1, EOS is not attended
-                # x['pad'] = 0    # if 0, EOS is attended
-                x['interval'] = torch.tensor(t['Interval'], dtype=torch.float16)
+                x['interval'] = torch.tensor(t['Interval'], dtype=torch.float32)
                 x['trial'] = torch.tensor(t['Trial'], dtype=torch.long)
-                x['stimulus'] = torch.tensor(n_stim, dtype=torch.long)
+                
+                # for backbone:
+                if self.frame_feats is not None:
+                    if isinstance(self.frame_feats, dict):
+                        n_stim = int(t['Stimulus'])
+                    elif len(self.frame_feats) == 8:
+                        if self.t['Trial'].max() <= 8:
+                            n_stim = int(t['Trial'])
+                        else:
+                            n_stim = int(t['Trial'] // 200) - 1
+                    elif self.frame_feats.shape[0] == 1:
+                        n_stim = 0
+                    elif self.frame_feats.shape[0] <= 4 and self.dataset is None:
+                        if t['Trial'] <= 20: n_stim = 0
+                        elif t['Trial'] <= 40: n_stim = 1
+                        elif t['Trial'] <= 60: n_stim = 2
+                    elif self.dataset is 'combo_v2':
+                        n_stim = n_stim
+                    
+                    # t['Interval'] += self.window
+                    frame_idx = get_frame_idx(t['Interval'], 1/20)     # get last 1 second of frames
+                    frame_window = self.frame_window
+                    n_frames = math.ceil(20 * frame_window)
+                    frame_idx = frame_idx if frame_idx >= n_frames else n_frames
+                    f_b = n_frames
+                    # f_f = n_frames - f_b
+                    frame_feats_stim = self.frame_feats[n_stim]
+                    frame_idx = frame_idx if frame_idx < frame_feats_stim.shape[1] else frame_feats_stim.shape[1]
+                    f_diff = frame_idx - n_frames
+                    if f_diff < 0:
+                        f_b = frame_idx
+                        # f_f = 0
+                    # x['idx'] = torch.tensor([frame_idx, n_stim], dtype=torch.float16)
+                    if self.frame_feats is not None:
+                        x['frames'] = frame_feats_stim[:, frame_idx - f_b:frame_idx].type(torch.float32)
+                    
+                    # if self.pred:
+                    #     dt_real = np.array(dt_chunk[1:]) + data_current['Time'].min()
+                    #     y['time'] = torch.tensor(dt_real, dtype=torch.float)
+
+                    # y['indexes'] = torch.linspace(1, len(y['id']), len(y['id'])).long() + self.idx
+                    # self.idx += len(y['id']) - x['pad']
+
+                    # x['pad'] += 1   # if +1, EOS is not attended
+                    # x['pad'] = 0    # if 0, EOS is attended
+                    x['stimulus'] = torch.tensor(n_stim, dtype=torch.long)
 
                 # x['frame_token'] = torch.tensor([self.stoi['EOS']], dtype=torch.long)
                 # x['prev_int'] = torch.tensor(len(id_prev), dtype=torch.long)

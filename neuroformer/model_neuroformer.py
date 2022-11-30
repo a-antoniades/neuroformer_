@@ -1073,12 +1073,8 @@ class GPT(nn.Module):
         idx = x['id']
         dtx = x['dt']
         dtx_prev = x['dt_prev']
-        frames = self.video_encoder(x['frames'])
+        frames = self.video_encoder(x['frames']) if 'frames' in x else None
         pad = x['pad']
-
-        b, t = idx.size()
-        b_p, t_p = p_idx.size()
-        bf, tf = frames.size()[0:2]
 
         # forward the GPT model
         ''' 
@@ -1098,14 +1094,17 @@ class GPT(nn.Module):
         token_embeddings = self.id_drop(self.tok_emb(idx) + id_temporal_embeddings + id_position_embeddings) # each index maps to a (learnable) vector
 
         # Extract image features and add time embeddings
-        frame_embeddings = frames    # self.tok_emb(frames)
-        im_3d_embeddings = self.frame_3d_emb(frames)
-        frame_embeddings = frames + im_3d_embeddings
-        frame_embeddings = rearrange(frames, 'b t h w e -> b (t h w) e')
-        frame_sos = token_embeddings[:, 0].unsqueeze(1)
-        frame_embeddings = torch.cat([frame_sos, frame_embeddings], dim=1)
-        # frame_embeddings = frame_embeddings + frame_position_embeddings + frame_temporal_embeddings
-        frame_embeddings = self.im_drop(frame_embeddings)   # separate pos emb?
+        if 'frames' in x:
+            frame_embeddings = frames    # self.tok_emb(frames)
+            im_3d_embeddings = self.frame_3d_emb(frames)
+            frame_embeddings = frames + im_3d_embeddings
+            frame_embeddings = rearrange(frames, 'b t h w e -> b (t h w) e')
+            frame_sos = token_embeddings[:, 0].unsqueeze(1)
+            frame_embeddings = torch.cat([frame_sos, frame_embeddings], dim=1)
+            # frame_embeddings = frame_embeddings + frame_position_embeddings + frame_temporal_embeddings
+            frame_embeddings = self.im_drop(frame_embeddings)   # separate pos emb?
+        else:
+            frame_embeddings = None
 
         features = self.feature_encoder(token_embeddings, frame_embeddings)
         token_embeddings, frame_embeddings = features['id'], features['frames']
@@ -1123,14 +1122,11 @@ class GPT(nn.Module):
         idx = x['id']
         idx_prev = x['id_prev']
         dtx = x['dt']
-        frames = x['frames']
+        frames = x['frames'] if 'frames' in x else None
         pad = x['pad']
 
         b, t = idx.size()
-        b_prev, t_prev = idx_prev.size()
         # assert t == t_prev, "Neural states need to be the same size!"
-        # b, t = x['id'].shape[0], x['id'].shape[1] + x['id_prev'].shape[1]
-        bf, tf = frames.size()[0:2]
         tf = self.config.frame_block_size
         # assert t + tf == self.config.block_size, f"{tf} {t}"
         # assert t <= self.block_size, "Cannot forward, model block size is exhausted"

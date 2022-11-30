@@ -841,7 +841,7 @@ class AttentionVis:
         # plt.savefig(f"SimNeu3D_Combo4, Interval {int(t['Interval'])} Trial {int(t['Trial'])}.png")
 
     
-    def plot_stim_att_layer_head(self, x, mconf, attention_scores, t_frame=1, h=8, w=14, ix_step=None):
+    def plot_stim_att_layer_head(self, x, mconf, attention_scores, t_frame=1, h=8, w=14, ix_step=None, save_path=None):
         """
         In: (I, Layer, Head, ID, Frame)
         Out: Attention heatmaps for neurons
@@ -899,8 +899,9 @@ class AttentionVis:
                         axis.axis('off')
                         axis.set_title(f'Layer {layer}, Head {head}', fontsize=15)
                 plt.suptitle(f"Interval {float(x['interval'])}, Neuron {neuron_idx[int(xid_n)]}", y=0.97, fontsize=30)
-        plt.savefig(f"/Users/antonis/projects/slab/neuroformer/neuroformer/plots/paper/attention/neuron-image/2/svg/SimNeu_att_layer_head_{neuron_idx[int(xid_n)]}_interval.svg")
-        plt.savefig(f"/Users/antonis/projects/slab/neuroformer/neuroformer/plots/paper/attention/neuron-image/2/png/SimNeu_att_layer_head_{neuron_idx[int(xid_n)]}_interval.png")
+        if save_path is not None:
+                plt.savefig(f"{save_path}/svg/SimNeu_att_layer_head_{neuron_idx[int(xid_n)]}_interval.svg")
+                plt.savefig(f"{save_path}/png/SimNeu_att_layer_head_{neuron_idx[int(xid_n)]}_interval.png")
     
     def export_att_frames(self, model, module, mconf, loader, video_stack, xy_res, path):
         """

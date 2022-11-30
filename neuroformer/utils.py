@@ -508,6 +508,7 @@ def predict_raster_recursive_time_auto(model, loader, window, window_prev, stoi,
             x['id_prev'], x['dt_prev'], pad_prev = get_interval(df, stoi, stoi_dt, mconf.dt, prev_id_interval, float(x['trial']), T_id_prev)
             x['id_prev'] = torch.tensor(x['id_prev'], dtype=torch.long).unsqueeze(0).to(device)
             x['dt_prev'] = torch.tensor(x['dt_prev'], dtype=torch.long).unsqueeze(0).to(device)
+        
             # t_seq_df = pd.DataFrame(time_seq, columns=['time'])
             # context_idx = t_seq_df[(t_seq_df >= x['interval'] - window_prev) & (t_seq_df < x['interval'] - window)].index
             # # context_idx_range = range(context_idx.min(), context_idx.max() + 1)
