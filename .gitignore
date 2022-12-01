@@ -130,6 +130,7 @@ dmypy.json
 
 
 # custom
+**/history
 **/data/**.png
 **/data/**.jpg
 **/data/**.csv
