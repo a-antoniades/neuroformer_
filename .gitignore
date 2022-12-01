@@ -140,6 +140,7 @@ training/**.ipynb
 **/**.png
 **/**.mat
 **/**.csv
+**/data
 **/models/*.pkl
 **/models/*.pth
 **/models/*.pt
