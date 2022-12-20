@@ -1,3 +1,4 @@
+import pickle
 import numpy as np
 import collections
 from sympy import Q
@@ -17,7 +18,6 @@ from skimage import io
 from PIL import Image
 from torchvision import transforms
 from skimage import io
-
 
 def trial_df(data):
     """
@@ -440,7 +440,7 @@ class SpikeTimeVidData2(Dataset):
                 self.frame_block_size = frame_block_size
                 self.block_size = block_size
                 self.id_prev_block_size = id_prev_block_size
-                self.id_block_size = id_block_size
+                self.id_block_size = trial
                 
                 assert self.id_block_size > 0
                 # assert self.frame_block_size + self.id_block_size + self.prev_id_block_size == self.block_size
@@ -619,11 +619,7 @@ class SpikeTimeVidData2(Dataset):
                     # x['idx'] = torch.tensor([frame_idx, n_stim], dtype=torch.float16)
                     if self.frame_feats is not None:
                         x['frames'] = frame_feats_stim[:, frame_idx - f_b:frame_idx].type(torch.float32)
-                    
-                    # if self.pred:
-                    #     dt_real = np.array(dt_chunk[1:]) + data_current['Time'].min()
-                    #     y['time'] = torch.tensor(dt_real, dtype=torch.float)
-
+           
                     # y['indexes'] = torch.linspace(1, len(y['id']), len(y['id'])).long() + self.idx
                     # self.idx += len(y['id']) - x['pad']
 
@@ -631,8 +627,6 @@ class SpikeTimeVidData2(Dataset):
                     # x['pad'] = 0    # if 0, EOS is attended
                     x['stimulus'] = torch.tensor(n_stim, dtype=torch.long)
 
-                # x['frame_token'] = torch.tensor([self.stoi['EOS']], dtype=torch.long)
-                # x['prev_int'] = torch.tensor(len(id_prev), dtype=torch.long)
                 
                 return x, y
 
