@@ -11,7 +11,9 @@ def set_plot_params():
     # plt.rcParams['font.family'] = 'serif'
     # plt.rcParams['font.serif'] = 'Ubuntu'
     # plt.rcParams['font.monospace'] = 'Ubuntu mono'
-    plt.rc('font',**{'family':'sans-serif','sans-serif':['Open Sans'],'size':10})
+    # plt.rc('font',**{'family':'sans-serif','sans-serif':['Open Sans'],'size':10})
+    plt.rc('font', family='sans-serif') 
+    plt.rc('font', serif='Helvetica Neue') 
     plt.rcParams['axes.prop_cycle'] = plt.cycler(color=plt.cm.Set1.colors)
     plt.rcParams['axes.labelweight'] = 'normal'
     plt.rcParams['axes.titleweight'] = 'normal'

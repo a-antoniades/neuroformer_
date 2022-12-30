@@ -61,34 +61,27 @@ set_seed(n_seed)
 
 from SpikeVidUtils import image_dataset, r3d_18_dataset
 from PIL import Image
-from SpikeVidUtils import trial_df_combo3
 from analysis import *
 from utils import *
 from SpikeVidUtils import create_full_trial
 
 
-def load_V1_AL(stimulus_path, response_path, top_p_ids=None):
+def load_V1_AL(stimulus_path=None, response_path=None, top_p_ids=None):
     if stimulus_path is None:
         # stimulus_path = "/home/antonis/projects/slab/git/slab/transformer_exp/code/data/SImNew3D/stimulus/tiff"
-        stimulus_path = "/home/antonis/projects/slab/git/slab/transformer_exp/code/data/OneCombo3/stimuli"
+        stimulus_path = "data/Combo3_V1AL/Combo3_V1AL_stimulus.pt"
     if response_path is None:
         # response_path = "/home/antonis/projects/slab/git/slab/transformer_exp/code/data/SImNew3D/neural/NatureMoviePart1-A/20-NatureMovie_part1-A_spikes(1).mat"
-        response_path = "/home/antonis/projects/slab/git/neuroformer/data/Combo3_V1AL"
+        response_path = "data/Combo3_V1AL/Combo3_V1AL_response.csv"
     
-    stim_names = ['/Combined Stimuli 3-grating.tif',
-                  '/Combined Stimuli 3-Movie2.tif',
-                  '/Combined Stimuli 3-Movie3.tif']
+    df = pd.read_csv(response_path)
+    video_stack = torch.load(stimulus_path)
 
     # video_stack = [skimage.io.imread(os.path.join(stimulus_path, vid)) for vid in stim_names]
-    video_stack = [skimage.io.imread(str(stimulus_path + vid)) for vid in stim_names]
     # print(glob.glob(train_path + '/*.tif'))
     video_stack = np.concatenate(video_stack, axis=0)
-
-    video_stack = image_dataset(video_stack)
-    video_stack = video_stack[::3]  # convert from 60 to 20 fps
-    video_stack = video_stack.view(3, video_stack.shape[0] // 3, video_stack.shape[1], video_stack.shape[2], video_stack.shape[3])
     video_stack = video_stack.transpose(1, 2)
-    print(video_stack.shape)
+
     # spike_path = "/home/antonis/projects/slab/git/slab/transformer_exp/code/data/SImNew3D/neural/NatureMoviePart1-A" # "code/data/SImIm/simNeu_3D_WithNorm__Combo3.mat" 
     n_V1_AL = (351, 514)
 
@@ -162,7 +155,7 @@ def load_natural_movie(stimulus_path=None, response_path=None, top_p_ids=None):
 
 
 @torch.no_grad()
-def generate_simulation(dataset_name, model_dir, top_p_ids=0.75, stimulus_path=None, response_path=None, save_data=True):
+def generate_simulation(dataset_name, model_dir, top_p_ids=0.75, stimulus_path="None", response_path=None, save_data=True):
 
     '''
     from simulation import generate_simulation
