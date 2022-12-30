@@ -43,7 +43,7 @@ from scipy.special import softmax
 import skimage
 import skvideo.io
 from utils import print_full
-from scipy.ndimage.filters import gaussian_filter, uniform_filter
+from scipy.ndimage import gaussian_filter, uniform_filter
 
 
 import matplotlib.pyplot as plt
@@ -106,12 +106,7 @@ dt = 0.05
 
 from SpikeVidUtils import make_intervals
 
-df['Interval'] = make_intervals(df, window)
-# df['Interval_2'] = make_intervals(df, window_prev)
-# df['Interval_dt'] = make_intervals(df, dt)
-# df['Interval_dt'] = (df['Interval_dt'] - df['Interval'] + window).round(3)
-df = df.reset_index(drop=True)
-df.to_csv(f"data/SimNeu3D/NaturalMovie/response/NaturalStim_all_{window}.csv", index=False)
+df = pd.read_csv(RESPONSE_PATH).iloc[:, 1:]
 
 # from SpikeVidUtils import neuron_dict
 # data_dict = neuron_dict(df)
@@ -146,18 +141,21 @@ from SpikeVidUtils import SpikeTimeVidData2
 # frame_block_size = frames.shape[-1] - 1
 
 ## resnet3d feats
-kernel_size = (5, 8, 8)
-n_embd = 256
+conv_layer = True
+kernel_size = (5, 8, 8) if conv_layer else (1, 1, 1)
+n_embd = 128
 n_embd_frames = 64
 frame_feats = video_stack
 
 frame_block_size = ((20 // kernel_size[0] * 64 * 112) // (n_embd_frames))
 # frame_block_size = 560
-prev_id_block_size = 30
-id_block_size = 30   # 95
+prev_id_block_size = 15
+id_block_size = 15   # 95
 block_size = frame_block_size + id_block_size + prev_id_block_size # frame_block_size * 2  # small window for faster training
 frame_memory = 20   # how many frames back does model see
 window = window
+
+print(f"frame_block_size: {frame_block_size}")
 
 neurons = sorted(list(set(df['ID'])))
 id_stoi = { ch:i for i,ch in enumerate(neurons) }
@@ -220,7 +218,6 @@ models = []
 from model_neuroformer import GPT, GPTConfig, neuralGPTConfig, Decoder
 # initialize config class and model (holds hyperparameters)
 # for is_conv in [True, False]:    
-conv_layer = True
 mconf = GPTConfig(train_dataset.population_size, block_size,    # frame_block_size
                         id_vocab_size=train_dataset.id_population_size,
                         frame_block_size=frame_block_size,
@@ -231,7 +228,7 @@ mconf = GPTConfig(train_dataset.population_size, block_size,    # frame_block_si
                         data_size=train_dataset.size,
                         class_weights=None,
                         pretrain=False,
-                        n_state_layers=4, n_state_history_layers=0, n_stimulus_layers=16, self_att_layers=4,
+                        n_state_layers=4, n_state_history_layers=0, n_stimulus_layers=10, self_att_layers=4,
                         n_layer=10, n_head=2, n_embd=n_embd, n_embd_frames=n_embd_frames, 
                         contrastive=True, clip_emb=1024, clip_temp=0.5,
                         conv_layer=conv_layer, kernel_size=kernel_size,
@@ -250,7 +247,7 @@ layers = (mconf.n_state_layers, mconf.n_state_history_layers, mconf.n_stimulus_l
 max_epochs = 250
 batch_size = 32 * 10
 shuffle = True
-model_path = f"models/tensorboard/natmovie/w:{window}_wp:{window_prev}/{6}_Cont:{mconf.contrastive}_window:{window}_f_window:{frame_window}_df:{dt}_blocksize:{id_block_size}_sparse{mconf.sparse_mask}_conv_{conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(n_dt)}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}_nembframe{mconf.n_embd_frames}_{kernel_size}.pt"
+model_path = f"models/tensorboard/natmovie/1_kernel/w:{window}_wp:{window_prev}/{6}_Cont:{mconf.contrastive}_window:{window}_f_window:{frame_window}_df:{dt}_blocksize:{id_block_size}_sparse{mconf.sparse_mask}_conv_{conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(n_dt)}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}_nembframe{mconf.n_embd_frames}_{kernel_size}.pt"
 # model.load_state_dict(torch.load(model_path, map_location='cpu'))
 # model.load_state_dict(torch.load("/Users/antonis/Downloads/[16, 17, 18, 19]_Cont_True_0.50.05_sparseFalse_conv_True_shuffle_True_batch_224_sparse_(None_None)_pos_emb_False_temp_emb_True_drop_0.2_dt_True_2.0_0.5_max0.05_(4, 0, 6)_2_256_nembframe64-2.pt", map_location='cpu'))
 
@@ -268,7 +265,13 @@ tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rat
 
 
 trainer = Trainer(model, train_dataset, test_dataset, tconf, mconf)
-# trainer.train()  
+trainer.train()  
+
+# %%
+
+loader = DataLoader(train_dataset, batch_size=2, shuffle=False, num_workers=0)
+iterable = iter(loader)
+x, y = next(iterable)
 
 # # %%
 # """
