@@ -1,0 +1,75 @@
+model:
+  sparse_mask: 0.0
+  p_sparse: 0.25
+  sparse_topk_frame: null
+  sparse_topk_id: null
+  n_dt: 3
+  data_size: 38001887
+  class_weights: null
+  pretrain: 0
+  n_state_layers: 4
+  n_state_history_layers: 0
+  n_stimulus_layers: 12
+  self_att_layers: 4
+  n_layer: 10
+  n_head: 2
+  n_embd: 256
+  n_embd_frames: 64
+  contrastive: 1
+  clip_emb: 1024
+  clip_temp: 0.5
+  conv_layer: True
+  kernel_size: [5, 8, 8]
+  temp_emb: 1.0
+  pos_emb: 0.0
+  id_drop: 0.35
+  im_drop: 0.35
+
+trainer:
+  batch_size: 320
+  max_epochs: 100.0
+  learning_rate: 0.0001
+  num_workers: 4.0
+  lr_decay: 1.0
+  patience: 3.0
+  warmup_tokens: 800000.0
+  decay_weights: 1.0
+  weight_decay: 0.1
+  shuffle: 1.0
+  final_tokens: 53370000.0
+  clip_norm: 1.0
+  grad_norm_clip: 1.0
+  show_grads: 0.0
+  plot_raster: 0.0
+  ckpt_path: null
+  no_pbar: 0.0
+
+data:
+  dataset: 'natmovieGabor3D'
+  top_p_ids: null
+  response_path: "data/SimNeu3D/NaturalMovie/response/NaturalStim_all.csv"
+  stimulus_path: "data/SimNeu3D/NaturalMovie/stimulus/docuMovie.pt"
+  data_dict: null
+  window: 0.1
+  window_prev: 0
+  frame_window: 1
+  dt: 0.05
+  block_size: 30
+  id_block_size: 30
+  prev_id_block_size: 30
+  frame_block_size: 448
+  frame_memory: 20
+
+# dataloader:
+#   params:
+#     block_size: 30
+#     id_block_size: 30
+#     prev_id_block_size: 30
+#     frame_block_size: 224
+#     frame_memory: 20
+
+
+
+  
+
+

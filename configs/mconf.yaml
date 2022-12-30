@@ -1,0 +1,50 @@
+vocab_size: 292.0
+block_size: 284.0
+id_vocab_size: 292.0
+frame_block_size: 224.0
+id_block_size: 30.0
+prev_id_block_size: 30.0
+sparse_mask: 0.0
+p_sparse: 0.25
+sparse_topk_frame: null
+sparse_topk_id: null
+n_dt: 5.0
+data_size: 74405.0
+class_weights: null
+pretrain: 0.0
+n_state_layers: 4.0
+n_state_history_layers: 4.0
+n_stimulus_layers: 8.0
+self_att_layers: 4.0
+n_layer: 10.0
+n_head: 2.0
+n_embd: 256.0
+n_embd_frames: 64.0
+contrastive: 1.0
+clip_emb: 1024.0
+clip_temp: 0.5
+conv_layer: 1.0
+kernel_size:
+- 10
+- 8
+- 8
+temp_emb: 1.0
+pos_emb: 0.0
+id_drop: 0.35
+im_drop: 0.35
+window: 0.05
+window_prev: 0.2
+frame_window: 0.5
+dt: 0.05
+stoi_dt:
+  0.0: 0
+  0.05: 1
+  0.1: 2
+  0.15: 3
+  0.2: 4
+itos_dt:
+  0: 0.0
+  1: 0.05
+  2: 0.1
+  3: 0.15
+  4: 0.2

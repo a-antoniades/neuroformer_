@@ -1,0 +1,75 @@
+model:
+  sparse_mask: 0.0
+  p_sparse: 0.25
+  sparse_topk_frame: null
+  sparse_topk_id: null
+  n_dt: 5
+  data_size: 74405
+  class_weights: null
+  pretrain: 0
+  n_state_layers: 4
+  n_state_history_layers: 4
+  n_stimulus_layers: 8
+  self_att_layers: 4
+  n_layer: 10
+  n_head: 2
+  n_embd: 256
+  n_embd_frames: 64
+  contrastive: 1
+  clip_emb: 1024
+  clip_temp: 0.5
+  conv_layer: 1.0
+  kernel_size: [10, 8, 8]
+  temp_emb: 1.0
+  pos_emb: 0.0
+  id_drop: 0.35
+  im_drop: 0.35
+
+trainer:
+  max_epochs: 100.0
+  learning_rate: 0.0001
+  num_workers: 4.0
+  lr_decay: 1.0
+  patience: 3.0
+  warmup_tokens: 800000.0
+  decay_weights: 1.0
+  weight_decay: 0.1
+  shuffle: 1.0
+  final_tokens: 53370000.0
+  clip_norm: 1.0
+  grad_norm_clip: 1.0
+  show_grads: 0.0
+  plot_raster: 0.0
+  ckpt_path: "models/tensorboard/V1_AL/test_2/w:0.05_wp:0.2/6_Cont:True_window:0.05_f_window:0.5_df:0.05_blocksize:30_sparseFalse_conv_True_shuffle:True_batch:64_sparse_(None_None)_blocksz284_pos_emb:False_temp_emb:True_drop:0.35_dt:True_2.0_0.2_max0.05_(4,
+    4, 8)_2_256_nembframe64_(10, 8, 8).pt"
+  no_pbar: 0.0
+
+data:
+  dataset: 'V1_AL'
+  top_p_ids: 0.75
+  response_path: "data/Combo3_V1AL/Combo3_V1AL_response.csv"
+  stimulus_path: "data/Combo3_V1AL/Combo3_V1AL_stimulus.pt"
+  data_dict: null
+  window: 0.1
+  window_prev: 0.2
+  frame_window: 1
+  dt: 0.05
+  block_size: 30
+  id_block_size: 30
+  prev_id_block_size: 30
+  frame_block_size: 224
+  frame_memory: 20
+
+# dataloader:
+#   params:
+#     block_size: 30
+#     id_block_size: 30
+#     prev_id_block_size: 30
+#     frame_block_size: 224
+#     frame_memory: 20
+
+
+
+  
+
+
