@@ -24,6 +24,7 @@ now = datetime.now()
 logger = logging.getLogger(__name__)
 
 import collections
+import omegaconf
 import os
 parent_path = os.path.dirname(os.path.dirname(os.getcwd())) + "/"
 
@@ -54,7 +55,13 @@ class TrainerConfig:
 
     def __init__(self, **kwargs):
         for k, v in kwargs.items():
-            setattr(self, k, v)
+            if isinstance(v, omegaconf.dictconfig.DictConfig):
+                print("DictConfig")
+                for name, value in v.items():
+                    print(name, value)
+                    setattr(self, name, value)
+            else:
+                setattr(self, k, v)
 
 
 class Trainer:
@@ -93,8 +100,8 @@ class Trainer:
         raw_model = self.model.module if hasattr(self.model, "module") else self.model
         logger.info("saving %s", self.config.ckpt_path)
         torch.save(raw_model.state_dict(), self.config.ckpt_path)
-        save_object(self.mconf, self.config.ckpt_path[:-3] + "_mconf.pkl")
-        save_object(self.config, self.config.ckpt_path[:-3] + "_tconf.pkl")
+        # save_object(raw_model.mconf, self.config.ckpt_path[:-3] + "_mconf.pkl")
+        # save_object(raw_model.config, self.config.ckpt_path[:-3] + "_tconf.pkl")
                     
     def plot_grad_flow(self, named_parameters):
         '''Plots the gradients flowing through different layers in the net during training.
@@ -159,6 +166,7 @@ class Trainer:
                 with torch.set_grad_enabled(is_train):
                     preds, features, loss = model(x, y)
                     total_loss = 0
+                    
                     for key, value in loss.items():
                         # print(key)
                         value = value.mean()
@@ -188,7 +196,7 @@ class Trainer:
                     precision = preds['precision']
                     # pbar.set_description(f"epoch {epoch+1} iter {it}: frame_loss: {loss['frames'].item():.5f} id_loss {loss['id'].item():.5f} dt_loss: {loss['dt'].item():.5f}   total_loss: {total_loss.item():.5f}. lr {lr:e}")
                     pbar.set_description(f'epoch {epoch+1}  ' + ''.join([f'{str(key)}_{str(split)}: {value:.5f}  ' for key, value in loss.items()]) + \
-                                         f'total_loss: {total_loss:.5f}' + f' lr {lr:e}' + ' ' + f'precision: {precision:.5f}')
+                                         f'total_loss: {total_loss.mean():.5f}' + f' lr {lr:e}' + ' ' + f'precision: {precision.mean():.5f}')
             
                     #  linear warmup
                     self.tokens += (y['id']>=0).sum() # number of tokens processed this step (i.e label is not -100)
@@ -220,20 +228,20 @@ class Trainer:
             self.writer.add_scalar(f"Loss/{split}_total", total_losses, epoch) 
 
             for score in config.score_metrics:
-                self.writer.add_scalar(f"Score/{split}_{str(score)}", preds[score], epoch)
+                self.writer.add_scalar(f"Score/{split}_{str(score)}", preds[score].mean(), epoch)
              
-            if not is_train:
-                if config.plot_raster:
-                    loader = DataLoader(data, shuffle=False, pin_memory=False,
-                                        batch_size=1, num_workers=4)
-                    predict_and_plot_time(model.module, loader, mconf)
-                    # true, predicted = predict_raster(model, loader, self.mconf.frame_block_size)                    
+            # if not is_train:
+            #     if config.plot_raster:
+            #         loader = DataLoader(data, shuffle=False, pin_memory=False,
+            #                             batch_size=1, num_workers=4)
+            #         predict_and_plot_time(model.module, loader, mconf)
+            #         # true, predicted = predict_raster(model, loader, self.mconf.frame_block_size)                    
 
-                for score in config.score_metrics:
-                    scores[score] = np.array(scores[score]).mean()
-                scores['F1'] = 2 * scores['precision'] * scores['recall'] / (scores['precision'] + scores['recall'])
-                logger.info('  '.join([f'{str(key)}_{str(split)}: {value:.5f}  ' for key, value in av_losses.items()]))
-                logger.info('  '.join([f'{str(key)}_{str(split)}: {value:.5f}  ' for key, value in scores.items() if key in config.score_metrics]))
+            #     for score in config.score_metrics:
+            #         scores[score] = np.array(scores[score]).mean()
+            #     scores['F1'] = 2 * scores['precision'] * scores['recall'] / (scores['precision'] + scores['recall'])
+            #     logger.info('  '.join([f'{str(key)}_{str(split)}: {value:.5f}  ' for key, value in av_losses.items()]))
+            #     logger.info('  '.join([f'{str(key)}_{str(split)}: {value:.5f}  ' for key, value in scores.items() if key in config.score_metrics]))
             
                 return total_losses.item(), scores
 
