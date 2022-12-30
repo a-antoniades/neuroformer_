@@ -22,7 +22,7 @@ import copy
 from torchvision.models.video import r3d_18
 # from ResNet3D import r3d_18
 # from torchvision.models._utils import IntermediateLayerGetter
-
+import torchmetrics
 
 from scipy.optimize import linear_sum_assignment
 # from rotary_embedding_torch import apply_rotary_emb, RotaryEmbedding
@@ -1110,7 +1110,8 @@ class GPT(nn.Module):
 
         # frames for LargeRandNet
         if 'frames' in x:
-            frame_embeddings = nn.Linear(1000, self.config.n_embd)
+            # frame_embeddings_projection = nn.Linear(1000, self.config.n_embd)
+            # frames = frame_embeddings_projection(frames)
             frame_embeddings = frames + self.frame_1d_emb[:, :frames.shape[1]]
             features['frames'] = frame_embeddings
 
@@ -1163,8 +1164,12 @@ class GPT(nn.Module):
                 dt_logits_ = dt_logits[B, :t - P]
                 time_targets = targets['dt'][B, :t - P]
 
-                loss_id_ = F.cross_entropy(id_logits_.view(-1, id_logits_.size(-1)), id_targets.view(-1))    # , weight=self.class_weights_id)
-                loss_time_ = F.cross_entropy(dt_logits_.view(-1, dt_logits_.size(-1)), time_targets.view(-1))    # , weight=self.class_weights_dt)
+                if self.config.class_weights is not None:
+                    loss_id_ = F.cross_entropy(id_logits_.view(-1, id_logits_.size(-1)), id_targets.view(-1), weight=self.class_weights_id)
+                    loss_time_ = F.cross_entropy(dt_logits_.view(-1, dt_logits_.size(-1)), time_targets.view(-1), weight=self.class_weights_dt)
+                else:
+                    loss_id_ = F.cross_entropy(id_logits_.view(-1, id_logits_.size(-1)), id_targets.view(-1)) #, weight=self.class_weights_id)
+                    loss_time_ = F.cross_entropy(dt_logits_.view(-1, dt_logits_.size(-1)), time_targets.view(-1)) #, weight=self.class_weights_dt)
                 # if self.config.epoch >= 15:
                     # self.truncated_loss.update_weight(id_logits[None, ...], id_targets[None, ...], id_indexes[None, ...])
                 # loss_id_ = self.truncated_loss(id_logits_[None, ...], id_targets[None, ...])
@@ -1190,53 +1195,69 @@ class GPT(nn.Module):
                     ## score metrics
                     # pred_id = torch.argmax(id_logits_, dim=-1).flatten().detach().cpu().numpy().tolist()
                     probs_neurons = F.softmax(id_logits_, dim=-1)
-                    _, ix_top_k = torch.topk(probs_neurons, k=3, dim=-1)
-                    pred_neurons = ix_top_k.detach().flatten().cpu().numpy()
-                    true_neurons = id_targets.detach().flatten().cpu().numpy()
-                    # for n in range(len(pred_neurons)):
-                    pred_id = set(pred_neurons)     # - set([515, 516, 517])
-                    true_id = set(true_neurons)     # - set([515, 516, 517])
-                    # pred_dt = torch.argmax(dt_logits_, dim=-1)
-                    true_positives = true_id & pred_id
-                    false_positives = pred_id - true_id
-                    false_negatives = true_id - pred_id
-                    if len(true_positives) == 0:
-                        precision_score, recall_score = 0, 0
-                    else:
-                        precision_score = len(true_positives) / (len(true_positives) + len(false_positives))
-                        recall_score = len(true_positives) / (len(true_positives) + len(false_negatives))
-                    if precision_score + recall_score > 0:
-                        f1_score = (2 * precision_score * recall_score) / (precision_score + recall_score)
-                    else:
-                        f1_score = 0
-                    precision.append(precision_score), recall.append(recall_score), F1.append(f1_score)
-
+                    _, ix_top_k = torch.topk(probs_neurons, k=1, dim=-1)
+                    pred_neurons = ix_top_k.detach().flatten()
+                    true_neurons = id_targets.detach().flatten()
+                    precision_score = torchmetrics.functional.precision(true_neurons, pred_neurons, task='multiclass', num_classes=self.config.vocab_size).to(self.device)
+                    recall_score = torchmetrics.functional.recall(true_neurons, pred_neurons, task='multiclass', num_classes=self.config.vocab_size).to(self.device)
+                    F1_score = torchmetrics.functional.f1_score(true_neurons, pred_neurons, task='multiclass', num_classes=self.config.vocab_size).to(self.device)
+                    
+                    if (precision, recall, F1) is not None:
+                        precision.append(precision_score)
+                        recall.append(recall_score)
+                        F1.append(F1_score)
+                
                 loss_id.append(loss_id_)
                 loss_time.append(loss_time_)
+        else:
+            zero_tensor = torch.zeros(1).to(self.device)
+            precision.append(zero_tensor)
+            recall.append(zero_tensor)
+            F1.append(zero_tensor)
 
-            loss = dict()
-            # loss['frames'] = loss_frames / (b / 3)
-            n = float('inf')
-            if self.config.contrastive:
-                n = 2
-                loss['clip'] = self.clip(features['frames'][:, 0], features['id'][:, -1]) * (1 / n) 
-            loss['id'] = ((9 / 10) * sum(loss_id) / b) * (1 - 1 / n)   # sum(loss_id) / (b * 2)   # / len(loss_id)
-            loss['time'] = ((1 / 10) * sum(loss_time) / b) * (1 - 1 / n) 
+                    # # for n in range(len(pred_neurons)):
+                    # pred_id = set(pred_neurons)     # - set([515, 516, 517])
+                    # true_id = set(true_neurons)     # - set([515, 516, 517])
+                    # # pred_dt = torch.argmax(dt_logits_, dim=-1)
+                    # true_positives = true_id & pred_id
+                    # false_positives = pred_id - true_id
+                    # false_negatives = true_id - pred_id
+                    # if len(true_positives) == 0:
+                    #     precision_score, recall_score = 0, 0
+                    # else:
+                    #     precision_score = len(true_positives) / (len(true_positives) + len(false_positives))
+                    #     recall_score = len(true_positives) / (len(true_positives) + len(false_negatives))
+                    # if precision_score + recall_score > 0:
+                    #     f1_score = (2 * precision_score * recall_score) / (precision_score + recall_score)
+                    # else:
+                    #     f1_score = 0
+                    # precision.append(precision_score), recall.append(recall_score), F1.append(f1_score)
+
+
+
+        loss = dict()
+        # loss['frames'] = loss_frames / (b / 3)
+        n = float('inf')
+        if self.config.contrastive:
+            n = 2
+            loss['clip'] = self.clip(features['frames'][:, 0], features['id'][:, -1]) * (1 / n) 
+        loss['id'] = ((9 / 10) * sum(loss_id) / b) * (1 - 1 / n)   # sum(loss_id) / (b * 2)   # / len(loss_id)
+        loss['time'] = ((1 / 10) * sum(loss_time) / b) * (1 - 1 / n) 
             
             # loss['dt'] = loss_time / (b * 50)
             # loss['hungarian'] = sum(loss_hungarian) / (b * 2)
             # loss['psth'] = sum(loss_psth) / (b * 2)
 
-            for key in list(loss):
-                if isinstance(loss[key], float):
-                    del loss[key]
+            # for key in list(loss):
+            #     if isinstance(loss[key], float):
+            #         del loss[key]
             
         preds = dict()
         preds['id'] = id_logits    # [:, tf:]    # only id logits
         preds['dt'] = dt_logits
-        preds['precision'] = sum(precision) / b
-        preds['recall'] = sum(recall) / b
-        preds['F1'] = sum(F1) / b
+        preds['precision'] = torch.stack(precision).mean()
+        preds['recall'] = torch.stack(recall).mean()
+        preds['F1'] = torch.stack(F1).mean()
         # self.config.step += 1
 
         return preds, features, loss
