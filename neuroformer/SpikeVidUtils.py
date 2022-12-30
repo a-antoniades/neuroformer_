@@ -424,10 +424,7 @@ class SpikeTimeVidData2(Dataset):
 
         def __init__(self, data, frames, block_size, id_block_size, frame_block_size, id_prev_block_size, window, dt, frame_memory, 
                      stoi, itos, neurons, stoi_dt=None, itos_dt=None, frame_feats=None, pred=False, data_dict=None, window_prev=None, dataset=None, **kwargs):
-
-                for k, v in kwargs.items():
-                    setattr(self, k, v)
-                
+                                
                 pixels = [i for i in range(frames.min(), frames.max() + 1)] if frames is not None else []
                 feat_encodings = neurons + ['EOS'] + ['PAD'] + pixels                 
                 # stoi = { ch:i for i,ch in enumerate(feat_encodings) }
@@ -443,7 +440,7 @@ class SpikeTimeVidData2(Dataset):
                 self.frame_block_size = frame_block_size
                 self.block_size = block_size
                 self.id_prev_block_size = id_prev_block_size
-                self.id_block_size = trial
+                self.id_block_size = id_block_size
                 
                 assert self.id_block_size > 0
                 # assert self.frame_block_size + self.id_block_size + self.prev_id_block_size == self.block_size
@@ -471,9 +468,8 @@ class SpikeTimeVidData2(Dataset):
                 self.window_prev = window if window_prev is None else window_prev
                 # assert self.window_prev % self.window == 0, "window_prev must be a multiple of window"
                 self.frame_window = 1.0
-                # start_interval = window_prev + window
-                self.start_interval = None
-                start_interval = 2 if self.start_interval is None else self.start_interval
+
+                start_interval = 2
                 if dataset is None:
                     self.t = self.data.drop_duplicates(subset=['Interval', 'Trial'])[['Interval', 'Trial']] # .sample(frac=1).reset_index(drop=True) # interval-trial unique pairs
                 elif dataset == 'combo_v2':
@@ -487,6 +483,12 @@ class SpikeTimeVidData2(Dataset):
                 self.pred = pred
                 self.size = len(data) + 2 * len(self.t) # 2x = EOS , PAD
                 self.offset = round(data['Interval'].min() - self.window, 2)
+
+                self.dt_frames = None
+
+                for k, v in kwargs.items():
+                    setattr(self, k, v)
+
 
         def __len__(self):
                 return len(self.t)
@@ -539,199 +541,99 @@ class SpikeTimeVidData2(Dataset):
                 # dt_max = self.dt_max
                 dt_chunk = [0] + dt_chunk + [dt_max] * (pad_n + 1) # 0 = SOS, max = EOS
 
-                # pad_n -= 1
+                pad_n -= 1 # since we are not predicting the last token
             
                 return dix, dt_chunk, pad_n
 
-        # def __getitem__(self, idx):
-        #         """
-        #         Using an odd Block_Size, in order to be able to 
-        #         appropriately mask joint image and id encodings.
-                
-        #         Example for block_size = n:
-
-        #         x = [frame_token_1... frame_token_n ..., id_1, id_n,]    
-        #         y = [frame_token_2... frame_token_n + 1 ..., id_2, id_n + 1,]
-
-        #         """
-
-        #         # grab a chunk of (block_size + 1) characters from the data
-        #         t = self.t.iloc[idx]
-
-        #         x = collections.defaultdict(list)
-        #         y = collections.defaultdict(list)
-
-        #         n_stim = None if self.dataset is None else t['Stimulus']
-
-        #         ## PREV ##
-        #         # get state history + dt (last 30 seconds)
-        #         prev_int = self.round_n(t['Interval'] - (self.window_prev), self.dt)
-        #         prev_id_interval = self.round_n(prev_int - self.window_prev, self.dt), prev_int
-        #         id_prev, dt_prev, pad_prev = self.get_interval(prev_id_interval, t['Trial'], self.id_prev_block_size, n_stim)
-        #         # prev_pad = True if self.window_prev == self.window else False
-        #         x['id_prev'] = torch.tensor(id_prev, dtype=torch.long)
-        #         x['dt_prev'] = torch.tensor(dt_prev, dtype=torch.float) # + 0.5
-        #         x['pad_prev'] = torch.tensor(pad_prev, dtype=torch.long)
-                
-        #         ## CURRENT ##
-        #         current_int = self.round_n(t['Interval'], self.dt)
-        #         current_id_interval = self.round_n(current_int - self.window, self.dt), current_int
-        #         idn, dt, pad = self.get_interval(current_id_interval, t['Trial'], self.id_block_size, n_stim)
-        #         x['id'] = torch.tensor(idn[:-1], dtype=torch.long)
-        #         x['dt'] = torch.tensor(dt[:-1], dtype=torch.float) # + 1
-        #         x['pad'] = torch.tensor(pad, dtype=torch.long) # to attend eos
-
-        #         y['id'] = torch.tensor(idn[1:], dtype=torch.long)
-        #         y['dt'] = torch.tensor(dt[1:], dtype=torch.long)
-        #         x['interval'] = torch.tensor(t['Interval'], dtype=torch.float32)
-        #         x['trial'] = torch.tensor(t['Trial'], dtype=torch.long)
-                
-        #         # for backbone:
-        #         if self.frame_feats is not None:
-        #             if isinstance(self.frame_feats, dict):
-        #                 n_stim = int(t['Stimulus'])
-        #             elif len(self.frame_feats) == 8:
-        #                 if self.t['Trial'].max() <= 8:
-        #                     n_stim = int(t['Trial'])
-        #                 else:
-        #                     n_stim = int(t['Trial'] // 200) - 1
-        #             elif self.frame_feats.shape[0] == 1:
-        #                 n_stim = 0
-        #             elif self.frame_feats.shape[0] <= 4 and self.dataset is None:
-        #                 if t['Trial'] <= 20: n_stim = 0
-        #                 elif t['Trial'] <= 40: n_stim = 1
-        #                 elif t['Trial'] <= 60: n_stim = 2
-        #             elif self.dataset is 'combo_v2':
-        #                 n_stim = n_stim
-                    
-        #             # t['Interval'] += self.window
-        #             frame_idx = get_frame_idx(t['Interval'], 1/20)     # get last 1 second of frames
-        #             frame_window = self.frame_window
-        #             n_frames = math.ceil(20 * frame_window)
-        #             frame_idx = frame_idx if frame_idx >= n_frames else n_frames
-        #             f_b = n_frames
-        #             # f_f = n_frames - f_b
-        #             frame_feats_stim = self.frame_feats[n_stim]
-        #             frame_idx = frame_idx if frame_idx < frame_feats_stim.shape[1] else frame_feats_stim.shape[1]
-        #             f_diff = frame_idx - n_frames
-        #             if f_diff < 0:
-        #                 f_b = frame_idx
-        #                 # f_f = 0
-        #             # x['idx'] = torch.tensor([frame_idx, n_stim], dtype=torch.float16)
-        #             if self.frame_feats is not None:
-        #                 x['frames'] = frame_feats_stim[:, frame_idx - f_b:frame_idx].type(torch.float32)
-                    
-        #             # if self.pred:
-        #             #     dt_real = np.array(dt_chunk[1:]) + data_current['Time'].min()
-        #             #     y['time'] = torch.tensor(dt_real, dtype=torch.float)
-
-        #             # y['indexes'] = torch.linspace(1, len(y['id']), len(y['id'])).long() + self.idx
-        #             # self.idx += len(y['id']) - x['pad']
-
-        #             # x['pad'] += 1   # if +1, EOS is not attended
-        #             # x['pad'] = 0    # if 0, EOS is attended
-        #             x['stimulus'] = torch.tensor(n_stim, dtype=torch.long)
-
-        #         # x['frame_token'] = torch.tensor([self.stoi['EOS']], dtype=torch.long)
-        #         # x['prev_int'] = torch.tensor(len(id_prev), dtype=torch.long)
-                
-        #         return x, y
         def __getitem__(self, idx):
-            """
-            Using an odd Block_Size, in order to be able to 
-            appropriately mask joint image and id encodings.
-
-            Example for block_size = n:
-
-            x = [frame_token_1... frame_token_n ..., id_1, id_n,]    
-            y = [frame_token_2... frame_token_n + 1 ..., id_2, id_n + 1,]
-
-            """
-            # grab a chunk of (block_size + 1) characters from the data
-            t = self.t.iloc[idx]
-
-            x = collections.defaultdict(list)
-            y = collections.defaultdict(list)
-
-            n_stim = None if self.dataset is None else t['Stimulus']
-
-            ## PREV ##
-            # get state history + dt (last 30 seconds)
-            prev_int = self.round_n(t['Interval'] - (self.window_prev), self.dt)
-            prev_id_interval = self.round_n(prev_int - self.window_prev, self.dt), prev_int
-            id_prev, dt_prev, pad_prev = self.get_interval(prev_id_interval, t['Trial'], self.id_prev_block_size, n_stim)
-            # prev_pad = True if self.window_prev == self.window else False
-            x['id_prev'] = torch.tensor(id_prev, dtype=torch.long)
-            x['dt_prev'] = torch.tensor(dt_prev, dtype=torch.float) # + 0.5
-            x['pad_prev'] = torch.tensor(pad_prev, dtype=torch.long)
-            
-
-            ## CURRENT ##
-            current_int = self.round_n(t['Interval'], self.dt)
-            current_id_interval = self.round_n(current_int - self.window, self.dt), current_int
-            idn, dt, pad = self.get_interval(current_id_interval, t['Trial'], self.id_block_size, n_stim)
-            x['id'] = torch.tensor(idn[:-1], dtype=torch.long)
-            x['dt'] = torch.tensor(dt[:-1], dtype=torch.float) # + 1
-            x['pad'] = torch.tensor(pad, dtype=torch.long) # to attend eos
-
-            y['id'] = torch.tensor(idn[1:], dtype=torch.long)
-            y['dt'] = torch.tensor(dt[1:], dtype=torch.long)
-            x['interval'] = torch.tensor(t['Interval'], dtype=torch.float32)
-            x['trial'] = torch.tensor(t['Trial'], dtype=torch.long)
-
-            # for backbone:
-            if self.frame_feats is not None:
-                if isinstance(self.frame_feats, dict):
-                    n_stim = int(t['Stimulus'])
-                elif len(self.frame_feats) == 8:
-                    if self.t['Trial'].max() <= 8:
-                        n_stim = int(t['Trial'])
-                    else:
-                        n_stim = int(t['Trial'] // 200) - 1
-                elif self.frame_feats.shape[0] == 1:
-                    n_stim = 0
-                elif self.frame_feats.shape[0] <= 4 and self.dataset is None:
-                    if t['Trial'] <= 20: n_stim = 0
-                    elif t['Trial'] <= 40: n_stim = 1
-                    elif t['Trial'] <= 60: n_stim = 2
-                # elif self.dataset is 'combo_v2':
-                #     n_stim = n_stim
-                elif self.frame_feats.shape[0] == 1000:
-                    n_stim = 0
-
+                """
+                Using an odd Block_Size, in order to be able to 
+                appropriately mask joint image and id encodings.
                 
+                Example for block_size = n:
 
-                # t['Interval'] += self.window
-                frame_idx = get_frame_idx(t['Interval'], 0.1)     # get last 1 second of frames
-                frame_window = self.frame_window
-                n_frames = math.ceil(frame_window)
-                frame_idx = frame_idx if frame_idx >= n_frames else n_frames
-                f_b = n_frames
-                # f_f = n_frames - f_b
-                frame_feats_stim = self.frame_feats
-                frame_idx = frame_idx if frame_idx < frame_feats_stim.shape[1] else frame_feats_stim.shape[1]
-                f_diff = frame_idx - n_frames
-                if f_diff < 0:
-                    f_b = frame_idx
-                    # f_f = 0
-                # x['idx'] = torch.tensor([frame_idx, n_stim], dtype=torch.float16)
+                x = [frame_token_1... frame_token_n ..., id_1, id_n,]    
+                y = [frame_token_2... frame_token_n + 1 ..., id_2, id_n + 1,]
+
+                """
+
+                # grab a chunk of (block_size + 1) characters from the data
+                t = self.t.iloc[idx]
+
+                x = collections.defaultdict(list)
+                y = collections.defaultdict(list)
+
+                n_stim = None if self.dataset is None else t['Stimulus']
+
+                ## PREV ##
+                # get state history + dt (last 30 seconds)
+                prev_int = self.round_n(t['Interval'] - (self.window_prev), self.dt)
+                prev_id_interval = self.round_n(prev_int - self.window_prev, self.dt), prev_int
+                id_prev, dt_prev, pad_prev = self.get_interval(prev_id_interval, t['Trial'], self.id_prev_block_size, n_stim)
+                # prev_pad = True if self.window_prev == self.window else False
+                x['id_prev'] = torch.tensor(id_prev[:-1], dtype=torch.long)
+                x['dt_prev'] = torch.tensor(dt_prev[:-1], dtype=torch.float) # + 0.5
+                x['pad_prev'] = torch.tensor(pad_prev, dtype=torch.long)
+                
+                ## CURRENT ##
+                current_int = self.round_n(t['Interval'], self.dt)
+                current_id_interval = self.round_n(current_int - self.window, self.dt), current_int
+                idn, dt, pad = self.get_interval(current_id_interval, t['Trial'], self.id_block_size, n_stim)
+                x['id'] = torch.tensor(idn[:-1], dtype=torch.long)
+                x['dt'] = torch.tensor(dt[:-1], dtype=torch.float) # + 1
+                x['pad'] = torch.tensor(pad, dtype=torch.long) # to attend eos
+
+                y['id'] = torch.tensor(idn[1:], dtype=torch.long)
+                y['dt'] = torch.tensor(dt[1:], dtype=torch.long)
+                x['interval'] = torch.tensor(t['Interval'], dtype=torch.float32)
+                x['trial'] = torch.tensor(t['Trial'], dtype=torch.long)
+                
+                # for backbone:
                 if self.frame_feats is not None:
-                    x['frames'] = frame_feats_stim[:, frame_idx - f_b:frame_idx].type(torch.float32)
+                    if isinstance(self.frame_feats, dict):
+                        n_stim = int(t['Stimulus'])
+                    elif len(self.frame_feats) == 8:
+                        if self.t['Trial'].max() <= 8:
+                            n_stim = int(t['Trial'])
+                        else:
+                            n_stim = int(t['Trial'] // 200) - 1
+                    elif self.frame_feats.shape[0] == 1:
+                        n_stim = 0
+                    elif self.frame_feats.shape[0] <= 4 and self.dataset is None:
+                        if t['Trial'] <= 20: n_stim = 0
+                        elif t['Trial'] <= 40: n_stim = 1
+                        elif t['Trial'] <= 60: n_stim = 2
+                    elif self.dataset is 'combo_v2':
+                        n_stim = n_stim
+                    
+                    # t['Interval'] += self.window
+                    dt_frames = self.dt_frames if self.dt_frames is not None else 1/20
+                    frame_idx = get_frame_idx(t['Interval'], dt_frames)     # get last 1 second of frames
+                    frame_window = self.frame_window
+                    n_frames = math.ceil(int(1/dt_frames) * frame_window)
+                    frame_idx = frame_idx if frame_idx >= n_frames else n_frames
+                    f_b = n_frames
+                    # f_f = n_frames - f_b
+                    frame_feats_stim = self.frame_feats[n_stim] if n_stim is not None else self.frame_feats
+                    frame_idx = frame_idx if frame_idx < frame_feats_stim.shape[1] else frame_feats_stim.shape[1]
+                    f_diff = frame_idx - n_frames
+                    if f_diff < 0:
+                        f_b = frame_idx
+                        # f_f = 0
+                    # x['idx'] = torch.tensor([frame_idx, n_stim], dtype=torch.float16)
+                    if self.frame_feats is not None:
+                        x['frames'] = frame_feats_stim[:, frame_idx - f_b:frame_idx].type(torch.float32)
+           
+                    # y['indexes'] = torch.linspace(1, len(y['id']), len(y['id'])).long() + self.idx
+                    # self.idx += len(y['id']) - x['pad']
+
+                    # x['pad'] += 1   # if +1, EOS is not attended
+                    # x['pad'] = 0    # if 0, EOS is attended
+                    if n_stim is not None:
+                        x['stimulus'] = torch.tensor(n_stim, dtype=torch.long)
+
                 
-                # if self.pred:
-                #     dt_real = np.array(dt_chunk[1:]) + data_current['Time'].min()
-                #     y['time'] = torch.tensor(dt_real, dtype=torch.float)
-
-                # y['indexes'] = torch.linspace(1, len(y['id']), len(y['id'])).long() + self.idx
-                # self.idx += len(y['id']) - x['pad']
-
-                # x['pad'] += 1   # if +1, EOS is not attended
-                # x['pad'] = 0    # if 0, EOS is attended
-                x['stimulus'] = torch.tensor(n_stim, dtype=torch.long)
-            # x['frame_token'] = torch.tensor([self.stoi['EOS']], dtype=torch.long)
-            # x['prev_int'] = torch.tensor(len(id_prev), dtype=torch.long)
-
-            return x, y
+                return x, y
 
 
 # dataloader class

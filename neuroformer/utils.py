@@ -137,10 +137,15 @@ def process_predictions(results, stoi, itos, window):
     if 'SOS' in stoi:
         # sos_id = list(itos.keys())[list(itos.values()).index('SOS')]
         sos_id = stoi['SOS']
+        n_sos = len(df_true[df_true['true'] == sos_id])
+        print(f'SOS fouuuund: {n_sos}')
         df_true = df_true[df_true['true'] != sos_id]
+
     if 'EOS' in stoi:
         # eos_id = list(itos.keys())[list(itos.values()).index('EOS')]
         eos_id = stoi['EOS']
+        n_eos = len(df_true[df_true['true'] == eos_id])
+        print(f'EOS fouuuund: {n_eos}')
         df_true = df_true[df_true['true'] != eos_id]
     df_true.rename({'true':'ID', 'time':'dt'}, axis=1, inplace=True)
     # df_true['time'] = df_true['dt'] + df_true['interval'] - 0.5
@@ -493,7 +498,6 @@ def predict_raster_recursive_time_auto(model, loader, window, window_prev, stoi,
     pbar = tqdm(enumerate(loader), total=len(loader), disable=p_bar)
     for it, (x, y) in pbar:
 
-
         for key, value in x.items():
             x[key] = x[key].to(device)
         for key, value in y.items():
@@ -508,35 +512,6 @@ def predict_raster_recursive_time_auto(model, loader, window, window_prev, stoi,
             x['id_prev'], x['dt_prev'], pad_prev = get_interval(df, stoi, stoi_dt, mconf.dt, prev_id_interval, float(x['trial']), T_id_prev)
             x['id_prev'] = torch.tensor(x['id_prev'], dtype=torch.long).unsqueeze(0).to(device)
             x['dt_prev'] = torch.tensor(x['dt_prev'], dtype=torch.long).unsqueeze(0).to(device)
-        
-            # t_seq_df = pd.DataFrame(time_seq, columns=['time'])
-            # context_idx = t_seq_df[(t_seq_df >= x['interval'] - window_prev) & (t_seq_df < x['interval'] - window)].index
-            # # context_idx_range = range(context_idx.min(), context_idx.max() + 1)
-            # # context_idx = [i for i in context_idx_range]
-            # assert len(id_prev_stoi_buffer) == len(t_seq_df), f"len(id_prev_stoi_buffer) = {len(id_prev_stoi_buffer)}, len(t_seq_df) = {len(t_seq_df)}"
-            # id_prev_stoi = [int(id_prev_stoi_buffer[i]) for i in context_idx]
-            # dt_prev_stoi = [int(dt_prev_stoi_buffer[i]) for i in context_idx]
-            # dt_prev_stoi = aggregate_dt(dt_prev_stoi)
-            
-            # id_prev_stoi, idx_excl = add_sos_eos(id_prev_stoi, stoi['SOS'], stoi['EOS'])
-            # dt_prev_stoi, _ = add_sos_eos(dt_prev_stoi, idx_excl=idx_excl)
-
-            # id_prev_stoi = pad_x(id_prev_stoi, T_id_prev, stoi['PAD']).unsqueeze(0)
-            # dt_prev_stoi = pad_x(dt_prev_stoi, T_id_prev, max(list(itos_dt.keys()))).unsqueeze(0)
-
-            # # id_prev_stoi = torch.cat(id_prev_stoi_buffer)
-            # # dt_prev_stoi = torch.cat(dt_prev_stoi_buffer)
-
-            # # x['id_prev'] = [stoi['SOS']] + id_prev_stoi[-(T_id_prev - 2):].tolist()     # + [stoi['EOS']]
-            # # x['id_prev'] = pad_x(x['id_prev'], T_id_prev, stoi['PAD'])
-            # x['id_prev'] = id_prev_stoi
-            # if pred_dt:
-            #     # x['dt_prev'] = [0] + dt_prev_stoi[-(T_id_prev - 2):].tolist()           # + [max(list(itos_dt.keys()))]
-            #     # x['dt_prev'] = pad_x(x['dt_prev'], T_id_prev, max(list(itos_dt.keys())))
-
-            #     x['dt_prev'] = dt_prev_stoi
-
-            
             
         pad = x['pad'] if 'pad' in x else 0
         x['id_full'] = x['id'][:, 0]
@@ -608,7 +583,7 @@ def predict_raster_recursive_time_auto(model, loader, window, window_prev, stoi,
                 # dt_prev_stoi_buffer = dt_prev_stoi_buffer[-context_length:]
                 break
             
-
+            n_ix = sum([1 for i in current_id_stoi if (i == stoi['EOS']) or (i == stoi['PAD'])])
             id_prev_stoi_buffer.extend(ix.flatten())
             dt_prev_stoi_buffer.extend(ix_dt.flatten())
             ix_itos = torch.tensor(itos[int(ix.flatten())]).unsqueeze(0)
@@ -1026,6 +1001,10 @@ def get_class_weights(dataset, stoi, stoi_dt):
     class_freq = dict()
     class_freq['id'] = torch.tensor(id_ones, dtype=torch.float32)
     class_freq['dt'] = torch.tensor(dt_ones, dtype=torch.float32)
+
+    cw_mean = 1 # c_weights.mean()
+    cw_shrink = 3/4
+    class_freq['id'] = cw_mean + cw_shrink * (class_freq['id'] - cw_mean)
     
     return class_freq 
 
