@@ -1,0 +1,9 @@
+# useful commands
+
+val = x['id'].flatten()
+pad = x['pad'].flatten()
+
+val[:len(val) - pad]
+
+for key, value in y.items():
+    print(f"{key}: {value.shape}")

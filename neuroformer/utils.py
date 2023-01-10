@@ -453,11 +453,7 @@ def predict_raster_recursive_time_auto(model, loader, window, window_prev, stoi,
         """
         add sos and eos tokens to x
         """
-        # if isinstance(x, list) and len(x) > 0:
-        # #     print("TRUEEEEEE")
-        # #     print(x)
-        #     x = x
-        # print(x.shape)
+     
         if sos_token is not None:
             idx_excl = []
             x_clean = []
@@ -478,11 +474,10 @@ def predict_raster_recursive_time_auto(model, loader, window, window_prev, stoi,
     model = [model_n.eval() for model_n in model] if isinstance(model, list) else model.eval()
     tf = 0
     mconf = model[0].config if isinstance(model, list) else model.config
-    # T = model.get_block_size() # model.config.id_block_size # model.get_block_size()
     T_id = mconf.id_block_size
     T_id_prev = mconf.prev_id_block_size
+    
     context = torch.tensor(0, device=device).unsqueeze(0)
-    # data = pd.DataFrame(columns=['true', 'pred', 'time', 'time_pred', 'trial', 'interval'])
     data = dict()
     data['true'] = context
     data['ID'] = context
@@ -512,6 +507,7 @@ def predict_raster_recursive_time_auto(model, loader, window, window_prev, stoi,
             x['id_prev'], x['dt_prev'], pad_prev = get_interval(df, stoi, stoi_dt, mconf.dt, prev_id_interval, float(x['trial']), T_id_prev)
             x['id_prev'] = torch.tensor(x['id_prev'], dtype=torch.long).unsqueeze(0).to(device)
             x['dt_prev'] = torch.tensor(x['dt_prev'], dtype=torch.long).unsqueeze(0).to(device)
+            print("NICEEE")
             
         pad = x['pad'] if 'pad' in x else 0
         x['id_full'] = x['id'][:, 0]
@@ -521,7 +517,7 @@ def predict_raster_recursive_time_auto(model, loader, window, window_prev, stoi,
 
         current_id_stoi = torch.empty(0, device=device)
         current_dt_stoi = torch.empty(0, device=device)
-        for i in range(T_id):
+        for i in range(T_id - 1):   # 1st token is SOS (already there)
             t_pad = torch.tensor([stoi['PAD']] * (T_id - x['id_full'].shape[-1]), device=device)
             t_pad_dt = torch.tensor([0] * (T_id - x['dt_full'].shape[-1]), device=device)
             x['id'] = torch.cat((x['id_full'], t_pad)).unsqueeze(0).long()
@@ -556,37 +552,22 @@ def predict_raster_recursive_time_auto(model, loader, window, window_prev, stoi,
                 _, ix = torch.topk(probs, k=1, dim=-1)
                 _, ix_dt = torch.topk(probs_dt, k=1, dim=-1)
             
-            # if ix > stoi['PAD']:
-            #     ix = torch.tensor([513])
-            
             # convert ix_dt to dt and add to current time
             current_id_stoi = torch.cat((current_id_stoi, ix.flatten()))
             current_dt_stoi = torch.cat((current_dt_stoi, ix_dt.flatten()))
             dtx = torch.tensor(itos_dt[int(ix_dt.flatten())], device=device).unsqueeze(0)
-            # if len(current_id_stoi) >= T_id - pad:
-            #     ix = stoi['EOS']
-            
-            # append true and predicted in lists
-            # get last unpadded token
-            # print(T_id - int(x['pad']))
-            # if it == T_id - int(x['pad']):
-            if ix == stoi['EOS']:    # T_id - int(x['pad']):   # or len(current_id_stoi) == T_id: # and dtx == 0.5:    # dtx >= window:   # ix == stoi['EOS']:
-            # if len(current_id_stoi) == T_id - x['pad']:
-                # if ix != stoi['EOS']:
-                    # torch.cat((current_id_stoi, torch.tensor([stoi['EOS']])))
-                # if dtx <= window:
-                    # torch.cat((current_dt_stoi, torch.tensor([max(list(itos_dt.keys()))])))
-                context_length = int(window_prev / window)
-                # id_prev_stoi_buffer.extend(current_id_stoi.flatten())
-                # dt_prev_stoi_buffer.extend(current_dt_stoi.flatten())
-                # id_prev_stoi_buffer = id_prev_stoi_buffer[-context_length:]
-                # dt_prev_stoi_buffer = dt_prev_stoi_buffer[-context_length:]
+           
+            if ix >= stoi['EOS']:    # T_id - int(x['pad']):   # or len(current_id_stoi) == T_id: # and dtx == 0.5:    # dtx >= window:   # ix == stoi['EOS']:
+                print(f"n_regres_block: {i}")
                 break
             
             n_ix = sum([1 for i in current_id_stoi if (i == stoi['EOS']) or (i == stoi['PAD'])])
             id_prev_stoi_buffer.extend(ix.flatten())
             dt_prev_stoi_buffer.extend(ix_dt.flatten())
-            ix_itos = torch.tensor(itos[int(ix.flatten())]).unsqueeze(0)
+            try:
+                ix_itos = torch.tensor(itos[int(ix.flatten())]).unsqueeze(0)
+            except:
+                TypeError(f"ix: {ix}, itos: {itos}")
             data['ID'] = torch.cat((data['ID'], ix_itos))
             data['dt'] = torch.cat((data['dt'], dtx))
             data['Trial'] = torch.cat((data['Trial'], x['trial']))
@@ -598,7 +579,6 @@ def predict_raster_recursive_time_auto(model, loader, window, window_prev, stoi,
             x['dt_full'] = torch.cat((x['dt_full'], ix_dt.flatten())) if pred_dt else x['dt']
 
         dty = torch.tensor([itos_dt[int(dt)] for dt in y['dt'][:, :T_id - pad].flatten()], device=device)
-        # dty = torch.tensor(itos_dt[y['dt'][:, i].item()]).unsqueeze(0)
         data['time'] = torch.cat((data['time'], dty))   
         data['true'] = torch.cat((data['true'], y['id'][:, :T_id - pad].flatten()))
         pbar.set_description(f"len pred: {len(data['ID'])}, len true: {len(data['true'])}")

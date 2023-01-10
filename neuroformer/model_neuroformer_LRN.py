@@ -1241,8 +1241,8 @@ class GPT(nn.Module):
         if self.config.contrastive:
             n = 2
             loss['clip'] = self.clip(features['frames'][:, 0], features['id'][:, -1]) * (1 / n) 
-        loss['id'] = ((9 / 10) * sum(loss_id) / b) * (1 - 1 / n)   # sum(loss_id) / (b * 2)   # / len(loss_id)
-        loss['time'] = ((1 / 10) * sum(loss_time) / b) * (1 - 1 / n) 
+        loss['id'] = ((3 / 4) * sum(loss_id) / b) * (1 - 1 / n)   # sum(loss_id) / (b * 2)   # / len(loss_id)
+        loss['time'] = ((1 / 4) * sum(loss_time) / b) * (1 - 1 / n) 
             
             # loss['dt'] = loss_time / (b * 50)
             # loss['hungarian'] = sum(loss_hungarian) / (b * 2)

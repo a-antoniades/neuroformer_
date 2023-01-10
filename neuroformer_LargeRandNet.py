@@ -64,7 +64,7 @@ if not os.path.exists(response_path):
     print("Downloading data...")
     import gdown
     url = "https://drive.google.com/drive/folders/1vxHg7FaFQDjQZUNMgvo5wAOlFIcZ2uv-?usp=share_link"
-    gdown.download_folder(id=url, quiet=False, use_cookies=False)
+    gdown.download_folder(id=url, quiet=False, use_cookies=False, output="data/LargeRandNet/")
 
 
 # Load Data
@@ -94,9 +94,9 @@ plt.plot(stimulus[0, :,])
 # %%
 # df = pd.read_csv(parent_path + "code/data/OneCombo3/Combo3_all_stim.csv")
 frame_window = 20
-window = 10
-window_prev = 10
-dt = 0.1
+window = 1
+window_prev = 19
+dt = 1
 
 from SpikeVidUtils import make_intervals
 
@@ -168,13 +168,13 @@ print(f'train: {len(train_dataset)}, test: {len(test_dataset)}')
 
 # %%
 # from utils import get_class_weights
-class_weights = get_class_weights(train_dataset, stoi, stoi_dt)
+# class_weights = get_class_weights(train_dataset, stoi, stoi_dt)
 
 # %%
 from model_neuroformer_LRN import GPT, GPTConfig, neuralGPTConfig, Decoder
 # initialize config class and model (holds hyperparameters)
 # for is_conv in [True, False]:    
-conv_layer = True
+conv_layer = False
 mconf = GPTConfig(train_dataset.population_size, block_size,    # frame_block_size
                         id_vocab_size=train_dataset.id_population_size,
                         frame_block_size=frame_block_size,
@@ -183,10 +183,10 @@ mconf = GPTConfig(train_dataset.population_size, block_size,    # frame_block_si
                         sparse_mask=False, p_sparse=0.25, sparse_topk_frame=None, sparse_topk_id=None,
                         n_dt=len(n_dt),
                         data_size=train_dataset.size,
-                        class_weights=class_weights,
+                        class_weights=None,
                         pretrain=False,
                         n_state_layers=6, n_state_history_layers=4, n_stimulus_layers=10, self_att_layers=8,
-                        n_layer=10, n_head=2, n_embd=n_embd, 
+                        n_layer=10, n_head=8, n_embd=n_embd, 
                         contrastive=True, clip_emb=1024, clip_temp=0.5,
                         temp_emb=True, pos_emb=False,
                         id_drop=0.35, im_drop=0.35,
@@ -196,7 +196,7 @@ model = GPT(mconf)
 
 # %%
 layers = (mconf.n_state_layers, mconf.n_state_history_layers, mconf.n_stimulus_layers)
-max_epochs = 75
+max_epochs = 50
 batch_size = 32 * 4
 shuffle = True
 
@@ -205,7 +205,7 @@ shuffle = True
 # model_path = "/local/home/antonis/neuroformer/models/tensorboard/LRN/w:10_wp:10/6_Cont:True_window:10_f_window:20_df:0.1_blocksize:30_sparseFalse_conv_True_shuffle:True_batch:128_sparse_(200_200)_blocksz1060_pos_emb:False_temp_emb:True_drop:0.35_dt:True_2.0_10.0_max0.1_(6, 4, 10)_2_200.pt"
 ## weighted
 weighted = True if mconf.class_weights is not None else False
-title = 'pos_embeddings'
+title = 'smaller-time-window'
 model_path = f"""./models/tensorboard/LRN/weighted_{weighted}/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/
                  w:{window}_wp:{window_prev}/{6}_Cont:{mconf.contrastive}_window:{window}_f_window:{frame_window}_df:{dt}_blocksize:{id_block_size}
                  _conv_{conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_
@@ -292,7 +292,7 @@ for trial in trials:    # test_data['Trial'].unique():
                                         dt_frames=dt_frames)
         trial_loader = DataLoader(trial_dataset, shuffle=False, pin_memory=False)
         results_trial = predict_raster_recursive_time_auto(model, trial_loader, window, window_prev, stoi, itos_dt, itos=itos, 
-                                                           sample=True, top_p=0.75, top_p_t=0.75, temp=1.2, temp_t=1.2, frame_end=0, get_dt=True, gpu=False, pred_dt=True)
+                                                           sample=True, top_p=0.65, top_p_t=0.65, temp=1.0, temp_t=1., frame_end=0, get_dt=True, gpu=False, pred_dt=True)
         # results_trial = predict_raster_hungarian(model, loader, itos_dt, top_p=0.75, temp=1)
         # print(f"MAX ID ---- {sorted(results_trial['ID'].unique()[-10])}")
         df_trial_pred, df_trial_true = process_predictions(results_trial, stoi, itos, window)
