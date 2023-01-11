@@ -109,7 +109,7 @@ dt_range = math.ceil(max_window / dt) + 1  # add first / last interval for SOS /
 n_dt = [round(dt * n, 2) for n in range(dt_range)]
 
 # %%
-# df.groupby(['Interval', 'Trial']).size().plot.bar()
+df.groupby(['Interval', 'Trial']).size().plot.bar()
 
 # %%
 from SpikeVidUtils import SpikeTimeVidData2
@@ -120,8 +120,8 @@ frame_feats = torch.tensor(stimulus, dtype=torch.float32)
 frame_block_size = 1000  # math.ceil(frame_feats.shape[-1] * frame_window)
 n_embd_frames = 256
 
-prev_id_block_size = 400
-id_block_size = 400   # 95
+prev_id_block_size = 800
+id_block_size = 40   # 95
 block_size = frame_block_size + id_block_size + prev_id_block_size # frame_block_size * 2  # small window for faster training
 frame_memory = 20   # how many frames back does model see
 window = window
@@ -185,7 +185,7 @@ mconf = GPTConfig(train_dataset.population_size, block_size,    # frame_block_si
                         data_size=train_dataset.size,
                         class_weights=None,
                         pretrain=False,
-                        n_state_layers=6, n_state_history_layers=4, n_stimulus_layers=10, self_att_layers=8,
+                        n_state_layers=6, n_state_history_layers=4, n_stimulus_layers=4, self_att_layers=8,
                         n_layer=10, n_head=8, n_embd=n_embd, 
                         contrastive=True, clip_emb=1024, clip_temp=0.5,
                         temp_emb=True, pos_emb=False,
