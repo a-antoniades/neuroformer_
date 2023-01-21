@@ -507,7 +507,6 @@ def predict_raster_recursive_time_auto(model, loader, window, window_prev, stoi,
             x['id_prev'], x['dt_prev'], pad_prev = get_interval(df, stoi, stoi_dt, mconf.dt, prev_id_interval, float(x['trial']), T_id_prev)
             x['id_prev'] = torch.tensor(x['id_prev'], dtype=torch.long).unsqueeze(0).to(device)
             x['dt_prev'] = torch.tensor(x['dt_prev'], dtype=torch.long).unsqueeze(0).to(device)
-            print("NICEEE")
             
         pad = x['pad'] if 'pad' in x else 0
         x['id_full'] = x['id'][:, 0]
@@ -558,7 +557,7 @@ def predict_raster_recursive_time_auto(model, loader, window, window_prev, stoi,
             dtx = torch.tensor(itos_dt[int(ix_dt.flatten())], device=device).unsqueeze(0)
            
             if ix >= stoi['EOS']:    # T_id - int(x['pad']):   # or len(current_id_stoi) == T_id: # and dtx == 0.5:    # dtx >= window:   # ix == stoi['EOS']:
-                print(f"n_regres_block: {i}")
+                # print(f"n_regres_block: {i}")
                 break
             
             n_ix = sum([1 for i in current_id_stoi if (i == stoi['EOS']) or (i == stoi['PAD'])])

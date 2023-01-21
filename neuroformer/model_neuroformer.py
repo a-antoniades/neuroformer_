@@ -1234,7 +1234,7 @@ class GPT(nn.Module):
             n = float('inf')
             if self.config.contrastive:
                 n = 2
-                loss['clip'] = self.clip(features['frames'][:, 0], features['id'][:, -1]) * (1 / n) 
+                loss['clip'] = self.clip(features['frames'][:, 0], features['id'][:, t - P]) * (1 / n) 
             loss['id'] = ((9 / 10) * sum(loss_id) / b) * (1 - 1 / n)   # sum(loss_id) / (b * 2)   # / len(loss_id)
             loss['time'] = ((1 / 10) * sum(loss_time) / b) * (1 - 1 / n) 
             

@@ -100,8 +100,8 @@ class Trainer:
         raw_model = self.model.module if hasattr(self.model, "module") else self.model
         logger.info("saving %s", self.config.ckpt_path)
         torch.save(raw_model.state_dict(), self.config.ckpt_path)
-        # save_object(raw_model.mconf, self.config.ckpt_path[:-3] + "_mconf.pkl")
-        # save_object(raw_model.config, self.config.ckpt_path[:-3] + "_tconf.pkl")
+        # save_object(self.model.mconf, self.config.ckpt_path[:-3] + "_mconf.pkl")
+        # save_object(self.model.config, self.config.ckpt_path[:-3] + "_tconf.pkl")
                     
     def plot_grad_flow(self, named_parameters):
         '''Plots the gradients flowing through different layers in the net during training.
