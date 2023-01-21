@@ -39,7 +39,7 @@ from scipy.special import softmax
 import skimage
 import skvideo.io
 from utils import print_full
-from scipy.ndimage.filters import gaussian_filter, uniform_filter
+from scipy.ndimage import gaussian_filter, uniform_filter
 
 
 import matplotlib.pyplot as plt
@@ -57,6 +57,7 @@ import json
 # for i in {1..10}; do python3 -m gather_atts.py; done
 
 # %%
+base_path = "data/LargeRandNet/"
 stim_path = "data/LargeRandNet/LargeRandNet_cosinput.csv"
 response_path = "data/LargeRandNet/LargeRandNet_SpikeTime.csv"
 
@@ -94,13 +95,15 @@ plt.plot(stimulus[0, :,])
 # %%
 # df = pd.read_csv(parent_path + "code/data/OneCombo3/Combo3_all_stim.csv")
 frame_window = 20
-window = 1
-window_prev = 19
-dt = 1
+window = 0.5
+window_prev = 20 - window
+dt = 0.1
 
 from SpikeVidUtils import make_intervals
 
+df['real_interval'] = make_intervals(df, dt)
 df['Interval'] = make_intervals(df, window)
+df['Interval_2'] = make_intervals(df, window_prev)
 df = df.reset_index(drop=True)
 
 # n_dt = sorted((df['Interval_dt'].unique()).round(2)) 
@@ -109,7 +112,10 @@ dt_range = math.ceil(max_window / dt) + 1  # add first / last interval for SOS /
 n_dt = [round(dt * n, 2) for n in range(dt_range)]
 
 # %%
-df.groupby(['Interval', 'Trial']).size().plot.bar()
+
+df.groupby(['Interval', 'Trial']).size().nlargest(int(len(df['Trial'].unique()) * 0.2))
+# df.groupby(['Interval_2', 'Trial']).size().nlargest(int(len(df['Trial'].unique()) * 0.2))
+# df.groupby(['Interval', 'Trial']).size().plot.bar()
 
 # %%
 from SpikeVidUtils import SpikeTimeVidData2
@@ -121,7 +127,7 @@ frame_block_size = 1000  # math.ceil(frame_feats.shape[-1] * frame_window)
 n_embd_frames = 256
 
 prev_id_block_size = 800
-id_block_size = 40   # 95
+id_block_size = 200   # 95
 block_size = frame_block_size + id_block_size + prev_id_block_size # frame_block_size * 2  # small window for faster training
 frame_memory = 20   # how many frames back does model see
 window = window
@@ -153,18 +159,24 @@ test_data = df[~df['Trial'].isin(train_trials)]
 from SpikeVidUtils import SpikeTimeVidData2
 
 # train_dat1aset = spikeTimeData(spikes, block_size, dt, stoi, itos)
+from SpikeVidUtils import SpikeTimeVidData2
+
+# train_dat1aset = spikeTimeData(spikes, block_size, dt, stoi, itos)
 dt_frames = 1/10
+
+intervals = np.load(os.path.join(base_path, "intervals.npy"))
 
 train_dataset = SpikeTimeVidData2(train_data, None, block_size, id_block_size, frame_block_size, prev_id_block_size, 
                                   window, dt, frame_memory, stoi, itos, neurons, stoi_dt, itos_dt, frame_feats, 
                                   pred=False, window_prev=window_prev, frame_window=frame_window, start_interval=20,
-                                  dt_frames=dt_frames)
+                                  dt_frames=dt_frames, intervals=intervals)
 test_dataset = SpikeTimeVidData2(test_data, None, block_size, id_block_size, frame_block_size, prev_id_block_size, 
                                  window, dt, frame_memory, stoi, itos, neurons, stoi_dt, itos_dt, frame_feats, 
                                  pred=False, window_prev=window_prev, frame_window=frame_window, start_interval=20,
-                                 dt_frames=dt_frames)
+                                 dt_frames=dt_frames, intervals=intervals)
 
 print(f'train: {len(train_dataset)}, test: {len(test_dataset)}')
+
 
 # %%
 # from utils import get_class_weights
@@ -205,14 +217,12 @@ shuffle = True
 # model_path = "/local/home/antonis/neuroformer/models/tensorboard/LRN/w:10_wp:10/6_Cont:True_window:10_f_window:20_df:0.1_blocksize:30_sparseFalse_conv_True_shuffle:True_batch:128_sparse_(200_200)_blocksz1060_pos_emb:False_temp_emb:True_drop:0.35_dt:True_2.0_10.0_max0.1_(6, 4, 10)_2_200.pt"
 ## weighted
 weighted = True if mconf.class_weights is not None else False
-title = 'smaller-time-window'
-model_path = f"""./models/tensorboard/LRN/weighted_{weighted}/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/
-                 w:{window}_wp:{window_prev}/{6}_Cont:{mconf.contrastive}_window:{window}_f_window:{frame_window}_df:{dt}_blocksize:{id_block_size}
-                 _conv_{conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_
-                 pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(n_dt)}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
+title = '0.5_window_CORRECTCONTRASTIVE_smoothinterval'
+model_path = f"""./models/tensorboard/LRN/weighted_{weighted}/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{window}_wp:{window_prev}/{6}_Cont:{mconf.contrastive}_window:{window}_f_window:{frame_window}_df:{dt}_blocksize:{id_block_size}_conv_{conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(n_dt)}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
 
 
-tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rate=2e-4, 
+
+tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rate=1e-4, 
                     num_workers=4, lr_decay=True, patience=3, warmup_tokens=8e6, 
                     decay_weights=True, weight_decay=0.1, shuffle=shuffle,
                     final_tokens=len(train_dataset)*(id_block_size) * (max_epochs),
@@ -328,6 +338,7 @@ df_list = [df_pred_full, df_1, df_2, df_3]
 
 for df_ in df_list:
     df_['Interval'] = make_intervals(df_, window_pred)
+    df_['Interval'] = df[df['Interval'] > train_dataset]
 
 window_pred = window if window_pred is None else window_pred
 intervals = np.array(sorted(set(df['Interval'].unique()) & set(df['Interval'].unique())))
@@ -381,9 +392,10 @@ plt.show()
 
 dir_name = os.path.dirname(model_path)
 model_name = os.path.basename(model_path)
-plt.savefig(os.path.join(dir_name, F'psth_corr_{model_name}.svg'))
+plt.savefig(os.path.join(dir_name, F'psth_corr_{title}.svg'))
+df_pred.to_csv(os.path.join(dir_name, F'df_pred_{title}.csv'))
 
-plot_distribution(df_1, df_pred)
+plot_distribution(df_1, df_pred, save_path=os.path.join(dir_name, F'psth_dist_{title}.svg'))
 
 total_scores = dict()
 total_scores['real'] = scores

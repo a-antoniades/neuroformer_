@@ -316,7 +316,6 @@ class MultiheadfAttention(nn.Module):
         # Explicit Sparse Attention - Use top-K qk values
         if self.sparse_topk is not None and self.sparse_topk < att.shape[-1]:
             top, _ = torch.topk(att, self.sparse_topk, dim=-1)
-            # print(top.shape)
             vk = top[..., -1].unsqueeze(-1).expand_as(att)
             mask = att < vk
             att.masked_fill_(mask, float('-inf'))
@@ -1240,7 +1239,7 @@ class GPT(nn.Module):
         n = float('inf')
         if self.config.contrastive:
             n = 2
-            loss['clip'] = self.clip(features['frames'][:, 0], features['id'][:, -1]) * (1 / n) 
+            loss['clip'] = self.clip(features['frames'][:, 0], features['id'][:, t - P]) * (1 / n) 
         loss['id'] = ((3 / 4) * sum(loss_id) / b) * (1 - 1 / n)   # sum(loss_id) / (b * 2)   # / len(loss_id)
         loss['time'] = ((1 / 4) * sum(loss_time) / b) * (1 - 1 / n) 
             
