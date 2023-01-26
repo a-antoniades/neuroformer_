@@ -433,8 +433,8 @@ class SpikeTimeVidData2(Dataset):
         """
 
         def __init__(self, data, frames, block_size, id_block_size, frame_block_size, id_prev_block_size, window, dt, frame_memory, 
-                     stoi, itos, neurons, stoi_dt=None, itos_dt=None, frame_feats=None, pred=False, data_dict=None, window_prev=None, 
-                     dataset=None, intervals=None, **kwargs):
+                     stoi, itos, neurons, stoi_dt=None, itos_dt=None, frame_feats=None, pred=False, data_dict=None, 
+                     window_prev=None, dataset=None, intervals=None, **kwargs):
                                 
                 pixels = [i for i in range(frames.min(), frames.max() + 1)] if frames is not None else []
                 feat_encodings = neurons + ['EOS'] + ['PAD'] + pixels                 
@@ -480,17 +480,18 @@ class SpikeTimeVidData2(Dataset):
                 # assert self.window_prev % self.window == 0, "window_prev must be a multiple of window"
                 self.frame_window = 1.0
 
-                start_interval = 2
                 if intervals is not None:
-                    print(f"intervals: INTERVALS NOT NONE")
                     self.t = intervals
                 else:
-                    if dataset is None:
-                        self.t = self.data.drop_duplicates(subset=['real_interval', 'Trial']) # .sample(frac=1).reset_index(drop=True) # interval-trial unique pairs
-                        self.t = self.t[['Interval', 'real_interval', 'Trial']] 
+                    if dataset != 'combo_v2':
+                        if 'real_interval' not in self.data.columns:
+                            self.t = self.data.drop_duplicates(subset=['Interval', 'Trial'])[['Interval', 'Trial']] # .sample(frac=1).reset_index(drop=True) # interval-trial unique pairs
+                        else:
+                            self.t = self.data.drop_duplicates(subset=['real_interval', 'Trial']) # .sample(frac=1).reset_index(drop=True) # interval-trial unique pairs
+                            self.t = self.t[['Interval', 'real_interval', 'Trial']] 
                     elif dataset == 'combo_v2':
                         self.t = self.data.drop_duplicates(subset=['Interval', 'Trial', 'Stimulus'])[['Interval', 'Trial', 'Stimulus']]
-                        self.t = self.t[self.t['Interval'] > start_interval].reset_index(drop=True)
+                    self.t = self.t[self.t['Interval'] > window_prev].reset_index(drop=True)
                 self.idx = 0
                 self.window = window        # interval window (prediction)
                 self.window_prev = window if window_prev is None else window_prev
@@ -503,6 +504,9 @@ class SpikeTimeVidData2(Dataset):
 
                 for k, v in kwargs.items():
                     setattr(self, k, v)
+                    print(f'{k}: {v}')
+                
+                # print(f"dt_frames: {self.dt_frames}")
 
 
         def __len__(self):
@@ -578,14 +582,15 @@ class SpikeTimeVidData2(Dataset):
                     interval_ = self.t[idx]
                     t = dict()
                     t['Interval'] = interval_[0].astype(float)
-                    t['real_interval'] = interval_[1].astype(float)
+                    if 'real_interval' in self.t.dtype.names:
+                        t['real_interval'] = interval_[1].astype(float)
                     t['Trial'] = interval_[2].astype(int)
-                    t['Stimulus'] = None
+                    t['Stimulus'] = torch.zeros(1, dtype=torch.long)
 
                 x = collections.defaultdict(list)
                 y = collections.defaultdict(list)
 
-                n_stim = None if self.dataset is None else t['Stimulus']
+                n_stim = None if 'Stimulus' not in t else t['Stimulus']
 
                 ## PREV ##
                 # get state history + dt (last 30 seconds)
@@ -609,7 +614,7 @@ class SpikeTimeVidData2(Dataset):
                 y['dt'] = torch.tensor(dt[1:], dtype=torch.long)
                 x['interval'] = torch.tensor(t['Interval'], dtype=torch.float32)
                 x['trial'] = torch.tensor(t['Trial'], dtype=torch.long)
-                x['real_interval'] = torch.tensor(t['real_interval'], dtype=torch.float32)
+                x['real_interval'] = torch.tensor(t['real_interval'], dtype=torch.float32) if 'real_interval' in t else torch.zeros(1, dtype=torch.long)
                 
                 # for backbone:
                 if self.frame_feats is not None:
@@ -626,12 +631,12 @@ class SpikeTimeVidData2(Dataset):
                         if t['Trial'] <= 20: n_stim = 0
                         elif t['Trial'] <= 40: n_stim = 1
                         elif t['Trial'] <= 60: n_stim = 2
-                    elif self.dataset is 'combo_v2':
+                    elif self.dataset == 'combo_v2':
                         n_stim = n_stim
                     
                     # t['Interval'] += self.window
                     dt_frames = self.dt_frames if self.dt_frames is not None else 1/20
-                    frame_idx = get_frame_idx(t['Interval'], dt_frames)     # get last 1 second of frames
+                    frame_idx = get_frame_idx(t['Interval'], dt_frames) - 1     # get last 1 second of frames
                     frame_window = self.frame_window
                     n_frames = math.ceil(int(1/dt_frames) * frame_window)
                     frame_idx = frame_idx if frame_idx >= n_frames else n_frames
@@ -645,7 +650,12 @@ class SpikeTimeVidData2(Dataset):
                         # f_f = 0
                     # x['idx'] = torch.tensor([frame_idx, n_stim], dtype=torch.float16)
                     if self.frame_feats is not None:
-                        x['frames'] = frame_feats_stim[:, frame_idx - f_b:frame_idx].type(torch.float32)
+                        if self.dataset != 'LIF2':
+                            x['frames'] = frame_feats_stim[:, frame_idx - f_b:frame_idx].type(torch.float32)
+                        if self.dataset == 'LIF2':
+                            x['frames'] = frame_feats_stim[:, frame_idx].type(torch.float32)
+                            x['frames'] = x['frames'].repeat(500, 1)
+
                     
                     # print(f"frame_int: {frame_idx - f_b}, {frame_idx}")
            

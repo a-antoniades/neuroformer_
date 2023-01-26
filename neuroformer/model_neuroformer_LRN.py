@@ -78,6 +78,7 @@ class GPTConfig:
     self_att_layers = 0
     resnet_backbone = False
     vit_encoder = True
+    dataset = None
 
 
     def __init__(self, vocab_size, block_size, **kwargs):
@@ -959,6 +960,10 @@ class GPT(nn.Module):
         self.drop = nn.Dropout(config.embd_pdrop)
         self.frame_1d_emb = nn.Parameter(torch.zeros(1, config.frame_block_size, config.n_embd))
 
+        # LIF2 functions
+        if self.config.dataset == 'LIF2':
+            self.mlp_frames = nn.Linear(config.n_embd_frames, config.n_embd)
+
         # # -- Visual Backbone -- #
         # if config.resnet_backbone is False:
         #     self.video_encoder = VideoEncoder(config)
@@ -1070,6 +1075,10 @@ class GPT(nn.Module):
         # frames = self.video_encoder(x['frames']) if 'frames' in x else None
         frames = x['frames'] if 'frames' in x else None
         pad = x['pad']
+
+        # LIF2 project frames to n_embd
+        if self.config.dataset == 'LIF2':
+            frames = self.mlp_frames(frames)
 
         # forward the GPT model
         ''' 
@@ -1234,14 +1243,16 @@ class GPT(nn.Module):
 
 
 
-        loss = dict()
-        # loss['frames'] = loss_frames / (b / 3)
-        n = float('inf')
-        if self.config.contrastive:
-            n = 2
-            loss['clip'] = self.clip(features['frames'][:, 0], features['id'][:, t - P]) * (1 / n) 
-        loss['id'] = ((3 / 4) * sum(loss_id) / b) * (1 - 1 / n)   # sum(loss_id) / (b * 2)   # / len(loss_id)
-        loss['time'] = ((1 / 4) * sum(loss_time) / b) * (1 - 1 / n) 
+        
+        if targets is not None:    
+            loss = dict()
+            # loss['frames'] = loss_frames / (b / 3)
+            n = float('inf')
+            if self.config.contrastive:
+                n = 2
+                loss['clip'] = self.clip(features['frames'][:, 0], features['id'][:, t - P]) * (1 / n) 
+            loss['id'] = ((3 / 4) * sum(loss_id) / b) * (1 - 1 / n)   # sum(loss_id) / (b * 2)   # / len(loss_id)
+            loss['time'] = ((1 / 4) * sum(loss_time) / b) * (1 - 1 / n) 
             
             # loss['dt'] = loss_time / (b * 50)
             # loss['hungarian'] = sum(loss_hungarian) / (b * 2)

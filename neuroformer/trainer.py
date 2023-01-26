@@ -199,6 +199,7 @@ class Trainer:
                                          f'total_loss: {total_loss.mean():.5f}' + f' lr {lr:e}' + ' ' + f'precision: {precision.mean():.5f}')
             
                     #  linear warmup
+                    lr_mult = 1
                     self.tokens += (y['id']>=0).sum() # number of tokens processed this step (i.e label is not -100)
                     if self.tokens < config.warmup_tokens:
                         # linear warmup

@@ -1203,11 +1203,11 @@ class GPT(nn.Module):
                 
                 loss_id.append(loss_id_)
                 loss_time.append(loss_time_)
-        else:
-            zero_tensor = torch.zeros(1).to(self.device)
-            precision.append(zero_tensor)
-            recall.append(zero_tensor)
-            F1.append(zero_tensor)
+            else:
+                zero_tensor = torch.zeros(1).to(self.device)
+                precision.append(zero_tensor)
+                recall.append(zero_tensor)
+                F1.append(zero_tensor)
 
                     # # for n in range(len(pred_neurons)):
                     # pred_id = set(pred_neurons)     # - set([515, 516, 517])
