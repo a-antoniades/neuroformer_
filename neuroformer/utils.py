@@ -57,6 +57,11 @@ def convert_weights(model: nn.Module):
 
     model.apply(_convert_weights_to_fp16)
 
+def df_to_dict(df):
+    d = {k: f.groupby('Interval').apply(lambda x: {'Time': np.array(x['Time']), 'ID': np.array(x['ID'])}).to_dict()
+        for k, f in df.groupby('Trial')}
+    return d
+    
 def get_model_attr(mconf, tconf):
   n_head = mconf.n_head
   n_block = mconf.n_layer
@@ -90,6 +95,7 @@ class NestedDefaultDict(collections.defaultdict):
 
     def __repr__(self):
         return repr(dict(self))
+
 
 def varname(variable):
     for name in list(globals().keys()):
@@ -586,6 +592,7 @@ def predict_raster_recursive_time_auto(model, loader, window, window_prev, stoi,
         data[key] = data[key].to("cpu")
         
     return data
+    
 
 @torch.no_grad()
 def predict_beam_search(model, loader, stoi, frame_end=0):
