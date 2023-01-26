@@ -1,5 +1,7 @@
 # %%
 import os
+# os.environ["CUDA_VISIBLE_DEVICES"]="0"
+
 import glob
 import collections
 
@@ -39,7 +41,7 @@ from scipy.special import softmax
 import skimage
 import skvideo.io
 from utils import print_full
-from scipy.ndimage.filters import gaussian_filter, uniform_filter
+from scipy.ndimage import gaussian_filter, uniform_filter
 
 
 import matplotlib.pyplot as plt
@@ -56,23 +58,36 @@ from trainer import Trainer, TrainerConfig
 import json
 # for i in {1..10}; do python3 -m gather_atts.py; done
 
+
+
 # %%
-stim_path = "data/LargeRandNet/LargeRandNet_cosinput.csv"
-response_path = "data/LargeRandNet/LargeRandNet_SpikeTime.csv"
+# stim_path = "data/LargeRandLIF2/LargeRandNet2_PoissonRate.csv"
+# response_path = "data/LargeRandLIF2/LargeRandNet2_SpikeTime.csv"
+
+# if not os.path.exists(response_path):
+#     print("Downloading data...")
+#     import gdown
+#     url = "https://drive.google.com/drive/folders/1dkU4GjyKt5ror5DuyfM135ISsnE69Jp5?usp=sharing"
+#     gdown.download_folder(id=url, quiet=False, use_cookies=False, output="data/")
+
+stim_path = "data/LargeRandLIF2-2/LargeRandNet2_PoissonRate.csv"
+response_path = "data/LargeRandLIF2-2/LargeRandNet2_SpikeTime.csv"
 
 if not os.path.exists(response_path):
     print("Downloading data...")
     import gdown
-    url = "https://drive.google.com/drive/folders/1vxHg7FaFQDjQZUNMgvo5wAOlFIcZ2uv-?usp=share_link"
-    gdown.download_folder(id=url, quiet=False, use_cookies=False, output="data/LargeRandNet/")
+    url = "https://drive.google.com/drive/folders/1yDWde9rJ_9nOYN5Ic-_JoAYaW2a2jYOY?usp=sharing"
+    gdown.download_folder(id=url, quiet=False, use_cookies=False, output="data/")
 
 
 # Load Data
-stimulus = np.loadtxt(stim_path, delimiter=',')
+stimulus = np.transpose(np.loadtxt(stim_path, delimiter=','), (1, 0))
 df = pd.read_csv(response_path, names=['Time', 'ID'])
+dt_res = 10000
 df['Time'] = df['Time'].round(4)
-df['Trial'] = df['Time'].apply(lambda x: x // 100 + 1).astype(int)
-df['Time'] = df['Time'].apply(lambda x: x - ((x // 100) * 100)).round(2)
+df['Trial'] = df['Time'].apply(lambda x: x // dt_res + 1).astype(int)
+df['Time'] = df['Time'].apply(lambda x: x - ((x // dt_res) * dt_res)).round(2)
+df['ID'] = df['ID'].astype(int)
 
 # %%
 # set up logging
@@ -83,13 +98,16 @@ logging.basicConfig(
         level=logging.INFO,
 )
 
+
 # %%
 from utils import set_seed
 n_seed = 25
 set_seed(n_seed)
 
+
 # %%
 plt.plot(stimulus[0, :,])
+
 
 # %%
 # df = pd.read_csv(parent_path + "code/data/OneCombo3/Combo3_all_stim.csv")
@@ -97,6 +115,8 @@ frame_window = 20
 window = 0.5
 window_prev = 20 - window
 dt = 0.1
+dt_frames = 20
+start_interval = max(window, window_prev)
 
 from SpikeVidUtils import make_intervals
 
@@ -109,11 +129,33 @@ max_window = max(window, window_prev)
 dt_range = math.ceil(max_window / dt) + 1  # add first / last interval for SOS / EOS'
 n_dt = [round(dt * n, 2) for n in range(dt_range)]
 
-# %%
 
-df.groupby(['Interval', 'Trial']).size().nlargest(int(len(df['Trial'].unique()) * 0.2))
+
+# %%
+from utils import df_to_dict
+
+dict_path = "data/LargeRandLIF2-2/LargeRandNet2_SpikeTime_dict.pkl"
+
+if not os.path.exists(dict_path):
+    print("Creating dictionary...")
+    df_dict = df_to_dict(df)
+    with open(dict_path, 'wb') as f:
+        pickle.dump(df_dict, f)
+else:
+    print("Loading dictionary...")
+    with open(dict_path, 'rb') as f:
+        df_dict = pickle.load(f)
+
+# %%
+# df.groupby(['Interval', 'Trial']).size().nlargest(int(len(df['Trial'].unique()) * 0.2))
 # df.groupby(['Interval_2', 'Trial']).size().nlargest(int(len(df['Trial'].unique()) * 0.2))
 # df.groupby(['Interval', 'Trial']).size().plot.bar()
+
+
+
+# %%
+# df.groupby(['Interval_2', 'Trial']).size().nlargest(int(len(df['Trial'].unique()) * 0.2))
+
 
 # %%
 from SpikeVidUtils import SpikeTimeVidData2
@@ -122,10 +164,10 @@ from SpikeVidUtils import SpikeTimeVidData2
 n_embd = 200
 frame_feats = torch.tensor(stimulus, dtype=torch.float32)
 frame_block_size = 1000  # math.ceil(frame_feats.shape[-1] * frame_window)
-n_embd_frames = 256
+n_embd_frames = 10000
 
 prev_id_block_size = 800
-id_block_size = 200   # 95
+id_block_size = 85   # 95
 block_size = frame_block_size + id_block_size + prev_id_block_size # frame_block_size * 2  # small window for faster training
 frame_memory = 20   # how many frames back does model see
 window = window
@@ -144,8 +186,7 @@ stoi_dt = { ch:i for i,ch in enumerate(n_dt) }
 itos_dt = { i:ch for i,ch in enumerate(n_dt) }
 max(list(itos_dt.values()))
 
-# %%
-frame_block_size
+
 
 # %%
 r_split = 0.8
@@ -153,26 +194,28 @@ train_trials = sorted(df['Trial'].unique())[:int(len(df['Trial'].unique()) * r_s
 train_data = df[df['Trial'].isin(train_trials)]
 test_data = df[~df['Trial'].isin(train_trials)]
 
+
+
 # %%
 from SpikeVidUtils import SpikeTimeVidData2
-
-# train_dat1aset = spikeTimeData(spikes, block_size, dt, stoi, itos)
-dt_frames = 1/10
 
 train_dataset = SpikeTimeVidData2(train_data, None, block_size, id_block_size, frame_block_size, prev_id_block_size, 
                                   window, dt, frame_memory, stoi, itos, neurons, stoi_dt, itos_dt, frame_feats, 
                                   pred=False, window_prev=window_prev, frame_window=frame_window, start_interval=20,
-                                  dt_frames=dt_frames)
+                                  dt_frames=dt_frames, data_dict=df_dict, dataset='LIF2')
 test_dataset = SpikeTimeVidData2(test_data, None, block_size, id_block_size, frame_block_size, prev_id_block_size, 
-                                 window, dt, frame_memory, stoi, itos, neurons, stoi_dt, itos_dt, frame_feats, 
-                                 pred=False, window_prev=window_prev, frame_window=frame_window, start_interval=20,
-                                 dt_frames=dt_frames)
+                                  window, dt, frame_memory, stoi, itos, neurons, stoi_dt, itos_dt, frame_feats, 
+                                  pred=False, window_prev=window_prev, frame_window=frame_window, start_interval=20,
+                                  dt_frames=dt_frames, data_dict=df_dict, dataset='LIF2')
 
 print(f'train: {len(train_dataset)}, test: {len(test_dataset)}')
+
 
 # %%
 # from utils import get_class_weights
 # class_weights = get_class_weights(train_dataset, stoi, stoi_dt)
+
+
 
 # %%
 from model_neuroformer_LRN import GPT, GPTConfig, neuralGPTConfig, Decoder
@@ -189,21 +232,20 @@ mconf = GPTConfig(train_dataset.population_size, block_size,    # frame_block_si
                         data_size=train_dataset.size,
                         class_weights=None,
                         pretrain=False,
-                        n_state_layers=6, n_state_history_layers=4, n_stimulus_layers=4, self_att_layers=16,
-                        n_layer=10, n_head=8, n_embd=n_embd, 
+                        n_state_layers=6, n_state_history_layers=4, n_stimulus_layers=4, self_att_layers=8,
+                        n_layer=10, n_head=8, n_embd=n_embd, n_embd_frames=n_embd_frames,
                         contrastive=True, clip_emb=1024, clip_temp=0.5,
                         temp_emb=True, pos_emb=False,
                         id_drop=0.35, im_drop=0.35,
                         window=window, window_prev=window_prev, frame_window=frame_window, dt=dt,
-                        neurons=neurons, stoi_dt=stoi_dt, itos_dt=itos_dt)  # 0.35
+                        neurons=neurons, stoi_dt=stoi_dt, itos_dt=itos_dt, dataset='LIF2')  # 0.35
 model = GPT(mconf)
-
 
 
 # %%
 layers = (mconf.n_state_layers, mconf.n_state_history_layers, mconf.n_stimulus_layers)
-max_epochs = 50
-batch_size = 32 * 4
+max_epochs = 10
+batch_size = 32 * 12
 shuffle = True
 
 ## first run
@@ -211,13 +253,16 @@ shuffle = True
 # model_path = "/local/home/antonis/neuroformer/models/tensorboard/LRN/w:10_wp:10/6_Cont:True_window:10_f_window:20_df:0.1_blocksize:30_sparseFalse_conv_True_shuffle:True_batch:128_sparse_(200_200)_blocksz1060_pos_emb:False_temp_emb:True_drop:0.35_dt:True_2.0_10.0_max0.1_(6, 4, 10)_2_200.pt"
 ## weighted
 weighted = True if mconf.class_weights is not None else False
-title = '0.5_window_CORRECTCONTRASTIVE_startinterval_fidxfix'
-model_path = f"""./models/tensorboard/LRN/weighted_{weighted}/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{window}_wp:{window_prev}/{6}_Cont:{mconf.contrastive}_window:{window}_f_window:{frame_window}_df:{dt}_blocksize:{id_block_size}_conv_{conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(n_dt)}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
+title = '0.5_window_CORRECTCONTRASTIVE_startinterval'
+model_path = f"""./models/tensorboard/LRL2/weighted_{weighted}/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{window}_wp:{window_prev}/{6}_Cont:{mconf.contrastive}_window:{window}_f_window:{frame_window}_df:{dt}_blocksize:{id_block_size}_conv_{conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(n_dt)}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
 
+if os.path.exists(model_path):
+    model.load_state_dict(torch.load(model_path))
+    print(f"-- loaded model from {model_path} --")
 
 
 tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rate=1e-4, 
-                    num_workers=4, lr_decay=True, patience=3, warmup_tokens=8e6, 
+                    num_workers=4, lr_decay=False, patience=3, warmup_tokens=8e0, 
                     decay_weights=True, weight_decay=0.1, shuffle=shuffle,
                     final_tokens=len(train_dataset)*(id_block_size) * (max_epochs),
                     clip_norm=1.0, grad_norm_clip=1.0,
@@ -230,34 +275,19 @@ tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rat
 
 
 trainer = Trainer(model, train_dataset, test_dataset, tconf, mconf)
-# trainer.train()
+trainer.train()
+
 
 # %%
-from SpikeVidUtils import SpikeTimeVidData2
-
-# train_dat1aset = spikeTimeData(spikes, block_size, dt, stoi, itos)
-
-train_dataset = SpikeTimeVidData2(train_data, None, block_size, id_block_size, frame_block_size, prev_id_block_size, 
-                                  window, dt, frame_memory, stoi, itos, neurons, stoi_dt, itos_dt, frame_feats, 
-                                  pred=False, window_prev=window_prev, frame_window=frame_window, start_interval=20,
-                                  dt_frames=dt_frames)
-test_dataset = SpikeTimeVidData2(test_data, None, block_size, id_block_size, frame_block_size, prev_id_block_size, 
-                                 window, dt, frame_memory, stoi, itos, neurons, stoi_dt, itos_dt, frame_feats, 
-                                 pred=False, window_prev=window_prev, frame_window=frame_window, start_interval=20,
-                                 dt_frames=dt_frames)
-
-print(f'train: {len(train_dataset)}, test: {len(test_dataset)}')
-
-iterable = iter(train_dataset)
-
-# %%
-loader = DataLoader(train_dataset, batch_size=1, shuffle=True, num_workers=0, pin_memory=True)
+loader = DataLoader(train_dataset, batch_size=32*5, shuffle=True, num_workers=6, pin_memory=True)
 iterable = iter(loader)
+
 
 # %%
 x, y = next(iterable)
 model.cpu()
-model(x, y)
+features, logits, loss = model(x, y)
+
 
 
 # %%
@@ -285,15 +315,20 @@ n_p = 0.3   # (n + 1) * 0.05
 temp = 2
 # stoi['SOS'] = 2000
 
+
+
 # %%
+
+end_interval = window * 500
+
 for trial in trials:    # test_data['Trial'].unique():
     # with io.capture_output() as captured:
         print(f"Trial: {trial}")
-        df_trial = df[df['Trial'] == trial]
+        df_trial = df[(df['Trial'] == trial) & (df['Time'] < end_interval)]
         trial_dataset = SpikeTimeVidData2(df_trial, None, block_size, id_block_size, frame_block_size, prev_id_block_size, 
-                                        window, dt, frame_memory, stoi, itos, neurons, stoi_dt, itos_dt, frame_feats, 
-                                        pred=False, window_prev=window_prev, frame_window=frame_window, start_interval=20,
-                                        dt_frames=dt_frames)
+                                  window, dt, frame_memory, stoi, itos, neurons, stoi_dt, itos_dt, frame_feats, 
+                                  pred=False, window_prev=window_prev, frame_window=frame_window, start_interval=20,
+                                  dt_frames=dt_frames, data_dict=df_dict, dataset='LIF2')
         trial_loader = DataLoader(trial_dataset, shuffle=False, pin_memory=False)
         results_trial = predict_raster_recursive_time_auto(model, trial_loader, window, window_prev, stoi, itos_dt, itos=itos, 
                                                            sample=True, top_p=0.95, top_p_t=0.95, temp=1.0, temp_t=1., frame_end=0, get_dt=True, gpu=False, pred_dt=True)
@@ -315,13 +350,19 @@ print(scores)
 print(f"pred: {len(df_pred)}, true: {len(df_true)}" )
 # results_dict[n] = (scores)
 
+
+
 # %%
 len(trials)
+
+
 # %%
 
 df_1 = df[df['Trial'].isin(trials)]
 df_2 = df[df['Trial'].isin(trials + 1)]
 df_3 = df[df['Trial'].isin(trials + 2)]
+
+
 
 # %%
 
@@ -333,6 +374,8 @@ df_list = [df_pred_full, df_1, df_2, df_3]
 for df_ in df_list:
     df_['Interval'] = make_intervals(df_, window_pred)
     df_ = df_[df_['Interval'] > window_prev]
+    df_ = df_[df_['Interval'] < end_interval]
+
 
 window_pred = window if window_pred is None else window_pred
 intervals = np.array(sorted(set(df['Interval'].unique()) & set(df['Interval'].unique())))
@@ -349,6 +392,8 @@ rates_3 = get_rates_trial(df_3, labels)
 top_corr_pred = calc_corr_psth(rates_pred, rates_1)
 top_corr_real = calc_corr_psth(rates_1, rates_2)
 top_corr_real_2 = calc_corr_psth(rates_1, rates_3)
+
+
 # %%
 
 """
@@ -395,10 +440,6 @@ total_scores = dict()
 total_scores['real'] = scores
 total_scores['pred'] = pred_scores
 
-# %%
-len(df_pred_full['ID'].unique())
-len(df_1['ID'].unique())
+print(f"model: {title}")
 
-len(df_pred_full['Trial'].unique())
-len(df_1['Trial'].unique())
-# %%
+
