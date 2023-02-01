@@ -31,6 +31,12 @@ parent_path = os.path.dirname(os.path.dirname(os.getcwd())) + "/"
 from utils import predict_raster, predict_and_plot_time, save_object
 
 
+# from torch.nn.parallel import DistributedDataParallell as dist
+import torch.distributed as dist
+from torch.utils.data.distributed import DistributedSampler
+
+
+
 class TrainerConfig:
     # optimization parameters
     max_epochs = 10
@@ -82,24 +88,38 @@ class Trainer:
         # take over whatever gpus are on the system
         self.device = 'cpu'
         if torch.cuda.is_available():
-            self.device = torch.cuda.current_device()
-            self.model = torch.nn.DataParallel(self.model).to(self.device)
-            self.criterion = self.criterion.to(self.device)
-        
-        # if torch.backends.mps.is_available():
-        #     print('Moving model to MPS')
-        #     self.device = torch.device('mps')
-        #     print(self.device)
-        #     self.model = self.model = self.model.to(self.device)
-        #     self.criterion = self.criterion.to(self.device)
+            # self.device = torch.cuda.current_device()
+            # self.model = torch.nn.DataParallel(self.model).to(self.device)
+            # self.criterion = self.criterion.to(self.device)
+            rank = int(os.environ["RANK"])
+            world_size = int(os.environ['WORLD_SIZE'])
+            local_rank = int(os.environ['LOCAL_RANK'])
+            dist.init_process_group(backend='nccl',
+                                                 init_method='env://', 
+                                                 world_size=world_size,
+                                                 rank=rank)
+            torch.cuda.set_device(local_rank)
+            dist.barrier()
+
+            self.device = torch.device('cuda', torch.cuda.current_device())
+            self.model = self.model.to(self.device)
+            self.model = torch.nn.parallel.DistributedDataParallel(self.model,
+                                                                   device_ids=[torch.cuda.current_device()],
+                                                                   output_device=torch.cuda.current_device(),
+                                                                   find_unused_parameters=True)
+
         
         self.writer.add_scalar(f"model/no_parameters", sum(p.numel() for p in model.parameters())) 
 
-    def save_checkpoint(self, epoch, loss):
+    def save_checkpoint(self, epoch, loss, it=None):
         # DataParallel wrappers keep raw model object in .module attribute
         raw_model = self.model.module if hasattr(self.model, "module") else self.model
-        logger.info("saving %s", self.config.ckpt_path)
-        torch.save(raw_model.state_dict(), self.config.ckpt_path)
+        if it is not None:
+            logger.info("saving %s", self.config.ckpt_path[:-3] + f"_{epoch}_{it}.pt")
+            torch.save(raw_model.state_dict(), self.config.ckpt_path[:-3] + f"_{epoch}_{it}.pt")
+        else:
+            logger.info("saving %s", self.config.ckpt_path)
+            torch.save(raw_model.state_dict(), self.config.ckpt_path)
         # save_object(self.model.mconf, self.config.ckpt_path[:-3] + "_mconf.pkl")
         # save_object(self.model.config, self.config.ckpt_path[:-3] + "_tconf.pkl")
                     
@@ -148,13 +168,14 @@ class Trainer:
             is_train = split == 'train'
             model.train(is_train)
             data = self.train_dataset if is_train else self.test_dataset
-            loader = DataLoader(data, shuffle=config.shuffle, pin_memory=False,
+            sampler = DistributedSampler(data, shuffle=True)
+            loader = DataLoader(data, pin_memory=False,
                                 batch_size=config.batch_size,
-                                num_workers=config.num_workers)
+                                num_workers=config.num_workers, sampler=sampler)
 
             scores = collections.defaultdict(list)
             losses = collections.defaultdict(list)
-            pbar = tqdm(enumerate(loader), total=len(loader), disable=self.config.no_pbar) if is_train else enumerate(loader)
+            pbar = tqdm(enumerate(loader), total=len(loader), disable=self.config.no_pbar) # if is_train else enumerate(loader)
             for it, (x, y) in pbar:
                 # place data on the correct device
                 for key, value in x.items():
@@ -175,14 +196,8 @@ class Trainer:
                         losses[key].append(value.item())
             
                 if is_train:
-
                     # backprop and update the parameters
                     model.zero_grad()
-                    # if self.config.pretrain_ims:
-                    #     loss['frames'].backward()
-                    # elif self.config.pretrain_ids:
-                    #     loss['id'].backward()
-                    # else:
                     total_loss.backward()
                     
                     if config.show_grads is True:
@@ -218,6 +233,9 @@ class Trainer:
 
                 for score in config.score_metrics:
                     scores[score].append(preds[score])
+
+                if it % 1000 == 0 and it > 0:
+                    self.save_checkpoint(it, total_loss.cpu().detach().numpy(), it=it)
                     
             # tensorboard
             av_losses = collections.defaultdict(list)
