@@ -34,6 +34,14 @@ def top_k_arr(a, k):
     idx = np.argpartition(-a.ravel(),k)[:k]
     return np.column_stack(np.unravel_index(idx, a.shape))
 
+def get_interval_dist(df, plot_dist=False):
+    dist = df.groupby(['Interval', 'Trial']).size().reset_index(name='Count')
+    # dist = dist.groupby('Interval').agg({'Count': ['mean', 'std']})
+    if plot_dist:
+        dist.plot.bar()
+        plt.show()
+    return dist
+
 def convert_weights(model: nn.Module):
     """Convert applicable model parameters to fp16"""
 
@@ -146,7 +154,6 @@ def process_predictions(results, stoi, itos, window):
         n_sos = len(df_true[df_true['true'] == sos_id])
         print(f'SOS fouuuund: {n_sos}')
         df_true = df_true[df_true['true'] != sos_id]
-
     if 'EOS' in stoi:
         # eos_id = list(itos.keys())[list(itos.values()).index('EOS')]
         eos_id = stoi['EOS']
@@ -492,41 +499,42 @@ def predict_raster_recursive_time_auto(model, loader, window, window_prev, stoi,
     data['Trial'] = context
     data['Interval'] = context
 
-    time_seq = [float(context)]
-
     id_prev_stoi_buffer = [stoi['SOS']]
     dt_prev_stoi_buffer = [float(context)]
     pbar = tqdm(enumerate(loader), total=len(loader), disable=p_bar)
     for it, (x, y) in pbar:
+        # if it > 2:
+        #     break
+        # print(f"it = {it}, interval: {x['interval']}, window_prev: {window_prev}, window: {window}")
 
         for key, value in x.items():
             x[key] = x[key].to(device)
         for key, value in y.items():
             y[key] = y[key].to(device)
         
-        if x['interval'] > window_prev + 0.5:
-            data['Time'] = data['dt'] + data['Interval']
-            df = {k: v for k, v in data.items() if k in ('ID', 'dt', 'Trial', 'Interval', 'Time')}
-            df = pd.DataFrame(df)
-            prev_int = round_n(x['interval'] - window_prev, mconf.dt)
-            prev_id_interval = round_n(prev_int - window_prev, mconf.dt), prev_int
-            x['id_prev'], x['dt_prev'], pad_prev = get_interval(df, stoi, stoi_dt, mconf.dt, prev_id_interval, float(x['trial']), T_id_prev)
-            x['id_prev'] = torch.tensor(x['id_prev'], dtype=torch.long).unsqueeze(0).to(device)
-            x['dt_prev'] = torch.tensor(x['dt_prev'], dtype=torch.long).unsqueeze(0).to(device)
+        # if x['interval'] > window_prev + 2:
+        #     data['Time'] = data['dt'] + data['Interval']
+        #     df = {k: v for k, v in data.items() if k in ('ID', 'dt', 'Trial', 'Interval', 'Time')}
+        #     df = pd.DataFrame(df)
+        #     prev_int = round_n(x['interval'] - window_prev, mconf.dt)
+        #     prev_id_interval = round_n(prev_int - window_prev, mconf.dt), prev_int
+        #     x['id_prev'], x['dt_prev'], pad_prev = get_interval(df, stoi, stoi_dt, mconf.dt, prev_id_interval, float(x['trial']), T_id_prev)
+        #     x['id_prev'] = torch.tensor(x['id_prev'], dtype=torch.long).unsqueeze(0).to(device)
+        #     x['dt_prev'] = torch.tensor(x['dt_prev'], dtype=torch.long).unsqueeze(0).to(device)
             
         pad = x['pad'] if 'pad' in x else 0
         x['id_full'] = x['id'][:, 0]
-        x['id'] = x['id'][:, 0]
+        # x['id'] = x['id'][:, 0]
         x['dt_full'] = x['dt'][:, 0] if pred_dt else x['dt']
-        x['dt'] = x['dt'][:, 0] if pred_dt else x['dt']
+        # x['dt'] = x['dt'][:, 0] if pred_dt else x['dt']
 
         current_id_stoi = torch.empty(0, device=device)
         current_dt_stoi = torch.empty(0, device=device)
         for i in range(T_id - 1):   # 1st token is SOS (already there)
             t_pad = torch.tensor([stoi['PAD']] * (T_id - x['id_full'].shape[-1]), device=device)
             t_pad_dt = torch.tensor([0] * (T_id - x['dt_full'].shape[-1]), device=device)
-            x['id'] = torch.cat((x['id_full'], t_pad)).unsqueeze(0).long()
-            x['dt'] = torch.cat((x['dt_full'], t_pad_dt)).unsqueeze(0).long() if pred_dt else x['dt']
+            # x['id'] = torch.cat((x['id_full'], t_pad)).unsqueeze(0).long()
+            # x['dt'] = torch.cat((x['dt_full'], t_pad_dt)).unsqueeze(0).long() if pred_dt else x['dt']
 
             # print(x['id'], x['dt'])
             # forward model, if list of models, then ensemble
@@ -556,11 +564,25 @@ def predict_raster_recursive_time_auto(model, loader, window, window_prev, stoi,
                 # choose highest topk (1) sample
                 _, ix = torch.topk(probs, k=1, dim=-1)
                 _, ix_dt = torch.topk(probs_dt, k=1, dim=-1)
+
+            probs_n = np.array(probs)[0]
+            xaxis = np.arange(len(probs_n))
+            topk=5
+            topk_indices = np.argpartition(probs_n, -topk)[-topk:]
+            topk_probs = probs_n[topk_indices]
+            plt.figure()
+            plt.title(f"t={i}, indices: {topk_indices}")
+            plt.bar(xaxis, probs_n)
+            plt.show()
             
             # convert ix_dt to dt and add to current time
+            # print(f"ix: {ix}, x_true: {y['id'][0, i]} ")
             current_id_stoi = torch.cat((current_id_stoi, ix.flatten()))
             current_dt_stoi = torch.cat((current_dt_stoi, ix_dt.flatten()))
-            dtx = torch.tensor(itos_dt[int(ix_dt.flatten())], device=device).unsqueeze(0)
+            dtx_itos = torch.tensor(itos_dt[int(ix_dt.flatten())], device=device).unsqueeze(0)
+
+            x['id'][:, i + 1] = ix.flatten()
+            x['dt'][:, i + 1] = ix_dt.flatten() if pred_dt else x['dt']
            
             if ix >= stoi['EOS']:    # T_id - int(x['pad']):   # or len(current_id_stoi) == T_id: # and dtx == 0.5:    # dtx >= window:   # ix == stoi['EOS']:
                 # print(f"n_regres_block: {i}")
@@ -574,17 +596,16 @@ def predict_raster_recursive_time_auto(model, loader, window, window_prev, stoi,
             except:
                 TypeError(f"ix: {ix}, itos: {itos}")
             data['ID'] = torch.cat((data['ID'], ix_itos))
-            data['dt'] = torch.cat((data['dt'], dtx))
+            data['dt'] = torch.cat((data['dt'], dtx_itos))
             data['Trial'] = torch.cat((data['Trial'], x['trial']))
             data['Interval'] = torch.cat((data['Interval'], x['interval']))
 
-            time_seq.extend(dtx + x['interval'] - window)
+            # x['id_full'] = torch.cat((x['id_full'], ix.flatten()))
+            # x['dt_full'] = torch.cat((x['dt_full'], ix_dt.flatten())) if pred_dt else x['dt']
 
-            x['id_full'] = torch.cat((x['id_full'], ix.flatten()))
-            x['dt_full'] = torch.cat((x['dt_full'], ix_dt.flatten())) if pred_dt else x['dt']
 
-        dty = torch.tensor([itos_dt[int(dt)] for dt in y['dt'][:, :T_id - pad].flatten()], device=device)
-        data['time'] = torch.cat((data['time'], dty))   
+        dty_itos = torch.tensor([itos_dt[int(dt)] for dt in y['dt'][:, :T_id - pad].flatten()], device=device)
+        data['time'] = torch.cat((data['time'], dty_itos))   
         data['true'] = torch.cat((data['true'], y['id'][:, :T_id - pad].flatten()))
         pbar.set_description(f"len pred: {len(data['ID'])}, len true: {len(data['true'])}")
 
