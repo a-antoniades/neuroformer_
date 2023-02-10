@@ -295,8 +295,8 @@ def plot_firing_comparison(df_1, df_2, id, trials, intervals, figure_name=None):
 
     # sns.distplot(true['Interval'], hist=False)
     # sns.distplot(pred['Interval'], hist=False)
-    sns.kdeplot(pred['Interval'], ax=ax_hist_1, bw_adjust=.25, color=colors[0], lw=line_width, alpha=0.7, warn_singular='False')    #plot(np.array(intervals), rates_1_id, color=colors[0],  lw=3)
-    sns.kdeplot(true['Interval'], ax=ax_hist_1, bw_adjust=.25, color=colors[1], lw=line_width, alpha=0.7, warn_singular='False')   #plot(np.array(intervals), rates_2_id, color=colors[1], lw=3)
+    # sns.kdeplot(pred['Interval'], ax=ax_hist_1, bw_adjust=.25, color=colors[0], lw=line_width, alpha=0.7, warn_singular='False')    #plot(np.array(intervals), rates_1_id, color=colors[0],  lw=3)
+    # sns.kdeplot(true['Interval'], ax=ax_hist_1, bw_adjust=.25, color=colors[1], lw=line_width, alpha=0.7, warn_singular='False')   #plot(np.array(intervals), rates_2_id, color=colors[1], lw=3)
     
     ax_hist_1.set_ylabel('')
     ax_hist_1.set_yticks([])
@@ -402,15 +402,15 @@ def plot_firing_comparison_sweeps(df_1, df_2, id, trials, intervals, figure_name
     yticks, ylabels = np.arange(len(trials)), list(map(str, trials))
     xticks, xlabels = [0,max_intervals // 2, max_intervals], [0,max_intervals // 2, max_intervals]
     xlabels = ['', '', '']
-    # for ax in axes_list:
-    #     ax = ax[0]
-    #     tidy_axis(ax, bottom=True)
-    #     no_top_right_ticks(ax)
-    #     ax.set_xlim(0, max(intervals))
-    #     ax.set_xticks(xticks)
-    #     ax.set_xticklabels(xlabels)
-    #     ax.set_yticks([])
-    #     ax.set_yticklabels([])
+    for ax in axes_list:
+        ax = ax[0]
+        tidy_axis(ax, bottom=True)
+        no_top_right_ticks(ax)
+        ax.set_xlim(0, max(intervals))
+        ax.set_xticks(xticks)
+        ax.set_xticklabels(xlabels)
+        ax.set_yticks([])
+        ax.set_yticklabels([])
 
 
     # sns.distplot(true['Interval'], hist=False)
