@@ -452,6 +452,7 @@ class TemporalEmbedding(nn.Module):
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
         pe = pe.unsqueeze(0)
+        self.register_bugger('div_term', di)
         self.register_buffer('pe', pe)
     def forward(self, x):
         x = Variable(self.pe[:, :x.size(0)], 
@@ -1162,8 +1163,12 @@ class GPT(nn.Module):
                 dt_logits_ = dt_logits[B, :t - P]
                 time_targets = targets['dt'][B, :t - P]
 
-                loss_id_ = F.cross_entropy(id_logits_.view(-1, id_logits_.size(-1)), id_targets.view(-1))    # , weight=self.class_weights_id)
-                loss_time_ = F.cross_entropy(dt_logits_.view(-1, dt_logits_.size(-1)), time_targets.view(-1))    # , weight=self.class_weights_dt)
+                if self.config.class_weights is not None:
+                    loss_id_ = F.cross_entropy(id_logits_.view(-1, id_logits_.size(-1)), id_targets.view(-1), weight=self.class_weights_id)
+                    loss_time_ = F.cross_entropy(dt_logits_.view(-1, dt_logits_.size(-1)), time_targets.view(-1), weight=self.class_weights_dt)
+                else:
+                    loss_id_ = F.cross_entropy(id_logits_.view(-1, id_logits_.size(-1)), id_targets.view(-1)) #, weight=self.class_weights_id)
+                    loss_time_ = F.cross_entropy(dt_logits_.view(-1, dt_logits_.size(-1)), time_targets.view(-1)) #, weight=self.class_weights_dt)
                 # if self.config.epoch >= 15:
                     # self.truncated_loss.update_weight(id_logits[None, ...], id_targets[None, ...], id_indexes[None, ...])
                 # loss_id_ = self.truncated_loss(id_logits_[None, ...], id_targets[None, ...])
@@ -1203,11 +1208,11 @@ class GPT(nn.Module):
                 
                 loss_id.append(loss_id_)
                 loss_time.append(loss_time_)
-            else:
-                zero_tensor = torch.zeros(1).to(self.device)
-                precision.append(zero_tensor)
-                recall.append(zero_tensor)
-                F1.append(zero_tensor)
+        else:
+            zero_tensor = torch.zeros(1).to(self.device)
+            precision.append(zero_tensor)
+            recall.append(zero_tensor)
+            F1.append(zero_tensor)
 
                     # # for n in range(len(pred_neurons)):
                     # pred_id = set(pred_neurons)     # - set([515, 516, 517])
@@ -1229,14 +1234,16 @@ class GPT(nn.Module):
 
 
 
+        
+        if targets is not None:    
             loss = dict()
             # loss['frames'] = loss_frames / (b / 3)
             n = float('inf')
             if self.config.contrastive:
                 n = 2
-                loss['clip'] = self.clip(features['frames'][:, 0], features['id'][:, t - P]) * (1 / n) 
-            loss['id'] = ((9 / 10) * sum(loss_id) / b) * (1 - 1 / n)   # sum(loss_id) / (b * 2)   # / len(loss_id)
-            loss['time'] = ((1 / 10) * sum(loss_time) / b) * (1 - 1 / n) 
+                loss['clip'] = self.clip(features['frames'][:, 0], features['id'][:, -1]) * (1 / n) 
+            loss['id'] = ((3 / 4) * sum(loss_id) / b) * (1 - 1 / n)   # sum(loss_id) / (b * 2)   # / len(loss_id)
+            loss['time'] = ((1 / 4) * sum(loss_time) / b) * (1 - 1 / n) 
             
             # loss['dt'] = loss_time / (b * 50)
             # loss['hungarian'] = sum(loss_hungarian) / (b * 2)
