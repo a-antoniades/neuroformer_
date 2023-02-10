@@ -57,6 +57,9 @@ class TrainerConfig:
     shuffle = True
     score_metrics = ['precision', 'recall', 'F1']
     no_pbar = True
+    dist = False
+    save_epoch = False
+    save_every = 0
 
 
     def __init__(self, **kwargs):
@@ -91,32 +94,39 @@ class Trainer:
             # self.device = torch.cuda.current_device()
             # self.model = torch.nn.DataParallel(self.model).to(self.device)
             # self.criterion = self.criterion.to(self.device)
-            rank = int(os.environ["RANK"])
-            world_size = int(os.environ['WORLD_SIZE'])
-            local_rank = int(os.environ['LOCAL_RANK'])
-            dist.init_process_group(backend='nccl',
-                                                 init_method='env://', 
-                                                 world_size=world_size,
-                                                 rank=rank)
-            torch.cuda.set_device(local_rank)
-            dist.barrier()
 
-            self.device = torch.device('cuda', torch.cuda.current_device())
-            self.model = self.model.to(self.device)
-            self.model = torch.nn.parallel.DistributedDataParallel(self.model,
-                                                                   device_ids=[torch.cuda.current_device()],
-                                                                   output_device=torch.cuda.current_device(),
-                                                                   find_unused_parameters=True)
+            if config.dist:
+                rank = int(os.environ["RANK"])
+                world_size = int(os.environ['WORLD_SIZE'])
+                local_rank = int(os.environ['LOCAL_RANK'])
+                dist.init_process_group(backend='nccl',
+                                                    init_method='env://', 
+                                                    world_size=world_size,
+                                                    rank=rank)
+                torch.cuda.set_device(local_rank)
+                dist.barrier()
 
-        
+                self.device = torch.device('cuda', torch.cuda.current_device())
+                self.model = self.model.to(self.device)
+                self.model = torch.nn.parallel.DistributedDataParallel(self.model,
+                                                                    device_ids=[torch.cuda.current_device()],
+                                                                    output_device=torch.cuda.current_device(),
+                                                                    find_unused_parameters=True)
+            else:
+                self.device = torch.device('cuda', torch.cuda.current_device())
+                self.model = self.model.to(self.device)
+                # self.model = torch.nn.DataParallel(self.model)
+                self.criterion = self.criterion.to(self.device)
+
         self.writer.add_scalar(f"model/no_parameters", sum(p.numel() for p in model.parameters())) 
 
-    def save_checkpoint(self, epoch, loss, it=None):
+    def save_checkpoint(self, loss, epoch=None):
         # DataParallel wrappers keep raw model object in .module attribute
         raw_model = self.model.module if hasattr(self.model, "module") else self.model
-        if it is not None:
-            logger.info("saving %s", self.config.ckpt_path[:-3] + f"_{epoch}_{it}.pt")
-            torch.save(raw_model.state_dict(), self.config.ckpt_path[:-3] + f"_{epoch}_{it}.pt")
+        if epoch is not None:
+            save_pth = os.path.join(self.config.ckpt_path[:-3], f"_epoch_{epoch}.pt")
+            logger.info("saving %s", save_pth)
+            torch.save(raw_model.state_dict(), save_pth)
         else:
             logger.info("saving %s", self.config.ckpt_path)
             torch.save(raw_model.state_dict(), self.config.ckpt_path)
@@ -168,7 +178,7 @@ class Trainer:
             is_train = split == 'train'
             model.train(is_train)
             data = self.train_dataset if is_train else self.test_dataset
-            sampler = DistributedSampler(data, shuffle=True)
+            sampler = DistributedSampler(data, shuffle=True) if config.dist else None
             loader = DataLoader(data, pin_memory=False,
                                 batch_size=config.batch_size,
                                 num_workers=config.num_workers, sampler=sampler)
@@ -234,8 +244,8 @@ class Trainer:
                 for score in config.score_metrics:
                     scores[score].append(preds[score])
 
-                if it % 1000 == 0 and it > 0:
-                    self.save_checkpoint(it, total_loss.cpu().detach().numpy(), it=it)
+                if config.save_every > 0 and it % config.save_every == 0 and it > 0:
+                    self.save_checkpoint(it, total_loss.cpu().detach().numpy())
                     
             # tensorboard
             av_losses = collections.defaultdict(list)
@@ -280,6 +290,6 @@ class Trainer:
             # good_model = self.test_dataset is None or scores['F1'] > best_precision
             if good_model:
                 best_loss = test_loss
-                self.save_checkpoint(epoch, test_loss)
+                self.save_checkpoint(test_loss)
                 # best_precision = scores['F1']
                 # self.save_checkpoint(epoch, scores['F1'])
