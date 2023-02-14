@@ -58,7 +58,6 @@ class TrainerConfig:
     score_metrics = ['precision', 'recall', 'F1']
     no_pbar = True
     dist = False
-    save_epoch = False
     save_every = 0
 
 
@@ -185,7 +184,7 @@ class Trainer:
 
             scores = collections.defaultdict(list)
             losses = collections.defaultdict(list)
-            pbar = tqdm(enumerate(loader), total=len(loader), disable=self.config.no_pbar) # if is_train else enumerate(loader)
+            pbar = tqdm(enumerate(loader), total=len(loader), disable=self.config.no_pbar) if is_train else enumerate(loader)
             for it, (x, y) in pbar:
                 # place data on the correct device
                 for key, value in x.items():
@@ -245,7 +244,7 @@ class Trainer:
                     scores[score].append(preds[score])
 
                 if config.save_every > 0 and it % config.save_every == 0 and it > 0:
-                    self.save_checkpoint(it, total_loss.cpu().detach().numpy())
+                    self.save_checkpoint(total_loss.cpu().detach().numpy(), it)
                     
             # tensorboard
             av_losses = collections.defaultdict(list)
@@ -259,18 +258,12 @@ class Trainer:
             for score in config.score_metrics:
                 self.writer.add_scalar(f"Score/{split}_{str(score)}", preds[score].mean(), epoch)
              
-            # if not is_train:
-            #     if config.plot_raster:
-            #         loader = DataLoader(data, shuffle=False, pin_memory=False,
-            #                             batch_size=1, num_workers=4)
-            #         predict_and_plot_time(model.module, loader, mconf)
-            #         # true, predicted = predict_raster(model, loader, self.mconf.frame_block_size)                    
-
-            #     for score in config.score_metrics:
-            #         scores[score] = np.array(scores[score]).mean()
-            #     scores['F1'] = 2 * scores['precision'] * scores['recall'] / (scores['precision'] + scores['recall'])
-            #     logger.info('  '.join([f'{str(key)}_{str(split)}: {value:.5f}  ' for key, value in av_losses.items()]))
-            #     logger.info('  '.join([f'{str(key)}_{str(split)}: {value:.5f}  ' for key, value in scores.items() if key in config.score_metrics]))
+            if not is_train:
+                # for score in config.score_metrics:
+                    # scores[score] = np.array(scores[score].cpu()).mean()
+                # scores['F1'] = 2 * scores['precision'] * scores['recall'] / (scores['precision'] + scores['recall'])
+                logger.info('  '.join([f'{str(key)}_{str(split)}: {value:.5f}  ' for key, value in av_losses.items()]))
+                # logger.info('  '.join([f'{str(key)}_{str(split)}: {value:.5f}  ' for key, value in scores.items() if key in config.score_metrics]))
             
                 return total_losses.item(), scores
 

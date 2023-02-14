@@ -119,9 +119,15 @@ def compute_scores(true, pred):
         if 0 not in {len(true_positives), len(false_positives), len(false_negatives)}:
             scores['precision'].append(len(true_positives) / (len(true_positives) + len(false_positives)))
             scores['recall'].append(len(true_positives) / (len(true_positives) + len(false_negatives)))
-        else:
+        elif len(true_positives) == 0:
             scores['precision'].append(0)
             scores['recall'].append(0)
+        elif len(false_positives) == 0:
+            scores['precision'].append(1)
+            scores['recall'].append(1)
+        elif len(false_negatives) == 0:
+            scores['precision'].append(1)
+            scores['recall'].append(1)
         if (scores['precision'][idx] + scores['recall'][idx]) == 0:
             scores['F1'].append(0)
         else:

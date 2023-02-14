@@ -407,11 +407,13 @@ def model_ensemble(models, x):
     return logits 
 
 
+from torch.utils.data.dataloader import DataLoader
 from SpikeVidUtils import get_interval, round_n
+from SpikeVidUtils import SpikeTimeVidData2 as SP
 @torch.no_grad()
-def predict_raster_recursive_time_auto(model, loader, window, window_prev, stoi, itos_dt, itos=None, 
+def predict_raster_recursive_time_auto(model, dataset, window, window_prev, stoi, itos_dt, itos=None, 
                                       get_dt=False, sample=False, top_k=0, top_p=0, top_p_t=0, temp=1, temp_t=1, 
-                                      frame_end=0, gpu=False, pred_dt=True, p_bar=False):    
+                                      frame_end=0, gpu=False, pred_dt=True, p_bar=False, plot_probs=False):    
     """
     predict both ID and dt recursively
     """
@@ -501,6 +503,7 @@ def predict_raster_recursive_time_auto(model, loader, window, window_prev, stoi,
 
     id_prev_stoi_buffer = [stoi['SOS']]
     dt_prev_stoi_buffer = [float(context)]
+    loader = DataLoader(dataset, shuffle=False, pin_memory=False)
     pbar = tqdm(enumerate(loader), total=len(loader), disable=p_bar)
     for it, (x, y) in pbar:
         # if it > 2:
@@ -516,9 +519,8 @@ def predict_raster_recursive_time_auto(model, loader, window, window_prev, stoi,
         #     data['Time'] = data['dt'] + data['Interval']
         #     df = {k: v for k, v in data.items() if k in ('ID', 'dt', 'Trial', 'Interval', 'Time')}
         #     df = pd.DataFrame(df)
-        #     prev_int = round_n(x['interval'] - window_prev, mconf.dt)
-        #     prev_id_interval = round_n(prev_int - window_prev, mconf.dt), prev_int
-        #     x['id_prev'], x['dt_prev'], pad_prev = get_interval(df, stoi, stoi_dt, mconf.dt, prev_id_interval, float(x['trial']), T_id_prev)
+        #     prev_id_interval, current_id_interval = dataset.calc_intervals(x['interval'])
+        #     x['id_prev'], x['dt_prev'], pad_prev = dataset.get_interval(prev_id_interval, float(x['trial']), T_id_prev)
         #     x['id_prev'] = torch.tensor(x['id_prev'], dtype=torch.long).unsqueeze(0).to(device)
         #     x['dt_prev'] = torch.tensor(x['dt_prev'], dtype=torch.long).unsqueeze(0).to(device)
             
@@ -565,15 +567,18 @@ def predict_raster_recursive_time_auto(model, loader, window, window_prev, stoi,
                 _, ix = torch.topk(probs, k=1, dim=-1)
                 _, ix_dt = torch.topk(probs_dt, k=1, dim=-1)
 
-            probs_n = np.array(probs)[0]
-            xaxis = np.arange(len(probs_n))
-            topk=5
-            topk_indices = np.argpartition(probs_n, -topk)[-topk:]
-            topk_probs = probs_n[topk_indices]
-            plt.figure()
-            plt.title(f"t={i}, indices: {topk_indices}")
-            plt.bar(xaxis, probs_n)
-            plt.show()
+            if plot_probs:
+                print(x['id'])
+                print(f"i: {i} ix: {ix}, x_true: {y['id'][0, i]}")
+                probs_n = np.array(probs)[0]
+                xaxis = np.arange(len(probs_n))
+                topk=5
+                topk_indices = np.argpartition(probs_n, -topk)[-topk:]
+                topk_probs = probs_n[topk_indices]
+                plt.figure()
+                plt.title(f"t={i}, indices: {topk_indices}")
+                plt.bar(xaxis, probs_n)
+                plt.show()
             
             # convert ix_dt to dt and add to current time
             # print(f"ix: {ix}, x_true: {y['id'][0, i]} ")

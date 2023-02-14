@@ -168,6 +168,19 @@ def split_intervals(df, interval=1):
 
     return new_df.T.reset_index().iloc[:, 1:]
 
+
+def set_intevals(df, window, window_prev, max_window, pred_window=None, min_window=None):
+    """
+    Set intervals for predictions
+    """
+    min_interval = window + window_prev if min_window is None else min_window
+    pred_interval = window if pred_window is None else pred_window
+    print()
+    df['Interval'] = make_intervals(df, pred_interval)
+    df = df[df['Interval'] > min_window]
+    df = df[df['Interval'] < max_window]
+    return df
+
 # def make_intervals(data, window):
 #     intervals = []
 #     for trial in sorted(data['Trial'].unique()):
@@ -509,6 +522,15 @@ class SpikeTimeVidData2(Dataset):
             return round(base * (round(float(x)/base)), 2)
         # return round(base * float(x)/base)
 
+        def calc_intervals(self, interval):
+            prev_int = self.round_n(interval, self.dt)
+            prev_id_interval = self.round_n(prev_int - self.window_prev, self.dt), prev_int
+            current_int = self.round_n(interval, self.dt)
+            current_id_interval = current_int, self.round_n(current_int + self.window, self.dt)
+            assert prev_id_interval[1] == current_id_interval[0]
+            return prev_id_interval, current_id_interval
+
+
         def get_interval(self, interval, trial, block_size, data_dict=None, n_stim=None, pad=True):
                 """
                 Returns interval[0] >= data < interval[1]
@@ -577,18 +599,18 @@ class SpikeTimeVidData2(Dataset):
                 y = collections.defaultdict(list)
 
                 n_stim = None if 'Stimulus' not in t else t['Stimulus']
+
+                # get intervals
+                prev_id_interval, current_id_interval = self.calc_intervals(t['Interval'])
+
                 ## PREV ##
                 # get state history + dt (last 30 seconds)
-                prev_int = self.round_n(t['Interval'], self.dt)
-                prev_id_interval = self.round_n(prev_int - self.window_prev, self.dt), prev_int
                 id_prev, dt_prev, pad_prev = self.get_interval(prev_id_interval, t['Trial'], self.id_prev_block_size, n_stim)
                 x['id_prev'] = torch.tensor(id_prev[:-1], dtype=torch.long)
                 x['dt_prev'] = torch.tensor(dt_prev[:-1], dtype=torch.float) # + 0.5
                 x['pad_prev'] = torch.tensor(pad_prev, dtype=torch.long)
                 
                 ## CURRENT ##
-                current_int = self.round_n(t['Interval'], self.dt)
-                current_id_interval = current_int, self.round_n(current_int + self.window, self.dt)
                 idn, dt, pad = self.get_interval(current_id_interval, t['Trial'], self.id_block_size, n_stim)
                 x['id'] = torch.tensor(idn[:-1], dtype=torch.long)
                 x['dt'] = torch.tensor(dt[:-1], dtype=torch.float) # + 1
@@ -596,7 +618,7 @@ class SpikeTimeVidData2(Dataset):
 
                 y['id'] = torch.tensor(idn[1:], dtype=torch.long)
                 y['dt'] = torch.tensor(dt[1:], dtype=torch.long)
-                x['interval'] = torch.tensor(t['Interval'] - self.window, dtype=torch.float32)
+                x['interval'] = torch.tensor(t['Interval'], dtype=torch.float32)
                 x['trial'] = torch.tensor(t['Trial'], dtype=torch.long)
                 
                 # for backbone:
@@ -636,7 +658,7 @@ class SpikeTimeVidData2(Dataset):
                     if self.dataset == 'LIF2':
                         frame_idx = frame_idx - 1
                         x['frames'] = frame_feats_stim[:, frame_idx].type(torch.float32)
-                        x['frames'] = x['frames'].repeat(500, 1).transpose(0, 1)
+                        x['frames'] = x['frames'].repeat(1, 1).transpose(0, 1)
                     else:
                         x['frames'] = frame_feats_stim[:, frame_idx - f_b:frame_idx].type(torch.float32)
                     # else:
@@ -712,7 +734,7 @@ print(f"x: {xid}")
 
 print(f"xid_prev: {xid_prev}")
 
-tdiff = 0
+tdiff = 0.1
 t_var = 'Time' # 'Interval'
 int_var = 'cid'
 # df[(df[t_var] >= iv - tdiff) & (df[t_var] <= iv + (window + tdiff)) & (df['Trial'] == int(x['trial']))]

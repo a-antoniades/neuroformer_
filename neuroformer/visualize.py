@@ -129,7 +129,7 @@ def tidy_axis(ax, top=False, right=False, left=False, bottom=False):
 
 def plot_neurons(ax, df, neurons, color_map):
     # print(df.head())
-    for id_ in neurons:
+    for idx, id_ in enumerate(neurons):
         df_id = df[df['ID'] == id_]
         if len(df_id) == 0:
             break
@@ -146,6 +146,7 @@ def plot_neurons(ax, df, neurons, color_map):
 
 
 def plot_raster_trial(df1, df2, trials, neurons):
+    neurons_idx = {neuron: idx for idx, neuron in enumerate(neurons)}
 
     color_labels = neurons
     rgb_values = sns.color_palette("bright", len(neurons))
@@ -162,7 +163,13 @@ def plot_raster_trial(df1, df2, trials, neurons):
         # ax[0][n].get_shared_x_axes().join(ax[0][0], ax[0][n])
         # ax[1][n].get_shared_x_axes().join(ax[0][0], ax[1][n])
 
-    plt.setp(ax, yticks=neurons, yticklabels=neurons)
+        # make y axes catergorical
+        ax[n][0].set_yticks(np.arange(0, len(neurons), 1))
+        # ax[n][0].set_yticklabels(neurons)
+        ax[n][1].set_yticks(np.arange(0, len(neurons), 1))
+        # ax[n][1].set_yticklabels(neurons)
+
+    # plt.setp(ax, yticks=np.arange(0, len(neurons)), yticklabels=neurons)
     ax[0][0].set_title('True')
     ax[0][1].set_title('Predicted')
     fig.supxlabel('Time (S)')
@@ -170,29 +177,7 @@ def plot_raster_trial(df1, df2, trials, neurons):
     plt.tight_layout()
 
 
-def plot_raster_trial(df1, df2, trials, neurons):
-
-    color_labels = neurons
-    rgb_values = sns.color_palette("bright", len(neurons))
-    color_map = dict(zip(color_labels, rgb_values))
-
-    fig, ax = plt.subplots(nrows=len(trials), ncols=2, figsize=(12,10), squeeze=False)
-    for n, trial in enumerate(trials):
-        df1_trial_n = df1[df1['Trial'] == trial]
-        df2_trial_n = df2[df2['Trial'] == trial]
-        ax[n][0].set_ylabel(f'Trial {trial}')
-        plot_neurons(ax[n][0], df1_trial_n, neurons, color_map)
-        plot_neurons(ax[n][1], df2_trial_n, neurons, color_map)
-
-        # ax[0][n].get_shared_x_axes().join(ax[0][0], ax[0][n])
-        # ax[1][n].get_shared_x_axes().join(ax[0][0], ax[1][n])
-
-    plt.setp(ax, yticks=neurons, yticklabels=neurons)
-    ax[0][0].set_title('True')
-    ax[0][1].set_title('Predicted')
-    fig.supxlabel('Time (S)')
-    fig.supylabel('Neuron ID')
-    plt.tight_layout()
+ 
 
 def get_id_intervals(df, n_id, intervals):
     id_intervals = np.zeros(len(intervals))
@@ -955,7 +940,7 @@ def plot_distribution(df_1, df_2, save_path=None):
     plt.ylabel('Count (N)', fontsize=30)
     plt.xticks(fontsize=30)
     plt.yticks(fontsize=30)
-    plt.show()
     if save_path:
         plt.savefig(save_path)
+    plt.show()
 
