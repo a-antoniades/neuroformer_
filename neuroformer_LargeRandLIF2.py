@@ -270,9 +270,10 @@ model_path = f"""./models/tensorboard/LRL2/ignore_index/{title}/sparse_f:{mconf.
 #     model.load_state_dict(torch.load(model_path))
 #     print(f"-- loaded model from {model_path} --")
 
+model.load_state_dict(torch.load("/data5/antonis/neuroformer/models/tensorboard/LRL2/ignore_index/window:1_prev:19/sparse_f:None_id:None/w:1_wp:19/6_Cont:False_window:1_f_window:20_df:0.1_blocksize:150_conv_False_shuffle:True_batch:256_sparse_(None_None)_blocksz1450_pos_emb:False_temp_emb:True_drop:0.2_dt:True_2.0_191_max0.1_(6, 4, 4)_8_256.pt"))
 
 tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rate=1e-4, 
-                    num_workers=4, lr_decay=False, patience=3, warmup_tokens=8e7, 
+                    num_workers=4, lr_decay=False, patience=3, warmup_tokens=8e0, 
                     decay_weights=True, weight_decay=0.1, shuffle=shuffle,
                     final_tokens=len(train_dataset)*(id_block_size) * (max_epochs),
                     clip_norm=1.0, grad_norm_clip=1.0,
