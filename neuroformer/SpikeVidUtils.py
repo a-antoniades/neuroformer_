@@ -386,34 +386,27 @@ def get_interval(data, stoi, stoi_dt, dt, interval, trial, block_size, data_dict
             data = data[interval[1]]
         else:
             data = {'Time': np.array([]), 'ID': np.array([])}
-
-
-    # data = self.data[(self.data['Interval'] == interval) & 
-    #                  (self.data['Trial'] == trial)][-(self.id_block_size - 2):]  
+ 
     chunk = data['ID'][-(block_size - 2):]
     dix = [stoi[s] for s in chunk]
-    # trial_token = self.stoi['Trial ' + str(int(trial))]
     dix = ([stoi['SOS']] + dix + [stoi['EOS']])[-block_size:]
-    # dix = ([trial_token] + dix + [self.stoi['EOS']])[-block_size:]
     pad_n = block_size - (len(dix) + 1 - 2) if pad else 0 # len chunk is 1 unit bigger than x, y
     dix = dix + [stoi['PAD']] * pad_n
 
-    # print(data['Time'], "int", interval[0])
-    dt_chunk = (data['Time'] - (interval[0]))[-(block_size - 2):]
-    # dt_chunk = (data['Time'] - data['Interval'] + self.window)[-(block_size - 2):]
-    # print(f"interval: {interval}, stim: {n_stim}, trial: {trial}")
-    # print(data['Time'])
-    
+    dt_chunk = (data['Time'] - (interval[0]))
     dt_chunk = [dt_ if dt_<= window else window for dt_ in dt_chunk]
     dt_chunk = [stoi_dt[round_n(dt_, dt)] for dt_ in dt_chunk]
-    if len(dt_chunk) > 0:
-        dt_max = max(dt_chunk)
-    else:
-        dt_max = 0
-    # dt_max = self.dt_max
-    dt_chunk = [0] + dt_chunk + [dt_max] * (pad_n + 1) # 0 = SOS, max = EOS
 
-    # pad_n -= 1
+    if 'EOS' in stoi_dt.keys():
+        dt_chunk = (dt_chunk + stoi_dt['EOS'])[-block_size:]
+        dt_chunk = [0] + dt_chunk + stoi_dt['EOS'] + [stoi_dt['PAD']] * (pad_n) # 0 = SOS, max = EOS
+        print('yes')
+    else:
+        if len(dt_chunk) > 0:
+            dt_max = max(dt_chunk)
+        else:
+            dt_max = 0
+        dt_chunk = ([0] + dt_chunk + [dt_max] * (pad_n + 1))[-block_size:] # 0 = SOS, max = EOS
 
     return dix, dt_chunk, pad_n
 
