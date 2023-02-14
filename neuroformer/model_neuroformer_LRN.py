@@ -88,6 +88,9 @@ class GPTConfig:
     dataset = None
     sparse_topk_id_prev = None
 
+    ignore_index_id = -1
+    ignore_index_dt = -1
+
 
     def __init__(self, vocab_size, block_size, **kwargs):
         self.vocab_size = vocab_size
@@ -766,7 +769,7 @@ class MultimodalTransformer(nn.Module):
         self.ln_f = nn.LayerNorm(config.n_embd)
         self.epoch = 0
 
-        self.register_buffer("mask", self.build_mask(config.id_block_size))  
+        self.register_buffer("mask", self.build_mask(config.id_block_size))            
     
     def build_mask(self, block_size):
         mask = torch.tril(torch.ones((block_size, block_size)),
@@ -1013,9 +1016,6 @@ class GPT(nn.Module):
 
     def forward(self, x, targets=None):
         idx = x['id']
-        idx_prev = x['id_prev']
-        dtx = x['dt']
-        frames = x['frames'] if 'frames' in x else None
         pad = x['pad']
 
         b, t = idx.size()
@@ -1041,26 +1041,27 @@ class GPT(nn.Module):
         F1 = []
         torch.cuda.empty_cache()
         if targets is not None:
-            for B, P in enumerate(pad):         
-                
-                id_logits_ = id_logits[B, :t - P]
+
+
+            if self.config.class_weights is not None:
+                loss_id = F.cross_entropy(id_logits.view(-1, id_logits.size(-1)), targets['id'].view(-1), weight=self.class_weights_id)
+                loss_time = F.cross_entropy(dt_logits.view(-1, dt_logits.size(-1)), targets['dt'].view(-1), weight=self.class_weights_dt)
+            else:
+                loss_id =  F.cross_entropy(id_logits.view(-1, id_logits.size(-1)), targets['id'].view(-1), ignore_index=self.config.ignore_index_id) #, weight=self.class_weights_id)
+                loss_time = F.cross_entropy(dt_logits.view(-1, dt_logits.size(-1)), targets['dt'].view(-1), ignore_index=self.config.ignore_index_dt) #, weight=self.class_weights_dt)
+
+            loss = dict()
+            # loss['frames'] = loss_frames / (b / 3)
+            n = float('inf')
+            if self.config.contrastive:
+                n = 2
+                loss['clip'] = self.clip(features['frames'][:, 0], features['id'][:, -1]) * (1 / n) 
+            loss['id'] = ((3 / 4) * loss_id) * (1 - 1 / n)   # sum(loss_id) / (b * 2)   # / len(loss_id)
+            loss['time'] = ((1 / 4) * loss_time) * (1 - 1 / n)
+            
+            for B, P in enumerate(pad):                
                 id_targets = targets['id'][B, :t - P]
-                dt_logits_ = dt_logits[B, :t - P]
-                time_targets = targets['dt'][B, :t - P]
-
-                id_logits_ = id_logits[B]
-                id_targets = targets['id'][B]
-                dt_logits_ = dt_logits[B]
-                time_targets = targets['dt'][B]
-
-                if self.config.class_weights is not None:
-                    loss_id_ = F.cross_entropy(id_logits_.view(-1, id_logits_.size(-1)), id_targets.view(-1), weight=self.class_weights_id)
-                    loss_time_ = F.cross_entropy(dt_logits_.view(-1, dt_logits_.size(-1)), time_targets.view(-1), weight=self.class_weights_dt)
-                else:
-                    loss_id_ = F.cross_entropy(id_logits_.view(-1, id_logits_.size(-1)), id_targets.view(-1)) #, weight=self.class_weights_id)
-                    loss_time_ = F.cross_entropy(dt_logits_.view(-1, dt_logits_.size(-1)), time_targets.view(-1)) #, weight=self.class_weights_dt)
-
-                id_logits_ = id_logits_.squeeze(-1)
+                id_logits_ = id_logits[B, :t - P]         
                 if len(id_targets) > 0:
 
                     ## score metrics
@@ -1076,24 +1077,11 @@ class GPT(nn.Module):
                         precision.append(precision_score)
                         recall.append(recall_score)
                         F1.append(F1_score)
-                
-                loss_id.append(loss_id_)
-                loss_time.append(loss_time_)
         else:
             zero_tensor = torch.zeros(1).to(self.device)
             precision.append(zero_tensor)
             recall.append(zero_tensor)
-            F1.append(zero_tensor)
-
-        if targets is not None:    
-            loss = dict()
-            # loss['frames'] = loss_frames / (b / 3)
-            n = float('inf')
-            if self.config.contrastive:
-                n = 2
-                loss['clip'] = self.clip(features['frames'][:, 0], features['id'][:, -1]) * (1 / n) 
-            loss['id'] = ((3 / 4) * sum(loss_id) / b) * (1 - 1 / n)   # sum(loss_id) / (b * 2)   # / len(loss_id)
-            loss['time'] = ((1 / 4) * sum(loss_time) / b) * (1 - 1 / n) 
+            F1.append(zero_tensor) 
             
         preds = dict()
         preds['id'] = id_logits    # [:, tf:]    # only id logits

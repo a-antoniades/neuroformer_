@@ -98,25 +98,13 @@ set_seed(n_seed)
 
 
 # %%
-stimulus.shape
-
-
-# %%
-plt.plot(stimulus[0, :])
-
-
-# %%
-plt.plot(stimulus[:, 0])
-
-
-# %%
 # df = pd.read_csv(parent_path + "code/data/OneCombo3/Combo3_all_stim.csv")
 frame_window = 20
 window = 0.5
 window_prev = 20 - window
 dt = 0.1
 dt_frames = 1/10
-p_window = window / (window + window_prev)
+# p_window = window / (window + window_prev)
 # intervals = np.load(os.path.join(base_path, "intervals.npy"))
 intervals = None
 
@@ -131,7 +119,7 @@ df = df.reset_index(drop=True)
 # n_dt = sorted((df['Interval_dt'].unique()).round(2)) 
 max_window = max(window, window_prev)
 dt_range = math.ceil(max_window / dt) + 1  # add first / last interval for SOS / EOS'
-n_dt = [round(dt * n, 2) for n in range(dt_range)]
+n_dt = [round(dt * n, 2) for n in range(dt_range)] + ['PAD']
 
 # %%
 df
@@ -176,7 +164,6 @@ stoi = { ch:i for i,ch in enumerate(feat_encodings) }
 itos = { i:ch for i,ch in enumerate(feat_encodings) }
 stoi_dt = { ch:i for i,ch in enumerate(n_dt) }
 itos_dt = { i:ch for i,ch in enumerate(n_dt) }
-max(list(itos_dt.values()))
 
 # %%
 r_split = 0.8
@@ -233,13 +220,14 @@ mconf = GPTConfig(train_dataset.population_size, block_size,    # frame_block_si
                         temp_emb=True, pos_emb=False,
                         id_drop=0.35, im_drop=0.35,
                         window=window, window_prev=window_prev, frame_window=frame_window, dt=dt,
-                        neurons=neurons, stoi_dt=stoi_dt, itos_dt=itos_dt, n_embd_frames=n_embd_frames)  # 0.35
+                        neurons=neurons, stoi_dt=stoi_dt, itos_dt=itos_dt, n_embd_frames=n_embd_frames,
+                        ignore_index_id=stoi['PAD'], ignore_index_dt=stoi_dt['PAD'])  # 0.35
 model = GPT(mconf)
 
 # %%
 layers = (mconf.n_state_layers, mconf.n_state_history_layers, mconf.n_stimulus_layers)
-max_epochs = 500
-batch_size = round((32 * 7))
+max_epochs = 125
+batch_size = round((32 * 5))
 shuffle = True
 
 ## first run
@@ -247,8 +235,8 @@ shuffle = True
 # model_path = "/local/home/antonis/neuroformer/models/tensorboard/LRN/w:10_wp:10/6_Cont:True_window:10_f_window:20_df:0.1_blocksize:30_sparseFalse_conv_True_shuffle:True_batch:128_sparse_(200_200)_blocksz1060_pos_emb:False_temp_emb:True_drop:0.35_dt:True_2.0_10.0_max0.1_(6, 4, 10)_2_200.pt"
 ## weighted
 weighted = True if mconf.class_weights is not None else False
-title =  f'window:{window}_prev:{window_prev}'
-model_path = f"""./models/tensorboard/LRN/fourrier_frames/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{window}_wp:{window_prev}/{6}_Cont:{mconf.contrastive}_window:{window}_f_window:{frame_window}_df:{dt}_blocksize:{id_block_size}_conv_{conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(n_dt)}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
+title =  f'window:{window}_prev:{window_prev}_smooth'
+model_path = f"""./models/tensorboard/LRN/ignore_index/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{window}_wp:{window_prev}/{6}_Cont:{mconf.contrastive}_window:{window}_f_window:{frame_window}_df:{dt}_blocksize:{id_block_size}_conv_{conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
 # model_path = "./models/tensorboard/LRN/weighted_False/0.5_window_CORRECTCONTRASTIVE_smoothinterval/sparse_f:None_id:None/w:0.5_wp:19.5/6_Cont:True_window:0.5_f_window:20_df:0.1_blocksize:200_conv_False_shuffle:True_batch:192_sparse_(None_None)_blocksz2000_pos_emb:False_temp_emb:True_drop:0.35_dt:True_2.0_19.5_max0.1_(6, 4, 4)_8_200.pt"
 
 tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rate=1e-4, 
@@ -261,12 +249,12 @@ tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rat
                     id_block_size=train_dataset.id_block_size,
                     show_grads=False, plot_raster=False,
                     ckpt_path=model_path, no_pbar=False, 
-                    dist=False, save_epoch=False, save_every=500)
+                    dist=True, save_every=1000)
 # f"/home/antonis/projects/slab/git/neuroformer/models/model_sim_weighted_shuffle_decay:{shuffle}_perceiver_2.0_dt:{dt}_eos_{mconf.n_layer}_{mconf.n_head}_{mconf.n_embd}.pt")
 
 
 trainer = Trainer(model, train_dataset, test_dataset, tconf, mconf)
-# trainer.train()
+trainer.train()
 
 
 # %%
@@ -308,8 +296,8 @@ for trial in trials:    # test_data['Trial'].unique():
                                   pred=False, window_prev=window_prev, frame_window=frame_window, start_interval=20,
                                   dt_frames=dt_frames)
         trial_loader = DataLoader(trial_dataset, shuffle=False, pin_memory=False)
-        results_trial = predict_raster_recursive_time_auto(model, trial_loader, window, window_prev, stoi, itos_dt, itos=itos, 
-                                                           sample=True, top_p=0.45, top_p_t=0.45, temp=1.2, temp_t=1.2, frame_end=0, get_dt=True, gpu=False, pred_dt=True)
+        results_trial = predict_raster_recursive_time_auto(model, trial_dataset, window, window_prev, stoi, itos_dt, itos=itos, 
+                                                           sample=True, top_p=0.75, top_p_t=0.75, temp=1.2, temp_t=1.2, frame_end=0, get_dt=True, gpu=False, pred_dt=True)
         # results_trial = predict_raster_hungarian(model, loader, itos_dt, top_p=0.75, temp=1)
         # print(f"MAX ID ---- {sorted(results_trial['ID'].unique()[-10])}")
         df_trial_pred, df_trial_true = process_predictions(results_trial, stoi, itos, window)
@@ -334,14 +322,19 @@ df_1 = df[df['Trial'].isin(trials)]
 df_2 = df[df['Trial'].isin(trials + 1)]
 
 # %%
+from SpikeVidUtils import set_intevals
+from analysis import get_rates_trial, calc_corr_psth
+
 df_pred_full = df_pred
 df_list = [df_pred_full, df_1, df_2, df_3]
 
 window_pred = 5
-for df_ in df_list:
-    df_['Interval'] = make_intervals(df_, window_pred)
-    df_ = df_[df_['Interval'] > train_dataset.window_prev]
-    df_ = df_[df_['Interval'] < window]
+min_window = df_pred_full['Interval'].min()
+max_window = df['Interval'].max() - (window)
+df_pred_full = set_intevals(df_pred_full, window, window_prev, max_window, window_pred, min_window)
+df_1 = set_intevals(df_1, window, window_prev, max_window, window_pred, min_window)
+df_2 = set_intevals(df_2, window, window_prev, max_window, window_pred, min_window)
+df_3 = set_intevals(df_3, window, window_prev, max_window, window_pred, min_window)
 
 window_pred = window if window_pred is None else window_pred
 intervals = np.array(sorted(set(df['Interval'].unique()) & set(df['Interval'].unique())))
@@ -360,7 +353,6 @@ top_corr_real = calc_corr_psth(rates_1, rates_2)
 top_corr_real_2 = calc_corr_psth(rates_1, rates_3)
 
 # %%
-
 """
 
 Evaluate results
@@ -385,7 +377,7 @@ print(f"pred: {pred_scores}")
 
 set_plot_white()
 plt.figure(figsize=(10, 10), facecolor='white')
-plt.title(f'PSTH Correlations (V1 + AL) bin {window_pred}', fontsize=25)
+plt.title(f'PSTH Correlations (V1 + AL) {title}', fontsize=25)
 plt.ylabel('Count (n)', fontsize=25)
 plt.xlabel('Pearson r', fontsize=25)
 plt.hist(top_corr_real, label='real - real2', alpha=0.6)
@@ -396,19 +388,17 @@ plt.show()
 
 dir_name = os.path.dirname(model_path)
 model_name = os.path.basename(model_path)
-print(f"title: {title}")
-title = title.replace('.', '_')
-# count how many svg and csv files are in the directory
-n_svg = len([name for name in os.listdir(dir_name) if name.endswith('.svg')])
-n_csv = len([name for name in os.listdir(dir_name) if name.endswith('.csv')])
-plt.savefig(os.path.join(dir_name, F'psth_corr_{title}_{n_svg}.svg'))
-df_pred.to_csv(os.path.join(dir_name, F'df_pred_{title}_{n_csv}.csv'))
+plt.savefig(os.path.join(dir_name, F'psth_corr_{title}.svg'))
+df_pred.to_csv(os.path.join(dir_name, F'df_pred_{title}.csv'))
 
 plot_distribution(df_1, df_pred, save_path=os.path.join(dir_name, F'psth_dist_{title}.svg'))
 
 total_scores = dict()
 total_scores['real'] = scores
 total_scores['pred'] = pred_scores
+
+print(f"model: {title}")
+
 
 # %%
 len(df_pred_full['ID'].unique())
