@@ -563,13 +563,14 @@ class SpikeTimeVidData2(Dataset):
                 dt_chunk = (data['Time'] - (interval[0]))
                 dt_chunk = [self.stoi_dt[self.round_n(dt, self.dt)] for dt in dt_chunk]
 
-                if 'EOS' in dt_chunk:
-                    dt_cunk = (dt_chunk + [self.stoi_dt['EOS']] + [self.stoi_dt['PAD']] * pad_n)[-block_size:]
+                if 'EOS' in self.stoi_dt.keys():
+                    dt_chunk = ([0] + dt_chunk + [self.stoi_dt['EOS']])[-block_size:]
+                    dt_chunk = dt_chunk + [self.stoi_dt['PAD']] * pad_n
                 elif len(dt_chunk) > 0:
                     dt_max = max(dt_chunk)
-                    dt_chunk = ([0] + dt_chunk + [dt_max] * (pad_n + 1))[-block_size:] # 0 = SOS, max = EOS            
+                    dt_chunk = ([0] + dt_chunk + [dt_max] * (pad_n + 1))[-block_size:] # 0 = SOS, max = EOS
                 else:
-                    dt_max = self.stoi_dt['EOS']
+                    dt_chunk = max(self.stoi_dt.values())
         
                 return dix, dt_chunk, pad_n
 
