@@ -99,6 +99,7 @@ set_seed(n_seed)
 
 # %%
 # df = pd.read_csv(parent_path + "code/data/OneCombo3/Combo3_all_stim.csv")
+w_mult = 3
 frame_window = 20
 window = 0.5
 window_prev = 20 - window
@@ -119,10 +120,7 @@ df = df.reset_index(drop=True)
 # n_dt = sorted((df['Interval_dt'].unique()).round(2)) 
 max_window = max(window, window_prev)
 dt_range = math.ceil(max_window / dt) + 1  # add first / last interval for SOS / EOS'
-n_dt = [round(dt * n, 2) for n in range(dt_range)] + ['PAD']
-
-# %%
-df
+n_dt = [round(dt * n, 2) for n in range(dt_range)] + ['EOS'] + ['PAD']
 
 # %%
 int_trials = df.groupby(['Interval', 'Trial']).size()
@@ -133,14 +131,11 @@ print(int_trials.mean())
 # df.groupby([var_group, 'Trial']).size().nlargest(int(0.2 * n_unique))
 # df.groupby(['Interval_2', 'Trial']).size().mean()
 
-
-
-
 # %%
 from SpikeVidUtils import SpikeTimeVidData2
 
 ## resnet3d feats
-n_embd = 256
+n_embd = 512
 frame_feats = torch.tensor(stimulus, dtype=torch.float32).transpose(1, 0)
 frame_block_size = 200  # math.ceil(frame_feats.shape[-1] * frame_window)
 n_embd_frames = 1000
@@ -214,7 +209,7 @@ mconf = GPTConfig(train_dataset.population_size, block_size,    # frame_block_si
                         data_size=train_dataset.size,
                         class_weights=None,
                         pretrain=False,
-                        n_state_layers=6, n_state_history_layers=4, n_stimulus_layers=4, self_att_layers=8,
+                        n_state_layers=4 * w_mult, n_state_history_layers=4 * w_mult, n_stimulus_layers=4 * w_mult, self_att_layers=4 * w_mult,
                         n_layer=10, n_head=8, n_embd=n_embd, 
                         contrastive=True, clip_emb=1024, clip_temp=0.5,
                         temp_emb=True, pos_emb=False,
@@ -227,7 +222,7 @@ model = GPT(mconf)
 # %%
 layers = (mconf.n_state_layers, mconf.n_state_history_layers, mconf.n_stimulus_layers)
 max_epochs = 125
-batch_size = round((32 * 5))
+batch_size = round((16))
 shuffle = True
 
 ## first run
@@ -255,8 +250,6 @@ tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rat
 
 trainer = Trainer(model, train_dataset, test_dataset, tconf, mconf)
 trainer.train()
-
-
 # %%
 loader = DataLoader(train_dataset, batch_size=32 * 8, shuffle=shuffle, num_workers=4, pin_memory=True)
 iterable = iter(loader)
