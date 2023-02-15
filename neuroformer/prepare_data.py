@@ -11,7 +11,6 @@ sys.path.append(str(PurePath(parent_path, 'neuroformer')))
 sys.path.append('.')
 sys.path.append('../')
 
-
 import pandas as pd
 import numpy as np
 
@@ -40,8 +39,6 @@ from utils import print_full
 
 import matplotlib.pyplot as plt
 from utils import *
-set_plot_params()
-%matplotlib inline
 parent_path = os.path.dirname(os.path.dirname(os.getcwd())) + "/"
 
 from SpikeVidUtils import image_dataset
@@ -91,3 +88,25 @@ def prepare_onecombo_real(window, dt,):
     df = df.reset_index(drop=True)
 
     return video_stack
+
+
+def load_LRN():
+    base_path = "data/LargeRandNet/"
+    stim_path = "data/LargeRandNet/LargeRandNet_cosinput.csv"
+    response_path = "data/LargeRandNet/LargeRandNet_SpikeTime.csv"
+
+    if not os.path.exists(response_path):
+        print("Downloading data...")
+        import gdown
+        url = "https://drive.google.com/drive/folders/1vxHg7FaFQDjQZUNMgvo5wAOlFIcZ2uv-?usp=share_link"
+        gdown.download_folder(id=url, quiet=False, use_cookies=False, output="data/")
+
+
+    # Load Data
+    stimulus = np.loadtxt(stim_path, delimiter=',')
+    df = pd.read_csv(response_path, names=['Time', 'ID'])
+    df['Time'] = df['Time'].round(4)
+    df['Trial'] = df['Time'].apply(lambda x: x // 100 + 1).astype(int)
+    df['Time'] = df['Time'].apply(lambda x: x - ((x // 100) * 100)).round(2)
+
+    return df, stimulus

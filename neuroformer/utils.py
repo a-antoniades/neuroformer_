@@ -15,6 +15,7 @@ from beam_search import beam_decode
 logger = logging.getLogger(__name__)
 
 from model_neuroformer import GPT
+import yaml
 
 
 
@@ -86,6 +87,21 @@ def print_full(df, length=None):
     print(df)
     pd.reset_option('display.max_rows')
     torch.set_printoptions(threshold=1e3)
+
+def object_to_dict(obj):
+    d = dict()
+    d_types = [int, float, str, bool, tuple, type(None)]
+    for a in dir(obj):
+        if not a.startswith('__'):
+            if type(getattr(obj, a)) in d_types:
+                d[a] = getattr(obj, a)
+    return d
+
+    # return {a: getattr(obj, a) for a in dir(obj) if not a.startswith('__')}
+
+def save_yaml(obj, filename):
+    with open(filename, 'w') as outfile:
+        yaml.dump(obj, outfile)
 
 def save_object(obj, filename):
     with open(filename, 'wb') as outp:  # Overwrites any existing file.

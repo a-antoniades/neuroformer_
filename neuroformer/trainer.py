@@ -25,10 +25,11 @@ logger = logging.getLogger(__name__)
 
 import collections
 import omegaconf
+from omegaconf import OmegaConf
 import os
 parent_path = os.path.dirname(os.path.dirname(os.getcwd())) + "/"
 
-from utils import predict_raster, predict_and_plot_time, save_object
+from utils import predict_raster, predict_and_plot_time, save_object, object_to_dict, save_yaml
 
 
 # from torch.nn.parallel import DistributedDataParallell as dist
@@ -60,7 +61,6 @@ class TrainerConfig:
     dist = False
     save_every = 0
 
-
     def __init__(self, **kwargs):
         for k, v in kwargs.items():
             if isinstance(v, omegaconf.dictconfig.DictConfig):
@@ -70,7 +70,6 @@ class TrainerConfig:
                     setattr(self, name, value)
             else:
                 setattr(self, k, v)
-
 
 class Trainer:
 
@@ -129,8 +128,15 @@ class Trainer:
         else:
             logger.info("saving %s", self.config.ckpt_path)
             torch.save(raw_model.state_dict(), self.config.ckpt_path)
-        # save_object(self.model.mconf, self.config.ckpt_path[:-3] + "_mconf.pkl")
-        # save_object(self.model.config, self.config.ckpt_path[:-3] + "_tconf.pkl")
+        
+        mconf = object_to_dict(self.mconf)
+        tconf = object_to_dict(self.config)
+        dconf = object_to_dict(self.train_dataset)
+
+        config_path = os.path.basename(self.config.ckpt_path)
+        save_yaml(mconf, os.path.join(config_path, "mconf.yaml"))
+        save_yaml(tconf, os.path.join(config_path, "tconf.yaml"))
+        save_yaml(dconf, os.path.join(config_path, "dconf.yaml"))
                     
     def plot_grad_flow(self, named_parameters):
         '''Plots the gradients flowing through different layers in the net during training.
@@ -165,7 +171,7 @@ class Trainer:
                             Line2D([0], [0], color="k", lw=4)], ['max-gradient', 'mean-gradient', 'zero-gradient'])
                 plt.tight_layout()
         plt.show()
-                # plt.savefig('grad_flow.png')
+        # plt.savefig('grad_flow.png')
 
     def train(self):
         model, config, mconf = self.model, self.config, self.mconf
