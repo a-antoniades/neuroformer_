@@ -141,7 +141,7 @@ df = df.reset_index(drop=True)
 # n_dt = sorted((df['Interval_dt'].unique()).round(2)) 
 max_window = max(window, window_prev)
 dt_range = math.ceil(max_window / dt) + 1  # add first / last interval for SOS / EOS'
-n_dt = [round(dt * n, 2) for n in range(dt_range)] + ['PAD']
+n_dt = [round(dt * n, 2) for n in range(dt_range)] + ['EOS'] + ['PAD']
 
 
 # %%

@@ -25,7 +25,6 @@ from torch.utils.data.dataloader import DataLoader
 import math
 from torch.utils.data import Dataset
 
-from attentionVis import AttentionVis
 from model_perceiver import GPT, GPTConfig
 from trainer import Trainer, TrainerConfig
 from utils import set_seed

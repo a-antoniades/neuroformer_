@@ -1042,7 +1042,6 @@ class GPT(nn.Module):
         torch.cuda.empty_cache()
         if targets is not None:
 
-
             if self.config.class_weights is not None:
                 loss_id = F.cross_entropy(id_logits.view(-1, id_logits.size(-1)), targets['id'].view(-1), weight=self.class_weights_id)
                 loss_time = F.cross_entropy(dt_logits.view(-1, dt_logits.size(-1)), targets['dt'].view(-1), weight=self.class_weights_dt)
