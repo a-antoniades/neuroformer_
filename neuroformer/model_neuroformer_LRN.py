@@ -870,9 +870,12 @@ class GPT(nn.Module):
         # LIF2 functions
         # if self.config.dataset == 'LIF2':
             # self.mlp_frames = nn.Linear(config.n_embd_frames, config.n_embd)
-        self.mlp_frames = ProjectNorm(config.n_embd_frames, config.n_embd)
+
+        if config.dataset == 'LRN':
+            self.mlp_frames = ProjectNorm(10, config.n_embd)
         # self.frame_emb = PositionalEncoding2D(config.n_embd)
-        self.frame_emb = PositionalEmbedding(config.n_embd, config.im_drop)
+            # self.frame_emb = PositionalEmbedding(config.n_embd, config.im_drop)
+            self.frame_emb = PositionalEncoding2D(config.n_embd)
 
         # -- Multimodal Transformer -- #
         if config.contrastive:
@@ -998,10 +1001,16 @@ class GPT(nn.Module):
         if 'frames' in x:
             # frame_embeddings_projection = nn.Linear(1000, self.config.n_embd)
             # frames = frame_embeddings_projection(frames)
-            frames = self.mlp_frames(frames)
-            frame_embeddings = self.frame_emb(frames.unsqueeze(-1))
-            frame_embeddings = frames + frame_embeddings.squeeze(-1)
-            features['frames'] = frame_embeddings
+            if self.config.dataset == 'LRN':
+                frames = frames.unsqueeze(-1)
+                print(frames.shape)
+                frames = rearrange(frames, 'b (p1 t) h c -> b t h (p1 c)', p1=10)
+                print(frames.shape)
+                frames = self.mlp_frames(frames)
+                frame_embeddings = self.frame_emb(frames)
+                frame_embeddings = frames + frame_embeddings
+                B, T, C, E = frame_embeddings.size()
+                features['frames'] = rearrange(frame_embeddings, 'b t c e -> b (t c) e')
 
         token_embeddings, frame_embeddings = features['id'], features['frames']
         
