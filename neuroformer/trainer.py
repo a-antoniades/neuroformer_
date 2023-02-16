@@ -133,7 +133,7 @@ class Trainer:
         tconf = object_to_dict(self.config)
         dconf = object_to_dict(self.train_dataset)
 
-        config_path = os.path.basename(self.config.ckpt_path)
+        config_path = os.path.dirname(self.config.ckpt_path)
         save_yaml(mconf, os.path.join(config_path, "mconf.yaml"))
         save_yaml(tconf, os.path.join(config_path, "tconf.yaml"))
         save_yaml(dconf, os.path.join(config_path, "dconf.yaml"))
