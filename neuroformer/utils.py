@@ -160,8 +160,9 @@ def process_predictions(results, stoi, itos, window):
 
     forbidden_tokens = ['SOS', 'EOS', 'PAD']
     df_pred = pd.DataFrame(predicted_dict)
-    df_pred = df_pred[df_pred['Interval'].isin(forbidden_tokens) == False]
-    df_pred = df_pred[df_pred['Time'].isin(forbidden_tokens) == False]
+    df_pred = df_pred[(df_pred != 'SOS').all(axis=1)].reset_index(drop=True)
+    df_pred = df_pred[(df_pred != 'EOS').all(axis=1)].reset_index(drop=True)
+    df_pred = df_pred[(df_pred != 'PAD').all(axis=1)].reset_index(drop=True)
     
     df_pred['Time'] = df_pred['dt'] + df_pred['Interval']
     df_pred = df_pred[df_pred['Interval'] > 0]
@@ -364,14 +365,16 @@ def predict_raster_recursive_time_auto(model, dataset, window, window_prev, stoi
             y[key] = y[key].to(device)
         
         if x['interval'] > window_prev + 2:
-            data['Time'] = data['dt'] + data['Interval']
+            # for k, v in data.items():
+            #     print(f"{k}: {len(v)}")
             df = {k: v for k, v in data.items() if k in ('ID', 'dt', 'Trial', 'Interval', 'Time')}
             df = pd.DataFrame(df)
 
             # filter all instances of ['SOS', 'EOS' and 'PAD'] from all columns of pandas dataframe:
-            df = df[(df != 'SOS').all(axis=1)]
-            df = df[(df != 'EOS').all(axis=1)]
-            df = df[(df != 'PAD').all(axis=1)]
+            df = df[(df != 'SOS').all(axis=1)].reset_index(drop=True)
+            df = df[(df != 'EOS').all(axis=1)].reset_index(drop=True)
+            df = df[(df != 'PAD').all(axis=1)].reset_index(drop=True)
+            df['Time'] = df['dt'] + df['Interval']
 
             prev_id_interval, current_id_interval = dataset.calc_intervals(x['interval'])
             x['id_prev'], x['dt_prev'], pad_prev = dataset.get_interval(prev_id_interval, float(x['trial']), T_id_prev)
@@ -455,11 +458,10 @@ def predict_raster_recursive_time_auto(model, dataset, window, window_prev, stoi
             except:
                 TypeError(f"ix: {ix}, itos: {itos}")
             
-            data['ID'] += ix_itos    # torch.cat((data['ID'], ix_itos))
-            data['dt'] += dtx_itos          # torch.cat((data['dt'], dtx_itos))
-            data['Trial'] += x['trial']            # torch.cat((data['Trial'], x['trial']))
-
-            data['Interval'] += x['interval'] # torch.cat((data['Interval'], x['interval']))
+            data['ID'] = data['ID'] + ix_itos.tolist()    # torch.cat((data['ID'], ix_itos))
+            data['dt'] = data['dt'] + dtx_itos          # torch.cat((data['dt'], dtx_itos))
+            data['Trial'] = data['Trial'] + x['trial'].tolist()            # torch.cat((data['Trial'], x['trial']))
+            data['Interval'] = data['Interval'] + x['interval'].tolist() # torch.cat((data['Interval'], x['interval']))
 
             # x['id_full'] = torch.cat((x['id_full'], ix.flatten()))
             # x['dt_full'] = torch.cat((x['dt_full'], ix_dt.flatten())) if pred_dt else x['dt']
