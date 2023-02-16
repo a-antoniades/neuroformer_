@@ -29,7 +29,7 @@ from omegaconf import OmegaConf
 import os
 parent_path = os.path.dirname(os.path.dirname(os.getcwd())) + "/"
 
-from utils import predict_raster, predict_and_plot_time, save_object, object_to_dict, save_yaml
+from utils import object_to_dict, save_yaml
 
 
 # from torch.nn.parallel import DistributedDataParallell as dist
