@@ -872,7 +872,7 @@ class GPT(nn.Module):
             # self.mlp_frames = nn.Linear(config.n_embd_frames, config.n_embd)
 
         if config.dataset == 'LRN':
-            self.mlp_frames = ProjectNorm(10, config.n_embd)
+            self.mlp_frames = ProjectNorm(config.p_reduce, config.n_embd)
         # self.frame_emb = PositionalEncoding2D(config.n_embd)
             # self.frame_emb = PositionalEmbedding(config.n_embd, config.im_drop)
             self.frame_emb = PositionalEncoding2D(config.n_embd)
@@ -1003,7 +1003,7 @@ class GPT(nn.Module):
             # frames = frame_embeddings_projection(frames)
             if self.config.dataset == 'LRN':
                 frames = frames.unsqueeze(-1)
-                frames = rearrange(frames, 'b (p1 t) h c -> b t h (p1 c)', p1=10)
+                frames = rearrange(frames, 'b (p1 t) h c -> b t h (p1 c)', p1=self.config.p_reduce)
                 frames = self.mlp_frames(frames)
                 frame_embeddings = self.frame_emb(frames)
                 frame_embeddings = frames + frame_embeddings
