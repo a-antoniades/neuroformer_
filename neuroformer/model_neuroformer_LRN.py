@@ -1003,9 +1003,7 @@ class GPT(nn.Module):
             # frames = frame_embeddings_projection(frames)
             if self.config.dataset == 'LRN':
                 frames = frames.unsqueeze(-1)
-                print(frames.shape)
                 frames = rearrange(frames, 'b (p1 t) h c -> b t h (p1 c)', p1=10)
-                print(frames.shape)
                 frames = self.mlp_frames(frames)
                 frame_embeddings = self.frame_emb(frames)
                 frame_embeddings = frames + frame_embeddings
