@@ -1013,10 +1013,11 @@ class GPT(nn.Module):
                 B, T, C, E = frame_embeddings.size()
                 features['frames'] = rearrange(frame_embeddings, 'b t c e -> b (t c) e')
             if self.config.dataset == 'LIF2':
+                # B, T, E
+                frames = self.mlp_frames(frames)
                 frame_embeddings = self.frame_emb(frames)
                 frame_embeddings = frames + frame_embeddings
-                B, T, C, E = frame_embeddings.size()
-                features['frames'] = rearrange(frame_embeddings, 'b t c e -> b (t c) e')
+                features['frames'] = frame_embeddings
 
         token_embeddings, frame_embeddings = features['id'], features['frames']
         
