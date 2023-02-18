@@ -876,6 +876,9 @@ class GPT(nn.Module):
         # self.frame_emb = PositionalEncoding2D(config.n_embd)
             # self.frame_emb = PositionalEmbedding(config.n_embd, config.im_drop)
             self.frame_emb = PositionalEncoding2D(config.n_embd)
+        if config.dataset == 'LIF2':
+            self.mlp_frames = ProjectNorm(config.n_embd_frames, config.n_embd)
+            self.frame_emb = PositionalEmbedding(config.n_embd, config.im_drop)
 
         # -- Multimodal Transformer -- #
         if config.contrastive:
@@ -1005,6 +1008,11 @@ class GPT(nn.Module):
                 frames = frames.unsqueeze(-1)
                 frames = rearrange(frames, 'b (p1 t) h c -> b t h (p1 c)', p1=self.config.p_reduce)
                 frames = self.mlp_frames(frames)
+                frame_embeddings = self.frame_emb(frames)
+                frame_embeddings = frames + frame_embeddings
+                B, T, C, E = frame_embeddings.size()
+                features['frames'] = rearrange(frame_embeddings, 'b t c e -> b (t c) e')
+            if self.config.dataset == 'LIF2':
                 frame_embeddings = self.frame_emb(frames)
                 frame_embeddings = frames + frame_embeddings
                 B, T, C, E = frame_embeddings.size()
