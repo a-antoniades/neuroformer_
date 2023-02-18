@@ -99,7 +99,7 @@ set_seed(n_seed)
 
 # %%
 # df = pd.read_csv(parent_path + "code/data/OneCombo3/Combo3_all_stim.csv")
-w_mult = 3
+w_mult = 2
 frame_window = 20
 window = 0.5
 window_prev = 20 - window
@@ -216,7 +216,8 @@ mconf = GPTConfig(train_dataset.population_size, block_size,    # frame_block_si
                         id_drop=0.35, im_drop=0.35,
                         window=window, window_prev=window_prev, frame_window=frame_window, dt=dt,
                         neurons=neurons, stoi_dt=stoi_dt, itos_dt=itos_dt, n_embd_frames=n_embd_frames,
-                        ignore_index_id=stoi['PAD'], ignore_index_dt=stoi_dt['PAD'])  # 0.35
+                        ignore_index_id=stoi['PAD'], ignore_index_dt=stoi_dt['PAD'],
+                        dataset='LRN', p_reduce=100)  # 0.35
 model = GPT(mconf)
 
 # %%
@@ -234,7 +235,15 @@ title =  f'window:{window}_prev:{window_prev}_smooth'
 model_path = f"""./models/tensorboard/LRN/ignore_index/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{window}_wp:{window_prev}/{6}_Cont:{mconf.contrastive}_window:{window}_f_window:{frame_window}_df:{dt}_blocksize:{id_block_size}_conv_{conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
 # model_path = "./models/tensorboard/LRN/weighted_False/0.5_window_CORRECTCONTRASTIVE_smoothinterval/sparse_f:None_id:None/w:0.5_wp:19.5/6_Cont:True_window:0.5_f_window:20_df:0.1_blocksize:200_conv_False_shuffle:True_batch:192_sparse_(None_None)_blocksz2000_pos_emb:False_temp_emb:True_drop:0.35_dt:True_2.0_19.5_max0.1_(6, 4, 4)_8_200.pt"
 
-tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rate=1e-4, 
+model_path = "/data5/antonis/neuroformer/models/tensorboard/LRN/channel/window:0.5_prev:19.5_smooth/sparse_f:None_id:None/w:0.5_wp:19.5/6_Cont:True_window:0.5_f_window:20_df:0.1_blocksize:150_conv_False_shuffle:True_batch:12_sparse_(None_None)_blocksz1150_pos_emb:False_temp_emb:True_drop:0.35_dt:True_2.0_197_max0.1_(8, 8, 8)_8_256.pt"
+if os.path.exists(model_path):
+    print(f"Loading model from {model_path}")
+    model.load_state_dict(torch.load(model_path))
+else:
+    print(f"Model not found at {model_path}")
+    raise FileNotFoundError
+
+tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rate=5e-5, 
                     num_workers=4, lr_decay=True, patience=3, warmup_tokens=8e7, 
                     decay_weights=True, weight_decay=0.2, shuffle=shuffle,
                     final_tokens=len(train_dataset)*(id_block_size) * (max_epochs),

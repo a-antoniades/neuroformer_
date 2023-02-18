@@ -100,15 +100,15 @@ set_seed(n_seed)
 
 # %%
 # df = pd.read_csv(parent_path + "code/data/OneCombo3/Combo3_all_stim.csv")
-w_mult = 3
+w_mult = 2
 frame_window = 20
 window = 0.5
 window_prev = 20 - window
 dt = 0.1
 dt_frames = 1/10
 # p_window = window / (window + window_prev)
-intervals = np.load(os.path.join(base_path, "intervals.npy"))
-# intervals = None
+# intervals = np.load(os.path.join(base_path, "intervals.npy"))
+intervals = None
 
 
 from SpikeVidUtils import make_intervals
@@ -138,7 +138,7 @@ print(int_trials.mean())
 from SpikeVidUtils import SpikeTimeVidData2
 
 ## resnet3d feats
-n_embd = 32
+n_embd = 256
 frame_feats = torch.tensor(stimulus, dtype=torch.float32).transpose(1, 0)
 frame_block_size = 200  # math.ceil(frame_feats.shape[-1] * frame_window)
 n_embd_frames = 1000
@@ -219,14 +219,14 @@ mconf = GPTConfig(train_dataset.population_size, block_size,    # frame_block_si
                         window=window, window_prev=window_prev, frame_window=frame_window, dt=dt,
                         neurons=neurons, stoi_dt=stoi_dt, itos_dt=itos_dt, n_embd_frames=n_embd_frames,
                         ignore_index_id=stoi['PAD'], ignore_index_dt=stoi_dt['PAD'],
-                        dataset='LRN')  # 0.35
+                        dataset='LRN', p_reduce=10)  # 0.35
 model = GPT(mconf)
 
 
 # %%
 layers = (mconf.n_state_layers, mconf.n_state_history_layers, mconf.n_stimulus_layers)
 max_epochs = 200
-batch_size = round((5))
+batch_size = round((12))
 shuffle = True
 
 ## first run
