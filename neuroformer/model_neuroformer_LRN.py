@@ -313,7 +313,7 @@ class MultiheadfAttention(nn.Module):
 
         # # apply rotary embeddings
         # if dtx is not None:
-        #     q, k = self.rotary_embedding(q, k, dtx)
+        #     q, k = self.rotary_embedding(q, k, dtx)∏
 
         # causal self-attention; Self-attend: (B, nh, Tt, hs) x (B, nh, hs, Ts) -> (B, nh, Tt, Ts)
         att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
@@ -348,7 +348,7 @@ class MultiheadfAttention(nn.Module):
 
 class PositionalEmbedding(nn.Module):
     """ Implement the PE function. """
-    def __init__(self, n_embd, p_drop,  max_len=1500):
+    def __init__(self, n_embd, p_drop, max_len=1500):
         super().__init__()
         self.dropout = nn.Dropout(p=p_drop)
         
@@ -877,8 +877,8 @@ class GPT(nn.Module):
             # self.frame_emb = PositionalEmbedding(config.n_embd, config.im_drop)
             self.frame_emb = PositionalEncoding2D(config.n_embd)
         if config.dataset == 'LIF2':
-            self.mlp_frames = ProjectNorm(config.n_embd_frames, config.n_embd)
-            self.frame_emb = PositionalEmbedding(config.n_embd, config.im_drop)
+            self.mlp_frames = ProjectNorm(1, config.n_embd)
+            self.frame_emb = PositionalEmbedding(config.n_embd, config.im_drop, max_len=12000)
 
         # -- Multimodal Transformer -- #
         if config.contrastive:
@@ -1013,8 +1013,9 @@ class GPT(nn.Module):
                 B, T, C, E = frame_embeddings.size()
                 features['frames'] = rearrange(frame_embeddings, 'b t c e -> b (t c) e')
             if self.config.dataset == 'LIF2':
-                # B, T, E
-                frames = self.mlp_frames(frames)
+                B, T, C = frames.size()
+                frames = rearrange(frames, 'B T C -> B C T')
+                frames = self.mlp_frames(frames) # B, C. T -> B, C, T, E
                 frame_embeddings = self.frame_emb(frames)
                 frame_embeddings = frames + frame_embeddings
                 features['frames'] = frame_embeddings
