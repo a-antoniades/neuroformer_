@@ -135,7 +135,7 @@ print(int_trials.mean())
 from SpikeVidUtils import SpikeTimeVidData2
 
 ## resnet3d feats
-n_embd = 512
+n_embd = 256
 frame_feats = torch.tensor(stimulus, dtype=torch.float32).transpose(1, 0)
 frame_block_size = 200  # math.ceil(frame_feats.shape[-1] * frame_window)
 n_embd_frames = 1000
@@ -211,7 +211,7 @@ mconf = GPTConfig(train_dataset.population_size, block_size,    # frame_block_si
                         pretrain=False,
                         n_state_layers=4 * w_mult, n_state_history_layers=4 * w_mult, n_stimulus_layers=4 * w_mult, self_att_layers=4 * w_mult,
                         n_layer=10, n_head=8, n_embd=n_embd, 
-                        contrastive=True, clip_emb=1024, clip_temp=0.5,
+                        contrastive=False, clip_emb=1024, clip_temp=0.5,
                         temp_emb=True, pos_emb=False,
                         id_drop=0.35, im_drop=0.35,
                         window=window, window_prev=window_prev, frame_window=frame_window, dt=dt,
@@ -222,8 +222,8 @@ model = GPT(mconf)
 
 # %%
 layers = (mconf.n_state_layers, mconf.n_state_history_layers, mconf.n_stimulus_layers)
-max_epochs = 125
-batch_size = round((16))
+max_epochs = 300
+batch_size = round(16 * 5.5)
 shuffle = True
 
 ## first run
@@ -232,18 +232,18 @@ shuffle = True
 ## weighted
 weighted = True if mconf.class_weights is not None else False
 title =  f'window:{window}_prev:{window_prev}_smooth'
-model_path = f"""./models/tensorboard/LRN/ignore_index/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{window}_wp:{window_prev}/{6}_Cont:{mconf.contrastive}_window:{window}_f_window:{frame_window}_df:{dt}_blocksize:{id_block_size}_conv_{conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
+model_path = f"""./models/tensorboard/LRN/channel/smooth/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{window}_wp:{window_prev}/{6}_Cont:{mconf.contrastive}_window:{window}_f_window:{frame_window}_df:{dt}_blocksize:{id_block_size}_conv_{conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
 # model_path = "./models/tensorboard/LRN/weighted_False/0.5_window_CORRECTCONTRASTIVE_smoothinterval/sparse_f:None_id:None/w:0.5_wp:19.5/6_Cont:True_window:0.5_f_window:20_df:0.1_blocksize:200_conv_False_shuffle:True_batch:192_sparse_(None_None)_blocksz2000_pos_emb:False_temp_emb:True_drop:0.35_dt:True_2.0_19.5_max0.1_(6, 4, 4)_8_200.pt"
 
-model_path = "/data5/antonis/neuroformer/models/tensorboard/LRN/channel/window:0.5_prev:19.5_smooth/sparse_f:None_id:None/w:0.5_wp:19.5/6_Cont:True_window:0.5_f_window:20_df:0.1_blocksize:150_conv_False_shuffle:True_batch:12_sparse_(None_None)_blocksz1150_pos_emb:False_temp_emb:True_drop:0.35_dt:True_2.0_197_max0.1_(8, 8, 8)_8_256.pt"
-if os.path.exists(model_path):
-    print(f"Loading model from {model_path}")
-    model.load_state_dict(torch.load(model_path))
-else:
-    print(f"Model not found at {model_path}")
-    raise FileNotFoundError
+# model_path = "/data5/antonis/neuroformer/models/tensorboard/LRN/channel/window:0.5_prev:19.5_smooth/sparse_f:None_id:None/w:0.5_wp:19.5/6_Cont:True_window:0.5_f_window:20_df:0.1_blocksize:150_conv_False_shuffle:True_batch:12_sparse_(None_None)_blocksz1150_pos_emb:False_temp_emb:True_drop:0.35_dt:True_2.0_197_max0.1_(8, 8, 8)_8_256.pt"
+# if os.path.exists(model_path):
+#     print(f"Loading model from {model_path}")
+#     model.load_state_dict(torch.load(model_path))
+# else:
+#     print(f"Model not found at {model_path}")
+#     raise FileNotFoundError
 
-tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rate=5e-5, 
+tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rate=2e-4, 
                     num_workers=4, lr_decay=True, patience=3, warmup_tokens=8e7, 
                     decay_weights=True, weight_decay=0.2, shuffle=shuffle,
                     final_tokens=len(train_dataset)*(id_block_size) * (max_epochs),
@@ -253,7 +253,7 @@ tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rat
                     id_block_size=train_dataset.id_block_size,
                     show_grads=False, plot_raster=False,
                     ckpt_path=model_path, no_pbar=False, 
-                    dist=True, save_every=1000)
+                    dist=True, save_every=5000)
 # f"/home/antonis/projects/slab/git/neuroformer/models/model_sim_weighted_shuffle_decay:{shuffle}_perceiver_2.0_dt:{dt}_eos_{mconf.n_layer}_{mconf.n_head}_{mconf.n_embd}.pt")
 
 

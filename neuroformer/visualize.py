@@ -944,3 +944,18 @@ def plot_distribution(df_1, df_2, save_path=None):
         plt.savefig(save_path)
     plt.show()
 
+
+
+def plot_psth(df_1, df_2, ax, xlims=None):
+    marker = '|'
+    ms = 100
+    trials = df_1['Trial'].unique()
+    n_trials = len(trials)
+    for i, trial in enumerate(trials):
+        ax.scatter(df_1['Time'], [2 + (i + n_trials)] * len(df_1), s=ms, c='black', alpha=0.5, marker=marker)
+        ax.scatter(df_2['Time'], [1 + i] * len(df_2), s=ms, c='red', alpha=0.5, marker=marker)
+    
+    if xlims is not None:
+        ax.set_xlim(xlims)
+    
+    ax.set_yticks([])
