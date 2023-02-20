@@ -62,6 +62,7 @@ import json
 
 
 
+
 # %%
 # stim_path = "data/LargeRandLIF2/LargeRandNet2_PoissonRate.csv"
 # response_path = "data/LargeRandLIF2/LargeRandNet2_SpikeTime.csv"
@@ -91,8 +92,6 @@ df['Trial'] = df['Time'].apply(lambda x: x // dt_res + 1).astype(int)
 df['Time'] = df['Time'].apply(lambda x: x - ((x // dt_res) * dt_res)).round(2)
 df['ID'] = df['ID'].astype(int)
 
-
-
 # %%
 # set up logging
 import logging
@@ -103,29 +102,25 @@ logging.basicConfig(
 )
 
 
+
 # %%
 from utils import set_seed
 n_seed = 25
 set_seed(n_seed)
 
-
 # %%
 stimulus.shape
+
 
 # %%
 plt.plot(stimulus[0, :,])
 
 
-# %%
-stimulus.shape
-
-# %%
-df
 
 # %%
 # df = pd.read_csv(parent_path + "code/data/OneCombo3/Combo3_all_stim.csv")
 frame_window = 20
-window = 1
+window = 0.5
 window_prev = 20 - window
 dt = 0.1
 dt_frames = 20
@@ -142,7 +137,6 @@ df = df.reset_index(drop=True)
 max_window = max(window, window_prev)
 dt_range = math.ceil(max_window / dt) + 1  # add first / last interval for SOS / EOS'
 n_dt = [round(dt * n, 2) for n in range(dt_range)] + ['EOS'] + ['PAD']
-
 
 # %%
 # from utils import df_to_dict
@@ -178,14 +172,15 @@ n_dt = [round(dt * n, 2) for n in range(dt_range)] + ['EOS'] + ['PAD']
 # n_unique = len(int_trials)
 # int_trials.nlargest(int(0.2 * n_unique))
 
+
 # %%
 from SpikeVidUtils import SpikeTimeVidData2
 
 ## resnet3d feats
 n_embd = 256
 frame_feats = torch.tensor(stimulus, dtype=torch.float32)
-frame_block_size = 500  # math.ceil(frame_feats.shape[-1] * frame_window)
-n_embd_frames = 10000
+frame_block_size = 10000  # math.ceil(frame_feats.shape[-1] * frame_window)
+n_embd_frames = 32
 
 prev_id_block_size = 800 # math.ceil(frame_block_size * (1 - p_window))
 id_block_size = 150    # math.ceil(frame_block_size * p_window)
@@ -206,11 +201,13 @@ itos = { i:ch for i,ch in enumerate(feat_encodings) }
 stoi_dt = { ch:i for i,ch in enumerate(n_dt) }
 itos_dt = { i:ch for i,ch in enumerate(n_dt) }
 
+
 # %%
 r_split = 0.8
 train_trials = sorted(df['Trial'].unique())[:int(len(df['Trial'].unique()) * r_split)]
 train_data = df[df['Trial'].isin(train_trials)]
 test_data = df[~df['Trial'].isin(train_trials)]
+
 
 # %%
 from SpikeVidUtils import SpikeTimeVidData2
@@ -226,9 +223,11 @@ test_dataset = SpikeTimeVidData2(test_data, None, block_size, id_block_size, fra
 
 print(f'train: {len(train_dataset)}, test: {len(test_dataset)}')
 
+
 # %%
 # from utils import get_class_weights
 # class_weights = get_class_weights(train_dataset, stoi, stoi_dt)
+
 
 
 # %%
@@ -256,10 +255,11 @@ mconf = GPTConfig(train_dataset.population_size, block_size,    # frame_block_si
                     ignore_index_id=stoi['PAD'], ignore_index_dt=stoi_dt['PAD'])  # 0.35
 model = GPT(mconf)
 
+
 # %%
 layers = (mconf.n_state_layers, mconf.n_state_history_layers, mconf.n_stimulus_layers)
 max_epochs = 500
-batch_size = (32 * 8)
+batch_size = 18
 shuffle = True
 
 weighted = True if mconf.class_weights is not None else False
@@ -270,10 +270,10 @@ model_path = f"""./models/tensorboard/LRL2/ignore_index/{title}/sparse_f:{mconf.
 #     model.load_state_dict(torch.load(model_path))
 #     print(f"-- loaded model from {model_path} --")
 
-model.load_state_dict(torch.load("/data5/antonis/neuroformer/models/tensorboard/LRL2/ignore_index/window:1_prev:19/sparse_f:None_id:None/w:1_wp:19/6_Cont:False_window:1_f_window:20_df:0.1_blocksize:150_conv_False_shuffle:True_batch:256_sparse_(None_None)_blocksz1450_pos_emb:False_temp_emb:True_drop:0.2_dt:True_2.0_191_max0.1_(6, 4, 4)_8_256.pt"))
+# model.load_state_dict(torch.load("/data5/antonis/neuroformer/models/tensorboard/LRL2/ignore_index/window:1_prev:19/sparse_f:None_id:None/w:1_wp:19/6_Cont:False_window:1_f_window:20_df:0.1_blocksize:150_conv_False_shuffle:True_batch:256_sparse_(None_None)_blocksz1450_pos_emb:False_temp_emb:True_drop:0.2_dt:True_2.0_191_max0.1_(6, 4, 4)_8_256.pt"))
 
 tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rate=1e-4, 
-                    num_workers=4, lr_decay=False, patience=3, warmup_tokens=8e0, 
+                    num_workers=4, lr_decay=False, patience=3, warmup_tokens=8e7, 
                     decay_weights=True, weight_decay=0.1, shuffle=shuffle,
                     final_tokens=len(train_dataset)*(id_block_size) * (max_epochs),
                     clip_norm=1.0, grad_norm_clip=1.0,
@@ -281,21 +281,40 @@ tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rat
                     block_size=train_dataset.block_size,
                     id_block_size=train_dataset.id_block_size,
                     show_grads=False, plot_raster=False,
-                    ckpt_path=model_path, no_pbar=False, dist=False,
+                    ckpt_path=model_path, no_pbar=False, dist=True,
                     save_every=1000)
 
 trainer = Trainer(model, train_dataset, test_dataset, tconf, mconf)
 trainer.train()
 
+
 # %%
 loader = DataLoader(train_dataset, shuffle=False, pin_memory=False)
 iterable = iter(loader)
-
 
 # %%
 x, y = next(iterable)
 model.cpu()
 features, logits, loss = model(x, y)
+
+# %%
+B, T, E = 2, 10, 40
+q = torch.rand(B, T, E)
+n_head = 4
+
+q = q.view(B, n_head, T, E // n_head)
+print(q.shape)
+
+# %%
+Bf, Tf, Ef = B, T * 2, E // 4
+k = torch.rand(Bf, Tf, Ef)
+v = torch.rand(Bf, Tf, Ef)
+
+k = k.view(Bf, n_head, Tf // n_head, Ef)
+
+print(k.shape)
+
+att = (q @ k.transpose(-2, -1))
 
 # %%
 """
@@ -321,6 +340,7 @@ df_true = None
 n_p = 0.3   # (n + 1) * 0.05
 temp = 2
 # stoi['SOS'] = 2000
+
 
 
 # %%
@@ -356,8 +376,6 @@ print(f"pred: {len(df_pred)}, true: {len(df_true)}" )
 # results_dict[n] = (scores)
 
 
-# %%
-df
 
 # %%
 df_1 = df[df['Trial'].isin(trials)]
@@ -441,12 +459,10 @@ total_scores['pred'] = pred_scores
 
 print(f"model: {title}")
 
-
-
-
 # %%
 loader = DataLoader(train_dataset, batch_size=5, shuffle=False, pin_memory=False)
 iterable = iter(train_dataset)
+
 
 # %%
 x, y = next(iterable)
@@ -479,5 +495,52 @@ int_var = 'pid'
 # df[(df[t_var] >= iv - tdiff) & (df[t_var] <= iv + (window + tdiff)) & (df['Trial'] == int(x['trial']))]
 # df[(df[t_var] >= float(x[int_var][0]) - tdiff) & (df[t_var] <= float(x[int_var][1] + tdiff)) & (df['Trial'] == int(x['trial']))]
 df[(df[t_var] >= float(x[int_var][0]) - tdiff) & (df[t_var] <= float(x['cid'][1] + tdiff)) & (df['Trial'] == int(x['trial']))]
+
+# %%
+loader = DataLoader(train_dataset, batch_size=5, shuffle=False, pin_memory=False)
+iterable = iter(train_dataset)
+
+# %%
+loader = DataLoader(train_dataset, batch_size=5, shuffle=False, pin_memory=False)
+iterable = iter(train_dataset)
+x, y = next(iterable)
+
+T = len(x['id'])
+P = x['pad'] - 1
+T_prev = len(x['id_prev'])
+P_prev = x['pad_prev'] - 4
+
+iv = float(x['interval'])
+
+xid = x['id'][: T - P]
+xid = [itos[int(i)] for i in xid]
+
+xid_prev = x['id_prev'][: T_prev - P_prev]
+xid_prev = [itos[int(i)] for i in xid_prev]
+
+print(f"iv: {iv}, ix+window: {iv + window} pid: {x['pid']} cid: {x['cid']}")
+print(f"x: {xid}")
+
+print(f"xid_prev: {xid_prev}")
+
+tdiff = 0.1
+t_var = 'Time' # 'Interval'
+int_var = 'cid'
+# df[(df[t_var] >= iv - tdiff) & (df[t_var] <= iv + (window + tdiff)) & (df['Trial'] == int(x['trial']))]
+# df[(df[t_var] >= float(x[int_var][0]) - tdiff) & (df[t_var] <= float(x[int_var][1] + tdiff)) & (df['Trial'] == int(x['trial']))]
+df[(df[t_var] > float(x[int_var][0]) - tdiff) & (df[t_var] <= float(x['cid'][1] + tdiff)) & (df['Trial'] == int(x['trial']))]
+
+t_var = 'Time' # 'Interval'
+int_var = 'pid'
+df[(df[t_var] > round(float(x[int_var][0]), 2) - tdiff) & (df[t_var] <= round(float(x[int_var][1]), 2)) & (df['Trial'] == int(x['trial']))]
+
+# %%
+x['frames'].shape
+
+# %%
+stimulus.shape
+
+# %%
+
 
 

@@ -57,9 +57,14 @@ import json
 # for i in {1..10}; do python3 -m gather_atts.py; done
 
 # %%
-from neuroformer.prepare_data import load_LRN
+DATASET = 'LRL2'
 
-df, stimulus = load_LRN()
+from neuroformer.prepare_data import load_LRN, load_LRL2
+
+if DATASET == 'LRL2':
+    df, stimulus = load_LRL2()
+else:
+    df, stimulus = load_LRN()
 
 # %%
 # set up logging
@@ -80,7 +85,7 @@ set_seed(n_seed)
 
 import yaml
 
-base_path = "/data5/antonis/neuroformer/models/tensorboard/LRN/channel/window:0.5_prev:19.5_smooth/sparse_f:None_id:None/w:0.5_wp:19.5"
+base_path = ".models/tensorboard/LRL2/ignore_index/window:0.5_prev:19.5/sparse_f:None_id:None/w:0.5_wp:19.5"
 
 with open(os.path.join(base_path, 'mconf.yaml'), 'r') as stream:
     mconf = yaml.full_load(stream)
