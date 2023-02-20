@@ -964,8 +964,8 @@ class GPT(nn.Module):
         else:
             parameters = self.parameters()
             # optimizer = torch.optim.SGD(parameters, lr=train_config.learning_rate, momentum=0.9)
-            optimizer = torch.optim.Adam(parameters, lr=train_config.learning_rate)
-        
+            # optimizer = torch.optim.Adam(parameters, lr=train_config.learning_rate)
+            optimizer = torch.optim.AdamW(optim_groups, lr=train_config.learning_rate, betas=train_config.betas)
         return optimizer
     
     def process_features(self, x):
