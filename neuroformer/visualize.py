@@ -175,8 +175,6 @@ def plot_raster_trial(df1, df2, trials, neurons):
     fig.supxlabel('Time (S)')
     fig.supylabel('Neuron ID')
     plt.tight_layout()
-
-
  
 
 def get_id_intervals(df, n_id, intervals):
@@ -952,8 +950,10 @@ def plot_psth(df_1, df_2, ax, xlims=None):
     trials = df_1['Trial'].unique()
     n_trials = len(trials)
     for i, trial in enumerate(trials):
-        ax.scatter(df_1['Time'], [2 + (i + n_trials)] * len(df_1), s=ms, c='black', alpha=0.5, marker=marker)
-        ax.scatter(df_2['Time'], [1 + i] * len(df_2), s=ms, c='red', alpha=0.5, marker=marker)
+        df_1_trial = df_1[df_1['Trial'] == trial]
+        df_2_trial = df_2[df_2['Trial'] == trial]
+        ax.scatter(df_1_trial['Time'], [2 + (i + n_trials)] * len(df_1_trial), s=ms, c='black', alpha=1, marker=marker)
+        ax.scatter(df_2_trial['Time'], [1 + i] * len(df_2_trial), s=ms, c='red', alpha=1, marker=marker)
     
     if xlims is not None:
         ax.set_xlim(xlims)

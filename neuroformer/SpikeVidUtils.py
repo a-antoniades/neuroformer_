@@ -461,7 +461,7 @@ class SpikeTimeVidData2(Dataset):
                 self.frame_memory = frame_memory
                 
                 self.data = data.reset_index(drop=True)
-                self.data_dict = data_dict
+                self.data_dict = None
                 self.frame_feats = frame_feats
                 self.frames = frames
 
@@ -481,6 +481,8 @@ class SpikeTimeVidData2(Dataset):
                 self.window_prev = window if window_prev is None else window_prev
                 # assert self.window_prev % self.window == 0, "window_prev must be a multiple of window"
                 self.frame_window = 1.0
+                self.min_interval = window + window_prev
+                self.min_trial = data['Trial'].min()
 
                 if intervals is not None:
                     print(f"Using smooth intervals")
@@ -494,7 +496,14 @@ class SpikeTimeVidData2(Dataset):
                             self.t = self.data.drop_duplicates(subset=['Interval', 'Trial'])[['Interval', 'real_interval', 'Trial']] # .sample(frac=1).reset_index(drop=True) # interval-trial unique pairs
                     elif dataset == 'combo_v2':
                         self.t = self.data.drop_duplicates(subset=['Interval', 'Trial', 'Stimulus'])[['Interval', 'Trial', 'Stimulus']]
-                    self.t = self.t[self.t['Interval'] > window_prev].reset_index(drop=True)
+
+                    if self.dataset != 'LRN':
+                        self.t = self.t[self.t['Interval'] >= self.min_interval].reset_index(drop=True)
+                    elif self.dataset == 'LRN':
+                        # for LRN dataset the current trial continuous from the previous one
+                        self.t[self.t['Trial'] == self.min_trial] = self.t[self.t['Trial'] == self.min_trial][self.t[self.t['Trial'] == self.min_trial]['Interval'] >= self.min_interval]
+                        self.t = self.t.dropna().reset_index(drop=True)
+
                 self.idx = 0
                 self.window = window        # interval window (prediction)
                 self.window_prev = window if window_prev is None else window_prev
@@ -523,6 +532,34 @@ class SpikeTimeVidData2(Dataset):
             assert prev_id_interval[1] == current_id_interval[0]
             return prev_id_interval, current_id_interval
 
+        def get_data_LRN(self, trial, prev_id_interval):
+            """
+            the start of a trial cotninues from the end of the previous trial
+            """
+            data = self.data
+            max_time_prev = data[data['Trial'] == trial - 1]['Time'].max()
+            
+            prev_trial = trial - 1
+            prev_trial_interval = (max_time_prev + prev_id_interval[0], max_time_prev)
+            prev_trial_data = data[(data['Trial'] == prev_trial) & 
+                                    (data['Time'] > prev_trial_interval[0])]
+                # prev_trial_data['Time'] = prev_trial_data['Time'] - prev_trial_interval[0]
+            
+            current_trial_data = data[(data['Trial'] == trial) & 
+                                        (data['Time'] > prev_id_interval[0]) & 
+                                        (data['Time'] <= prev_id_interval[1])]
+            t_diff = prev_trial_interval[1] - prev_id_interval[0]
+            
+            prev_trial_data['Time'] = prev_trial_data['Time'] - prev_trial_interval[0].min()
+            current_trial_data['Time'] = current_trial_data['Time'] - prev_id_interval[0]
+            
+            print(f"pred_interval: {prev_id_interval}")
+            # connect the two trials
+            prev_id_data = pd.concat([prev_trial_data, current_trial_data], axis=0)
+            prev_id_data = prev_id_data.sort_values(by=['Time'])
+
+            # prev_id_interval = (data[data['Trial'] == trial - 1]['Time'].max(), prev_id_interval[1])
+            return prev_id_data, prev_id_interval
 
         def get_interval(self, interval, trial, block_size, data_dict=None, n_stim=None, pad=True):
                 """
@@ -532,17 +569,21 @@ class SpikeTimeVidData2(Dataset):
                 pad_n
                 """
                 if self.data_dict is None:
-                    data = self.data[self.data['Trial'] == trial]
-                    data = data[(data['Time'] > interval[0]) & 
-                                    (data['Time'] <= interval[1])][-(block_size - 2):]
-                    if n_stim is not None:
-                        data = data[data['Stimulus'] == n_stim]
-                else:
-                    data = self.data_dict[trial]
-                    if interval[1] in data:
-                        data = data[interval[1]]
+                    if interval[0] < 0 and self.dataset == 'LRN':
+                        data, id_interval = self.get_data_LRN(trial, interval)
+                    
                     else:
-                        data = {'Time': np.array([]), 'ID': np.array([])}
+                        data = self.data[self.data['Trial'] == trial]
+                        data = data[(data['Time'] > interval[0]) & 
+                                        (data['Time'] <= interval[1])][-(block_size - 2):]
+                        if n_stim is not None:
+                            data = data[data['Stimulus'] == n_stim]
+                # else:
+                #     data = self.data_dict[trial]
+                #     if interval[1] in data:
+                #         data = data[interval[1]]
+                #     else:
+                #         data = {'Time': np.array([]), 'ID': np.array([])}
 
                 chunk = data['ID'][-(block_size - 2):]
                 dix = [self.stoi[s] for s in chunk]
@@ -553,7 +594,7 @@ class SpikeTimeVidData2(Dataset):
                 dix = dix + [self.stoi['PAD']] * pad_n
 
                 # print(data['Time'], "int", interval[0])
-                dt_chunk = (data['Time'] - (interval[0]))
+                dt_chunk = (data['Time'] - (interval[0])) if interval[0] > 0 else data['Time']
                 dt_chunk = [self.stoi_dt[self.round_n(dt, self.dt)] for dt in dt_chunk]
 
                 if 'EOS' in self.stoi_dt.keys():

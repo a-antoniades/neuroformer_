@@ -177,10 +177,10 @@ n_dt = [round(dt * n, 2) for n in range(dt_range)] + ['EOS'] + ['PAD']
 from SpikeVidUtils import SpikeTimeVidData2
 
 ## resnet3d feats
-n_embd = 256
+n_embd = 128
 frame_feats = torch.tensor(stimulus, dtype=torch.float32)
 frame_block_size = 10000  # math.ceil(frame_feats.shape[-1] * frame_window)
-n_embd_frames = 32
+n_embd_frames = n_embd
 
 prev_id_block_size = 800 # math.ceil(frame_block_size * (1 - p_window))
 id_block_size = 150    # math.ceil(frame_block_size * p_window)
@@ -245,8 +245,8 @@ mconf = GPTConfig(train_dataset.population_size, block_size,    # frame_block_si
                     data_size=train_dataset.size,
                     class_weights=None,
                     pretrain=False,
-                    n_state_layers=6, n_state_history_layers=4, n_stimulus_layers=4, self_att_layers=8,
-                    n_layer=10, n_head=8, n_embd=n_embd, n_embd_frames=n_embd_frames,
+                    n_state_layers=4, n_state_history_layers=4, n_stimulus_layers=4, self_att_layers=4,
+                    n_layer=10, n_head=4, n_embd=n_embd, n_embd_frames=n_embd_frames,
                     contrastive=False, clip_emb=1024, clip_temp=0.5,
                     temp_emb=True, pos_emb=False,
                     id_drop=0.2, im_drop=0.2,
@@ -259,12 +259,12 @@ model = GPT(mconf)
 # %%
 layers = (mconf.n_state_layers, mconf.n_state_history_layers, mconf.n_stimulus_layers)
 max_epochs = 500
-batch_size = 18
+batch_size = 32 * 2
 shuffle = True
 
 weighted = True if mconf.class_weights is not None else False
-title =  f'window:{window}_prev:{window_prev}'
-model_path = f"""./models/tensorboard/LRL2/ignore_index/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{window}_wp:{window_prev}/{6}_Cont:{mconf.contrastive}_window:{window}_f_window:{frame_window}_df:{dt}_blocksize:{id_block_size}_conv_{conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
+title =  f'window:{window}_prev:{window_prev}_small'
+model_path = f"""./models/tensorboard/LRL2/channel/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{window}_wp:{window_prev}/{6}_Cont:{mconf.contrastive}_window:{window}_f_window:{frame_window}_df:{dt}_blocksize:{id_block_size}_conv_{conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
 
 # if os.path.exists(model_path):
 #     model.load_state_dict(torch.load(model_path))
@@ -272,7 +272,7 @@ model_path = f"""./models/tensorboard/LRL2/ignore_index/{title}/sparse_f:{mconf.
 
 # model.load_state_dict(torch.load("/data5/antonis/neuroformer/models/tensorboard/LRL2/ignore_index/window:1_prev:19/sparse_f:None_id:None/w:1_wp:19/6_Cont:False_window:1_f_window:20_df:0.1_blocksize:150_conv_False_shuffle:True_batch:256_sparse_(None_None)_blocksz1450_pos_emb:False_temp_emb:True_drop:0.2_dt:True_2.0_191_max0.1_(6, 4, 4)_8_256.pt"))
 
-tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rate=1e-4, 
+tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rate=5e-4, 
                     num_workers=4, lr_decay=False, patience=3, warmup_tokens=8e7, 
                     decay_weights=True, weight_decay=0.1, shuffle=shuffle,
                     final_tokens=len(train_dataset)*(id_block_size) * (max_epochs),
@@ -281,7 +281,7 @@ tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rat
                     block_size=train_dataset.block_size,
                     id_block_size=train_dataset.id_block_size,
                     show_grads=False, plot_raster=False,
-                    ckpt_path=model_path, no_pbar=False, dist=True,
+                    ckpt_path=model_path, no_pbar=False, dist=False,
                     save_every=1000)
 
 trainer = Trainer(model, train_dataset, test_dataset, tconf, mconf)
