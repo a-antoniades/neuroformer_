@@ -80,7 +80,7 @@ set_seed(n_seed)
 
 import yaml
 
-base_path = "/data5/antonis/neuroformer/models/tensorboard/LRN/channel/window:0.5_prev:19.5_smooth/sparse_f:None_id:None/w:0.5_wp:19.5"
+base_path = "/data5/antonis/neuroformer/models/tensorboard/LRN/final/window:0.5_prev:19.5/sparse_f:None_id:None/w:0.5_wp:19.5"
 
 with open(os.path.join(base_path, 'mconf.yaml'), 'r') as stream:
     mconf = yaml.full_load(stream)

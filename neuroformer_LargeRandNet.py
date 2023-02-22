@@ -57,6 +57,7 @@ import json
 # for i in {1..10}; do python3 -m gather_atts.py; done
 
 
+DATASET = 'LRN'
 
 # %%
 base_path = "data/LargeRandNet/"
@@ -106,8 +107,8 @@ window_prev = 20 - window
 dt = 0.1
 dt_frames = 1/10
 # p_window = window / (window + window_prev)
-intervals = np.load(os.path.join(base_path, "intervals.npy"))
-# intervals = None
+# intervals = np.load(os.path.join(base_path, "intervals.npy"))
+intervals = None
 
 
 from SpikeVidUtils import make_intervals
@@ -176,11 +177,11 @@ from SpikeVidUtils import SpikeTimeVidData2
 train_dataset = SpikeTimeVidData2(train_data, None, block_size, id_block_size, frame_block_size, prev_id_block_size, 
                                   window, dt, frame_memory, stoi, itos, neurons, stoi_dt, itos_dt, frame_feats,
                                   pred=False, window_prev=window_prev, frame_window=frame_window, start_interval=20,
-                                  dt_frames=dt_frames, intervals=intervals)
+                                  dt_frames=dt_frames, intervals=intervals, dataset=DATASET)
 test_dataset = SpikeTimeVidData2(test_data, None, block_size, id_block_size, frame_block_size, prev_id_block_size, 
                                  window, dt, frame_memory, stoi, itos, neurons, stoi_dt, itos_dt, frame_feats, 
                                  pred=False, window_prev=window_prev, frame_window=frame_window, start_interval=20,
-                                 dt_frames=dt_frames, intervals=intervals)
+                                 dt_frames=dt_frames, intervals=intervals, dataset=DATASET)
 
 print(f'train: {len(train_dataset)}, test: {len(test_dataset)}')
 
@@ -217,12 +218,12 @@ mconf = GPTConfig(train_dataset.population_size, block_size,    # frame_block_si
                         window=window, window_prev=window_prev, frame_window=frame_window, dt=dt,
                         neurons=neurons, stoi_dt=stoi_dt, itos_dt=itos_dt, n_embd_frames=n_embd_frames,
                         ignore_index_id=stoi['PAD'], ignore_index_dt=stoi_dt['PAD'],
-                        dataset='LRN', p_reduce=100)  # 0.35
+                        dataset=DATASET, p_reduce=100)  # 0.35
 model = GPT(mconf)
 
 # %%
 layers = (mconf.n_state_layers, mconf.n_state_history_layers, mconf.n_stimulus_layers)
-max_epochs = 300
+max_epochs = 175
 batch_size = round(16 * 5.5)
 shuffle = True
 
@@ -231,8 +232,8 @@ shuffle = True
 # model_path = "/local/home/antonis/neuroformer/models/tensorboard/LRN/w:10_wp:10/6_Cont:True_window:10_f_window:20_df:0.1_blocksize:30_sparseFalse_conv_True_shuffle:True_batch:128_sparse_(200_200)_blocksz1060_pos_emb:False_temp_emb:True_drop:0.35_dt:True_2.0_10.0_max0.1_(6, 4, 10)_2_200.pt"
 ## weighted
 weighted = True if mconf.class_weights is not None else False
-title =  f'window:{window}_prev:{window_prev}_smooth'
-model_path = f"""./models/tensorboard/LRN/channel/smooth/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{window}_wp:{window_prev}/{6}_Cont:{mconf.contrastive}_window:{window}_f_window:{frame_window}_df:{dt}_blocksize:{id_block_size}_conv_{conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
+title =  f'window:{window}_prev:{window_prev}'
+model_path = f"""./models/tensorboard/LRN/final/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{window}_wp:{window_prev}/{6}_Cont:{mconf.contrastive}_window:{window}_f_window:{frame_window}_df:{dt}_blocksize:{id_block_size}_conv_{conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
 # model_path = "./models/tensorboard/LRN/weighted_False/0.5_window_CORRECTCONTRASTIVE_smoothinterval/sparse_f:None_id:None/w:0.5_wp:19.5/6_Cont:True_window:0.5_f_window:20_df:0.1_blocksize:200_conv_False_shuffle:True_batch:192_sparse_(None_None)_blocksz2000_pos_emb:False_temp_emb:True_drop:0.35_dt:True_2.0_19.5_max0.1_(6, 4, 4)_8_200.pt"
 
 # model_path = "/data5/antonis/neuroformer/models/tensorboard/LRN/channel/window:0.5_prev:19.5_smooth/sparse_f:None_id:None/w:0.5_wp:19.5/6_Cont:True_window:0.5_f_window:20_df:0.1_blocksize:150_conv_False_shuffle:True_batch:12_sparse_(None_None)_blocksz1150_pos_emb:False_temp_emb:True_drop:0.35_dt:True_2.0_197_max0.1_(8, 8, 8)_8_256.pt"
@@ -243,8 +244,13 @@ model_path = f"""./models/tensorboard/LRN/channel/smooth/{title}/sparse_f:{mconf
 #     print(f"Model not found at {model_path}")
 #     raise FileNotFoundError
 
-tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rate=2e-4, 
-                    num_workers=4, lr_decay=True, patience=3, warmup_tokens=8e7, 
+model.load_state_dict(torch.load(model_path))
+print(F"--- Model loaded from {model_path} ---")
+
+model_path = f"""./models/tensorboard/LRN/final/{title}_3/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{window}_wp:{window_prev}/{6}_Cont:{mconf.contrastive}_window:{window}_f_window:{frame_window}_df:{dt}_blocksize:{id_block_size}_conv_{conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
+
+tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rate=1e-6, 
+                    num_workers=4, lr_decay=False, patience=3, warmup_tokens=8e0, 
                     decay_weights=True, weight_decay=0.2, shuffle=shuffle,
                     final_tokens=len(train_dataset)*(id_block_size) * (max_epochs),
                     clip_norm=1.0, grad_norm_clip=1.0,
@@ -254,7 +260,6 @@ tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rat
                     show_grads=False, plot_raster=False,
                     ckpt_path=model_path, no_pbar=False, 
                     dist=True, save_every=5000)
-# f"/home/antonis/projects/slab/git/neuroformer/models/model_sim_weighted_shuffle_decay:{shuffle}_perceiver_2.0_dt:{dt}_eos_{mconf.n_layer}_{mconf.n_head}_{mconf.n_embd}.pt")
 
 
 trainer = Trainer(model, train_dataset, test_dataset, tconf, mconf)
@@ -296,7 +301,7 @@ for trial in trials:    # test_data['Trial'].unique():
         trial_dataset = SpikeTimeVidData2(df_trial,  None, block_size, id_block_size, frame_block_size, prev_id_block_size, 
                                   window, dt, frame_memory, stoi, itos, neurons, stoi_dt, itos_dt, frame_feats, 
                                   pred=False, window_prev=window_prev, frame_window=frame_window, start_interval=20,
-                                  dt_frames=dt_frames)
+                                  dt_frames=dt_frames, intervals=intervals, dataset=DATASET)
         trial_loader = DataLoader(trial_dataset, shuffle=False, pin_memory=False)
         results_trial = predict_raster_recursive_time_auto(model, trial_dataset, window, window_prev, stoi, itos_dt, itos=itos, 
                                                            sample=True, top_p=0.75, top_p_t=0.75, temp=1.2, temp_t=1.2, frame_end=0, get_dt=True, gpu=False, pred_dt=True)
