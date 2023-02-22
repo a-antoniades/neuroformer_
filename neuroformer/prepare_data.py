@@ -130,3 +130,24 @@ def load_LRL2():
     df['ID'] = df['ID'].astype(int)
 
     return df, stimulus
+
+
+def load_LRL2_small():
+    stim_path = "data/LargeRandLIF2_small/LargeRandNet2_PoissonRate_v2.csv"
+    response_path = "data/LargeRandLIF2_small/LargeRandNet2_SpikeTime_v2.csv"
+
+    if not os.path.exists(response_path):
+        print("Downloading data...")
+        import gdown
+        url = "https://drive.google.com/drive/folders/1T-xEao7riNu2936nlxuQPh98JrukdkuG?usp=sharing"
+        gdown.download_folder(id=url, quiet=False, use_cookies=False, output="data/")
+    
+    stimulus = np.transpose(np.loadtxt(stim_path, delimiter=','), (1, 0))
+    df = pd.read_csv(response_path, names=['Time', 'ID'])
+    dt_res = 10000
+    df['Time'] = df['Time'].round(4)
+    df['Trial'] = df['Time'].apply(lambda x: x // dt_res + 1).astype(int)
+    df['Time'] = df['Time'].apply(lambda x: x - ((x // dt_res) * dt_res)).round(2)
+    df['ID'] = df['ID'].astype(int)
+
+    return df, stimulus

@@ -400,7 +400,6 @@ def get_interval(data, stoi, stoi_dt, dt, interval, trial, block_size, data_dict
     if 'EOS' in stoi_dt.keys():
         dt_chunk = (dt_chunk + stoi_dt['EOS'])[-block_size:]
         dt_chunk = [0] + dt_chunk + stoi_dt['EOS'] + [stoi_dt['PAD']] * (pad_n) # 0 = SOS, max = EOS
-        print('yes')
     else:
         if len(dt_chunk) > 0:
             dt_max = max(dt_chunk)
@@ -553,7 +552,6 @@ class SpikeTimeVidData2(Dataset):
             prev_trial_data['Time'] = prev_trial_data['Time'] - prev_trial_interval[0].min()
             current_trial_data['Time'] = current_trial_data['Time'] - prev_id_interval[0]
             
-            print(f"pred_interval: {prev_id_interval}")
             # connect the two trials
             prev_id_data = pd.concat([prev_trial_data, current_trial_data], axis=0)
             prev_id_data = prev_id_data.sort_values(by=['Time'])
@@ -571,7 +569,6 @@ class SpikeTimeVidData2(Dataset):
                 if self.data_dict is None:
                     if interval[0] < 0 and self.dataset == 'LRN':
                         data, id_interval = self.get_data_LRN(trial, interval)
-                    
                     else:
                         data = self.data[self.data['Trial'] == trial]
                         data = data[(data['Time'] > interval[0]) & 

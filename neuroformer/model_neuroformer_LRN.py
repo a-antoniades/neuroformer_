@@ -214,7 +214,7 @@ class VideoEncoder(nn.Module):
             x = self.to_patch_embedding(x)
 
         return x
-        # return x
+
 
 class ViTEncoder(nn.Module):
     def __init__(self):
@@ -301,7 +301,6 @@ class MultiheadfAttention(nn.Module):
         
         Bt, Tt, Ct = q.size()
         Bs, Ts, Cs = k.size()
-
 
         # calculate query, key, values for all head in batch and move head forward to the batch dim]
         q = self.query(q).view(Bt, Tt, self.n_head, Ct // self.n_head).transpose(1, 2) # (B, nh, T, hs)
@@ -873,8 +872,6 @@ class GPT(nn.Module):
 
         if config.dataset == 'LRN':
             self.mlp_frames = ProjectNorm(config.p_reduce, config.n_embd)
-        # self.frame_emb = PositionalEncoding2D(config.n_embd)
-            # self.frame_emb = PositionalEmbedding(config.n_embd, config.im_drop)
             self.frame_emb = PositionalEncoding2D(config.n_embd)
         if config.dataset == 'LIF2':
             self.mlp_frames = ProjectNorm(1, config.n_embd)
