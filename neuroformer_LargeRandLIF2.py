@@ -263,7 +263,7 @@ batch_size = round(32)
 shuffle = True
 
 weighted = True if mconf.class_weights is not None else False
-title =  f'window:{window}_prev:{window_prev}_small'
+title =  f'window:{window}_prev:{window_prev}_small/slow_lr/'
 # model_path = f"""./models/tensorboard/LRL2/channel/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{window}_wp:{window_prev}/{6}_Cont:{mconf.contrastive}_window:{window}_f_window:{frame_window}_df:{dt}_blocksize:{id_block_size}_conv_{conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
 # model_path = "/home/ec2-user/neuroformer/models/tensorboard/LRL2/ignore_index/continue_previous_window:0.5_prev:19.5/sparse_f:None_id:None/w:0.5_wp:19.5/6_Cont:False_window:0.5_f_window:20_df:0.1_blocksize:150_conv_False_shuffle:True_batch:18_sparse_(None_None)_blocksz10950_pos_emb:False_temp_emb:True_drop:0.2_dt:True_2.0_197_max0.1_(6, 4, 4)_8_256/_epoch_9000.pt"
 
@@ -275,10 +275,12 @@ title =  f'window:{window}_prev:{window_prev}_small'
 
 model_path = f"""./models/tensorboard/LRL2/channel/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{window}_wp:{window_prev}/{6}_Cont:{mconf.contrastive}_window:{window}_f_window:{frame_window}_df:{dt}_blocksize:{id_block_size}_conv_{conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
 
-# model.load_state_dict(torch.load("/data5/antonis/neuroformer/models/tensorboard/LRL2/ignore_index/window:1_prev:19/sparse_f:None_id:None/w:1_wp:19/6_Cont:False_window:1_f_window:20_df:0.1_blocksize:150_conv_False_shuffle:True_batch:256_sparse_(None_None)_blocksz1450_pos_emb:False_temp_emb:True_drop:0.2_dt:True_2.0_191_max0.1_(6, 4, 4)_8_256.pt"))
+continue_from = "models/tensorboard/LRL2/channel/window:0.5_prev:19.5_small/sparse_f:None_id:None/w:0.5_wp:19.5/6_Cont:False_window:0.5_f_window:20_df:0.1_blocksize:150_conv_False_shuffle:True_batch:32_sparse_(None_None)_blocksz10950_pos_emb:False_temp_emb:True_drop:0.2_dt:True_2.0_197_max0.1_(4, 4, 4)_4_128.pt"
+print(f"-- loaded model from {continue_from} --")
+model.load_state_dict(torch.load(continue_from))
 
-tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rate=3e-4, 
-                    num_workers=4, lr_decay=False, patience=3, warmup_tokens=8e7, 
+tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rate=2e-5, 
+                    num_workers=4, lr_decay=False, patience=3, warmup_tokens=8e0, 
                     decay_weights=True, weight_decay=0.1, shuffle=shuffle,
                     final_tokens=len(train_dataset)*(id_block_size) * (max_epochs),
                     clip_norm=1.0, grad_norm_clip=1.0,
