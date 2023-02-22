@@ -247,8 +247,8 @@ model_path = f"""./models/tensorboard/LRN/channel/{title}/sparse_f:{mconf.sparse
 #     print(f"Model not found at {model_path}")
 #     raise FileNotFoundError
 
-tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rate=1e-4, 
-                    num_workers=4, lr_decay=False, patience=3, warmup_tokens=8e7, 
+tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rate=1e-5, 
+                    num_workers=4, lr_decay=False, patience=3, warmup_tokens=8e0, 
                     decay_weights=True, weight_decay=0.2, shuffle=shuffle,
                     final_tokens=len(train_dataset)*(id_block_size) * (max_epochs),
                     clip_norm=1.0, grad_norm_clip=1.0,
