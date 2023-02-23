@@ -58,39 +58,10 @@ from trainer import Trainer, TrainerConfig
 import json
 # for i in {1..10}; do python3 -m gather_atts.py; done
 
-
-
-
-
-
 # %%
-# stim_path = "data/LargeRandLIF2/LargeRandNet2_PoissonRate.csv"
-# response_path = "data/LargeRandLIF2/LargeRandNet2_SpikeTime.csv"
+from prepare_data import load_LRL2, load_LRL2_small
 
-# if not os.path.exists(response_path):
-#     print("Downloading data...")
-#     import gdown
-#     url = "https://drive.google.com/drive/folders/1dkU4GjyKt5ror5DuyfM135ISsnE69Jp5?usp=sharing"
-#     gdown.download_folder(id=url, quiet=False, use_cookies=False, output="data/")
-
-stim_path = "data/LargeRandLIF2-2/LargeRandNet2_PoissonRate.csv"
-response_path = "data/LargeRandLIF2-2/LargeRandNet2_SpikeTime.csv"
-
-if not os.path.exists(response_path):
-    print("Downloading data...")
-    import gdown
-    url = "https://drive.google.com/drive/folders/1yDWde9rJ_9nOYN5Ic-_JoAYaW2a2jYOY?usp=sharing"
-    gdown.download_folder(id=url, quiet=False, use_cookies=False, output="data/")
-
-
-# Load Data
-stimulus = np.transpose(np.loadtxt(stim_path, delimiter=','), (1, 0))
-df = pd.read_csv(response_path, names=['Time', 'ID'])
-dt_res = 10000
-df['Time'] = df['Time'].round(4)
-df['Trial'] = df['Time'].apply(lambda x: x // dt_res + 1).astype(int)
-df['Time'] = df['Time'].apply(lambda x: x - ((x // dt_res) * dt_res)).round(2)
-df['ID'] = df['ID'].astype(int)
+df, stimulus = load_LRL2_small()
 
 # %%
 # set up logging
@@ -101,24 +72,15 @@ logging.basicConfig(
         level=logging.INFO,
 )
 
-
-
 # %%
 from utils import set_seed
 n_seed = 25
 set_seed(n_seed)
 
 # %%
-stimulus.shape
-
-
-# %%
-plt.plot(stimulus[0, :,])
-
-
-
-# %%
 # df = pd.read_csv(parent_path + "code/data/OneCombo3/Combo3_all_stim.csv")
+
+n_mult = 2
 frame_window = 20
 window = 0.5
 window_prev = 20 - window
@@ -138,49 +100,15 @@ max_window = max(window, window_prev)
 dt_range = math.ceil(max_window / dt) + 1  # add first / last interval for SOS / EOS'
 n_dt = [round(dt * n, 2) for n in range(dt_range)] + ['EOS'] + ['PAD']
 
-# %%
-# from utils import df_to_dict
-
-# dict_path = "data/LargeRandLIF2-2/LargeRandNet2_SpikeTime_dict.pkl"
-
-# if not os.path.exists(dict_path):
-#     print("Creating dictionary...")
-#     df_dict = df_to_dict(df)
-#     with open(dict_path, 'wb') as f:
-#         pickle.dump(df_dict, f)
-# else:
-#     print("Loading dictionary...")
-#     with open(dict_path, 'rb') as f:
-#         df_dict = pickle.load(f)
-
-# int_trials = df.groupby(['Interval', 'Trial']).size()
-# print(int_trials.mean())
-# # df.groupby(['Interval', 'Trial']).agg(['nunique'])
-# var_group = 'Interval'
-# n_unique = len(df.groupby([var_group, 'Trial']).size())
-# df.groupby([var_group, 'Trial']).size().nlargest(int(0.2 * n_unique))
-# # df.groupby(['Interval_2', 'Trial']).size().mean()
-
-# var_group = 'Interval_2'
-# n_unique = len(df.groupby([var_group, 'Trial']).size())
-# df.groupby([var_group, 'Trial']).size().nlargest(int(0.2 * n_unique))
-# # df.groupby(['Interval_2', 'Trial']).size().mean()
-
-# df.groupby([var_group, 'Trial']).size().nlargest(int(0.2 * n_unique))
-# df.groupby(['Interval_2', 'Trial']).size().mean()
-
-# n_unique = len(int_trials)
-# int_trials.nlargest(int(0.2 * n_unique))
-
 
 # %%
 from SpikeVidUtils import SpikeTimeVidData2
 
 ## resnet3d feats
-n_embd = 128
+n_embd = 256
 frame_feats = torch.tensor(stimulus, dtype=torch.float32)
-frame_block_size = 10000  # math.ceil(frame_feats.shape[-1] * frame_window)
-n_embd_frames = n_embd
+frame_block_size = 1000  # math.ceil(frame_feats.shape[-1] * frame_window)
+n_embd_frames = 32
 
 prev_id_block_size = 800 # math.ceil(frame_block_size * (1 - p_window))
 id_block_size = 150    # math.ceil(frame_block_size * p_window)
@@ -208,25 +136,24 @@ train_trials = sorted(df['Trial'].unique())[:int(len(df['Trial'].unique()) * r_s
 train_data = df[df['Trial'].isin(train_trials)]
 test_data = df[~df['Trial'].isin(train_trials)]
 
-
 # %%
 from SpikeVidUtils import SpikeTimeVidData2
 
 train_dataset = SpikeTimeVidData2(train_data, None, block_size, id_block_size, frame_block_size, prev_id_block_size, 
                                   window, dt, frame_memory, stoi, itos, neurons, stoi_dt, itos_dt, frame_feats, 
-                                  pred=False, window_prev=window_prev, frame_window=frame_window, start_interval=20,
+                                  pred=False, window_prev=window_prev, frame_window=frame_window,
                                   dt_frames=dt_frames, dataset='LIF2')
 test_dataset = SpikeTimeVidData2(test_data, None, block_size, id_block_size, frame_block_size, prev_id_block_size, 
                                   window, dt, frame_memory, stoi, itos, neurons, stoi_dt, itos_dt, frame_feats, 
-                                  pred=False, window_prev=window_prev, frame_window=frame_window, start_interval=20,
+                                  pred=False, window_prev=window_prev, frame_window=frame_window,
                                   dt_frames=dt_frames, dataset='LIF2')
 
 print(f'train: {len(train_dataset)}, test: {len(test_dataset)}')
 
-
 # %%
 # from utils import get_class_weights
 # class_weights = get_class_weights(train_dataset, stoi, stoi_dt)
+
 
 
 
@@ -245,7 +172,7 @@ mconf = GPTConfig(train_dataset.population_size, block_size,    # frame_block_si
                     data_size=train_dataset.size,
                     class_weights=None,
                     pretrain=False,
-                    n_state_layers=4, n_state_history_layers=4, n_stimulus_layers=4, self_att_layers=4,
+                    n_state_layers=4 * n_mult, n_state_history_layers=4 * n_mult, n_stimulus_layers=4 * n_mult, self_att_layers=4 * n_mult,
                     n_layer=10, n_head=4, n_embd=n_embd, n_embd_frames=n_embd_frames,
                     contrastive=False, clip_emb=1024, clip_temp=0.5,
                     temp_emb=True, pos_emb=False,
@@ -253,34 +180,28 @@ mconf = GPTConfig(train_dataset.population_size, block_size,    # frame_block_si
                     window=window, window_prev=window_prev, frame_window=frame_window, dt=dt,
                     neurons=neurons, stoi_dt=stoi_dt, itos_dt=itos_dt, dataset='LIF2',
                     ignore_index_id=stoi['PAD'], ignore_index_dt=stoi_dt['PAD'])  # 0.35
-model = GPT(mconf)
+model = GPT(mconf).cpu()
+
 
 
 # %%
 layers = (mconf.n_state_layers, mconf.n_state_history_layers, mconf.n_stimulus_layers)
 max_epochs = 500
-batch_size = round(32)
+batch_size = round(32 * 2)
 shuffle = True
 
 weighted = True if mconf.class_weights is not None else False
-title =  f'window:{window}_prev:{window_prev}_small/slow_lr/'
-# model_path = f"""./models/tensorboard/LRL2/channel/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{window}_wp:{window_prev}/{6}_Cont:{mconf.contrastive}_window:{window}_f_window:{frame_window}_df:{dt}_blocksize:{id_block_size}_conv_{conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
-# model_path = "/home/ec2-user/neuroformer/models/tensorboard/LRL2/ignore_index/continue_previous_window:0.5_prev:19.5/sparse_f:None_id:None/w:0.5_wp:19.5/6_Cont:False_window:0.5_f_window:20_df:0.1_blocksize:150_conv_False_shuffle:True_batch:18_sparse_(None_None)_blocksz10950_pos_emb:False_temp_emb:True_drop:0.2_dt:True_2.0_197_max0.1_(6, 4, 4)_8_256/_epoch_9000.pt"
+title =  f'window:{window}_prev:{window_prev}'
+model_path = f"""./models/tensorboard/LRL2_small/channel/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{window}_wp:{window_prev}/{6}_Cont:{mconf.contrastive}_window:{window}_f_window:{frame_window}_df:{dt}_blocksize:{id_block_size}_conv_{conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
 
 # if os.path.exists(model_path):
 #     model.load_state_dict(torch.load(model_path))
 #     print(f"-- loaded model from {model_path} --")
-# else:
-#      raise Exception(f"model {model_path} does not exist")
 
-model_path = f"""./models/tensorboard/LRL2/channel/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{window}_wp:{window_prev}/{6}_Cont:{mconf.contrastive}_window:{window}_f_window:{frame_window}_df:{dt}_blocksize:{id_block_size}_conv_{conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
+# model.load_state_dict(torch.load("/data5/antonis/neuroformer/models/tensorboard/LRL2/ignore_index/window:1_prev:19/sparse_f:None_id:None/w:1_wp:19/6_Cont:False_window:1_f_window:20_df:0.1_blocksize:150_conv_False_shuffle:True_batch:256_sparse_(None_None)_blocksz1450_pos_emb:False_temp_emb:True_drop:0.2_dt:True_2.0_191_max0.1_(6, 4, 4)_8_256.pt"))
 
-continue_from = "models/tensorboard/LRL2/channel/window:0.5_prev:19.5_small/sparse_f:None_id:None/w:0.5_wp:19.5/6_Cont:False_window:0.5_f_window:20_df:0.1_blocksize:150_conv_False_shuffle:True_batch:32_sparse_(None_None)_blocksz10950_pos_emb:False_temp_emb:True_drop:0.2_dt:True_2.0_197_max0.1_(4, 4, 4)_4_128.pt"
-print(f"-- loaded model from {continue_from} --")
-model.load_state_dict(torch.load(continue_from))
-
-tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rate=2e-5, 
-                    num_workers=4, lr_decay=False, patience=3, warmup_tokens=8e0, 
+tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rate=1e-4, 
+                    num_workers=4, lr_decay=False, patience=3, warmup_tokens=8e7, 
                     decay_weights=True, weight_decay=0.1, shuffle=shuffle,
                     final_tokens=len(train_dataset)*(id_block_size) * (max_epochs),
                     clip_norm=1.0, grad_norm_clip=1.0,
@@ -295,14 +216,17 @@ trainer = Trainer(model, train_dataset, test_dataset, tconf, mconf)
 trainer.train()
 
 
+
 # %%
 loader = DataLoader(train_dataset, shuffle=False, pin_memory=False)
 iterable = iter(loader)
+
 
 # %%
 x, y = next(iterable)
 model.cpu()
 features, logits, loss = model(x, y)
+
 
 # %%
 B, T, E = 2, 10, 40
@@ -311,6 +235,7 @@ n_head = 4
 
 q = q.view(B, n_head, T, E // n_head)
 print(q.shape)
+
 
 # %%
 Bf, Tf, Ef = B, T * 2, E // 4
@@ -322,6 +247,7 @@ k = k.view(Bf, n_head, Tf // n_head, Ef)
 print(k.shape)
 
 att = (q @ k.transpose(-2, -1))
+
 
 # %%
 """
@@ -350,6 +276,7 @@ temp = 2
 
 
 
+
 # %%
 end_interval = window * 500
 
@@ -359,7 +286,7 @@ for trial in trials:    # test_data['Trial'].unique():
         df_trial = df[(df['Trial'] == trial) & (df['Time'] < end_interval)]
         trial_dataset = SpikeTimeVidData2(df_trial, None, block_size, id_block_size, frame_block_size, prev_id_block_size, 
                                   window, dt, frame_memory, stoi, itos, neurons, stoi_dt, itos_dt, frame_feats, 
-                                  pred=False, window_prev=window_prev, frame_window=frame_window, start_interval=20,
+                                  pred=False, window_prev=window_prev, frame_window=frame_window,
                                   dt_frames=dt_frames, dataset='LIF2')
         trial_loader = DataLoader(trial_dataset, shuffle=False, pin_memory=False)
         results_trial = predict_raster_recursive_time_auto(model, trial_dataset, window, window_prev, stoi, itos_dt, itos=itos, 
@@ -384,10 +311,12 @@ print(f"pred: {len(df_pred)}, true: {len(df_true)}" )
 
 
 
+
 # %%
 df_1 = df[df['Trial'].isin(trials)]
 df_2 = df[df['Trial'].isin(trials + 1)]
 df_3 = df[df['Trial'].isin(trials + 2)]
+
 
 # %%
 df_pred_full = df_pred
@@ -416,6 +345,7 @@ rates_3 = get_rates_trial(df_3, labels)
 top_corr_pred = calc_corr_psth(rates_pred, rates_1)
 top_corr_real = calc_corr_psth(rates_1, rates_2)
 top_corr_real_2 = calc_corr_psth(rates_1, rates_3)
+
 
 
 # %%
@@ -466,9 +396,11 @@ total_scores['pred'] = pred_scores
 
 print(f"model: {title}")
 
+
 # %%
 loader = DataLoader(train_dataset, batch_size=5, shuffle=False, pin_memory=False)
 iterable = iter(train_dataset)
+
 
 
 # %%
@@ -503,9 +435,11 @@ int_var = 'pid'
 # df[(df[t_var] >= float(x[int_var][0]) - tdiff) & (df[t_var] <= float(x[int_var][1] + tdiff)) & (df['Trial'] == int(x['trial']))]
 df[(df[t_var] >= float(x[int_var][0]) - tdiff) & (df[t_var] <= float(x['cid'][1] + tdiff)) & (df['Trial'] == int(x['trial']))]
 
+
 # %%
 loader = DataLoader(train_dataset, batch_size=5, shuffle=False, pin_memory=False)
 iterable = iter(train_dataset)
+
 
 # %%
 loader = DataLoader(train_dataset, batch_size=5, shuffle=False, pin_memory=False)
@@ -541,13 +475,19 @@ t_var = 'Time' # 'Interval'
 int_var = 'pid'
 df[(df[t_var] > round(float(x[int_var][0]), 2) - tdiff) & (df[t_var] <= round(float(x[int_var][1]), 2)) & (df['Trial'] == int(x['trial']))]
 
+
 # %%
 x['frames'].shape
+
 
 # %%
 stimulus.shape
 
+
 # %%
+
+
+
 
 
 
