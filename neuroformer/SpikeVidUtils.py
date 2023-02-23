@@ -820,3 +820,47 @@ for k, v in loss.items():
 total_loss.backward()
 
 """
+
+
+
+"""
+==== CREATING DICTS FOR THE DATA ====
+
+# %%
+# from utils import df_to_dict
+
+# dict_path = "data/LargeRandLIF2-2/LargeRandNet2_SpikeTime_dict.pkl"
+
+# if not os.path.exists(dict_path):
+#     print("Creating dictionary...")
+#     df_dict = df_to_dict(df)
+#     with open(dict_path, 'wb') as f:
+#         pickle.dump(df_dict, f)
+# else:
+#     print("Loading dictionary...")
+#     with open(dict_path, 'rb') as f:
+#         df_dict = pickle.load(f)
+
+# int_trials = df.groupby(['Interval', 'Trial']).size()
+# print(int_trials.mean())
+# # df.groupby(['Interval', 'Trial']).agg(['nunique'])
+# var_group = 'Interval'
+# n_unique = len(df.groupby([var_group, 'Trial']).size())
+# df.groupby([var_group, 'Trial']).size().nlargest(int(0.2 * n_unique))
+# # df.groupby(['Interval_2', 'Trial']).size().mean()
+
+# var_group = 'Interval_2'
+# n_unique = len(df.groupby([var_group, 'Trial']).size())
+# df.groupby([var_group, 'Trial']).size().nlargest(int(0.2 * n_unique))
+# # df.groupby(['Interval_2', 'Trial']).size().mean()
+
+# df.groupby([var_group, 'Trial']).size().nlargest(int(0.2 * n_unique))
+# df.groupby(['Interval_2', 'Trial']).size().mean()
+
+# n_unique = len(int_trials)
+# int_trials.nlargest(int(0.2 * n_unique))
+
+
+
+===================================
+"""
