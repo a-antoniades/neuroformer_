@@ -367,7 +367,7 @@ class PositionalEmbedding(nn.Module):
         # print(f"x: {x.shape}, pe: {self.pe[:, :x.size(1)].shape}")
         x = Variable(self.pe[:, :x.size(1)], 
                          requires_grad=False)
-        return self.dropout(x)
+        return self.dropout(x).to(x.device)
     
 
 class PositionalEncoding3D(nn.Module):
@@ -461,7 +461,7 @@ class PositionalEncoding2D(nn.Module):
         emb[:, :, self.channels : 2 * self.channels] = emb_y
 
         self.cached_penc = emb[None, :, :, :orig_ch].repeat(tensor.shape[0], 1, 1, 1)
-        return self.cached_penc
+        return self.cached_penc.to(tensor.device)
 
 
 class PositionalEncodingPermute2D(nn.Module):
@@ -511,7 +511,7 @@ class TemporalEmbedding(nn.Module):
         pe[:, :, 1::2] = torch.cos(x * div_term)
 
         x = Variable(pe, requires_grad=False)
-        return self.dropout(x)
+        return self.dropout(x).to(x.device)
 
 
 class LearntTemporalEmbedding(nn.Module):
