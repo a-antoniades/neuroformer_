@@ -102,6 +102,41 @@ def grad_att(attentions, gradients, discard_ratio=0.8):
         return attentions
 
 
+def get_atts(name):
+    def hook(model, input, output):
+        attentions[name] = output
+    return hook
+
+
+def get_atts(model):
+    attentions = {}
+
+    for n, mod in enumerate(model.neural_visual_transformer.neural_state_blocks):
+        attentions[f'neural_state_block_{n}'] = mod.attn.att.detach().cpu()
+
+    for n, mod in enumerate(model.neural_visual_transformer.neural_state_history_blocks):
+        attentions[f'neural_state_history_block_{n}'] = mod.attn.att.detach().cpu()
+
+    for n, mod in enumerate(model.neural_visual_transformer.neural_state_stimulus_blocks):
+        attentions[f'neural_stimulus_block_{n}'] = mod.attn.att.detach().cpu()
+    
+    return attentions
+
+def accum_atts(att_dict, key=None, n_channels=1000):
+    if key is None:
+        att_keys = att_dict.keys()
+    else:
+        att_keys = [k for k in att_dict.keys() if key in k]
+    atts = []
+    for k in att_keys:
+        att = att_dict[k]
+        att = att.sum(-3).squeeze(0).detach().cpu()
+        reshape_c = att.shape[-1] // n_channels
+        assert att.shape[-1] % n_channels == 0, "Attention shape does not match stimulus shape"
+        att = att.view(att.shape[0], reshape_c, att.shape[1] // reshape_c)
+        att = att.sum(-2)
+        atts.append(att)
+    return torch.stack(atts)
 
 
 def interpret(x, y, model, idx=None, n_layer=0):
@@ -133,6 +168,9 @@ def interpret(x, y, model, idx=None, n_layer=0):
        
     id_id_att = get_attention(model.neural_visual_transformer.neural_state_blocks, mconf.n_state_layers, mconf.id_block_size)
     id_vis_att = get_attention(model.neural_visual_transformer.neural_state_stimulus_blocks, mconf.n_stimulus_layers, mconf.id_block_size)
+    # attentions = get_atts(model)
+    # id_vis_att = accum_atts(attentions, key='neural_stimulus_block').mean(0)
+
 
     R_id = torch.eye(id_id_att[0].shape[-2], id_id_att[0].shape[-1])
     R_id = R_id[:T_id, :T_id]
@@ -145,7 +183,7 @@ def interpret(x, y, model, idx=None, n_layer=0):
     #         del grad
 
     R_id_vis = torch.eye(id_vis_att[0].shape[-2], id_vis_att[0].shape[-1])[:T_id]
-    R_id_vis = None
+    # R_id_vis = None
     R_vis = torch.eye(id_vis_att[0].shape[-1], id_vis_att[0].shape[-1])
     for i, blk_att in enumerate(id_vis_att):
         if i != n_layer:
