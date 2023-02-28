@@ -135,6 +135,37 @@ def trial_combo_rampV2(spike_data, video_stack):
     df['Time'] *= dt
     df = df.sort_values(by=['Trial', 'Stimulus', 'Time',])
 
+
+def get_df_visnav(data):
+    """
+    # data: Number of neurons (N,)
+    # returns: Time x ID x Trial dataframe
+    """
+    # gather data from all the different neurons/trials
+    df_dict = collections.defaultdict(dict)
+    for ID in range(len(data)):
+        df = data[ID]
+        trial_dict = collections.defaultdict(list)
+        for i, trial in enumerate(df):
+            if len(trial.shape) == 0:
+                continue
+            for row in trial:
+                trial_dict[i].append(row)
+        if len(trial_dict) == 0:
+            continue
+        df_dict[ID] = trial_dict
+    
+    # organize in one single dataframe
+    df_list = []
+    for ID in df_dict.keys():
+        df_list.append(pd.concat(pd.DataFrame({'Time':v, 'ID':ID, 'Trial':k,}) for k, v in df_dict[ID].items()))
+    
+    
+    df = pd.concat(df_list).sort_values(by=['Trial', 'Time'])
+    df = df.dropna().reset_index(drop=True)
+    return df
+
+
     def trim_trial(df, video_stack):
         fps = 20
         for stimulus in video_stack.keys():
