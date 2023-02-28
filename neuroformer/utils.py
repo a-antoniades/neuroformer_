@@ -365,8 +365,6 @@ def predict_raster_recursive_time_auto(model, dataset, window, window_prev, stoi
             y[key] = y[key].to(device)
         
         if x['interval'] > window_prev + 2:
-            # for k, v in data.items():
-            #     print(f"{k}: {len(v)}")
             df = {k: v for k, v in data.items() if k in ('ID', 'dt', 'Trial', 'Interval', 'Time')}
             df = pd.DataFrame(df)
 
