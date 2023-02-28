@@ -218,7 +218,7 @@ mconf = GPTConfig(train_dataset.population_size, block_size,    # frame_block_si
                         window=window, window_prev=window_prev, frame_window=frame_window, dt=dt,
                         neurons=neurons, stoi_dt=stoi_dt, itos_dt=itos_dt, n_embd_frames=n_embd_frames,
                         ignore_index_id=stoi['PAD'], ignore_index_dt=stoi_dt['PAD'],
-                        dataset=DATASET, p_reduce=100)  # 0.35
+                        dataset=DATASET, p_reduce=10)  # 0.35
 model = GPT(mconf)
 
 # %%
