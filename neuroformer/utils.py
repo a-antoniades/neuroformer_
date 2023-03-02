@@ -25,6 +25,17 @@ def set_seed(seed):
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
 
+def all_device(data, device):
+    device = torch.device(device)
+    if isinstance(data, dict):
+        return {k: all_device(v, device) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [all_device(v, device) for v in data]
+    elif isinstance(data, tuple):
+        return tuple(all_device(v, device) for v in data)
+    else:
+        return data.to(device)
+
 def top_k_logits(logits, k):
     v, ix = torch.topk(logits, k)
     out = logits.clone()

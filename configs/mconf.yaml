@@ -16,6 +16,7 @@ n_state_layers: 4.0
 n_state_history_layers: 4.0
 n_stimulus_layers: 8.0
 self_att_layers: 4.0
+n_behavior_layers: 4
 n_layer: 10.0
 n_head: 2.0
 n_embd: 256.0
