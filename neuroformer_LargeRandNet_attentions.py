@@ -408,7 +408,8 @@ for x, y in pbar:
     # att = accum_atts(attentions, key='neural_stimulus_block').sum(0)
     # att = cat_atts(attentions, layer_key='neural_stimulus_block')
     att = stack_atts(attentions, layer_key='neural_stimulus_block')
-    att = att.max(-4)[0].min(-3)[0] 
+    # att = att.max(-4)[0].min(-3)[0] 
+    att = att[:, -1,].min(-3)[0]
 
     if len(att.size()) > 2:
         # flatten batch
@@ -440,7 +441,7 @@ if not os.path.exists(att_path):
     os.mkdir(att_path)
 n_files = len(glob.glob(os.path.join(att_path, "*.npy")))
 
-save_path = os.path.join(att_path, f"{n_files}_att_matrix_gradcam_{grad_cond}.npy")
+save_path = os.path.join(att_path, f"{n_files}_att_matrix_gradcam_{grad_cond}_lastlayer.npy")
 np.save(save_path, att_matrix)
 print(f"Saved attention matrix to {save_path}")
 
