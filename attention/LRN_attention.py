@@ -87,7 +87,7 @@ def accum_atts(att_dict, stimulus, key=None):
         atts.append(att)
     return torch.stack(atts)
 
-def reshape_attentions(att_vis):
+def reshape_attentions(att_vis, stimulus):
     n_id_block, n_vis_block = att_vis.shape[-2], att_vis.shape[-1]
     att_vis = att_vis.view(n_id_block, n_vis_block)
     reshape_c = att_vis.shape[-1] // stimulus.shape[0]

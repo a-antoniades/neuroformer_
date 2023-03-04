@@ -51,11 +51,12 @@ parent_path = os.path.dirname(os.path.dirname(os.getcwd())) + "/"
 from neuroformer.model_neuroformer import GPT, GPTConfig, neuralGPTConfig
 from neuroformer.trainer import Trainer, TrainerConfig
 
-from attention.LRN_attention import *
-
 
 import json
 # for i in {1..10}; do python3 -m gather_atts.py; done
+
+from attention.LRN_attention import *
+
 
 # %%
 from neuroformer.prepare_data import load_LRN
@@ -293,108 +294,52 @@ model.load_state_dict(torch.load(load_weights, map_location=torch.device('cpu'))
 trials = test_data['Trial'].unique()[:4]
 
 # %%
-preds, features, loss = model(x, y)
-# model.neural_visual_transformer.neural_state_blocks[0].attn.att.shape
-
-# %%
-features = {}
-
-# helper function for hook
-def get_features(name):
-    def hook(model, input, output):
-        features[name] = output.detach().cpu()
-    return hook
-
-grads = {}
-def get_grads(name):
-    def hook(model, input, output):
-        grads[name] = output.detach().cpu()
-    return hook
-
-"""
-register forward hooks for all multimodal transformer layers
-so that the features are saved after every forward pass
-"""
-
-for n, mod in enumerate(model.neural_visual_transformer.neural_state_blocks):
-    mod.register_forward_hook(get_features(f'neural_state_block_{n}'))
-
-for n, mod in enumerate(model.neural_visual_transformer.neural_state_history_blocks):
-    mod.register_forward_hook(get_features(f'neural_state_history_block_{n}'))
-
-for n, mod in enumerate(model.neural_visual_transformer.neural_state_history_self_attention):
-    mod.register_forward_hook(get_features(f'neural_state_history_self_attention_{n}'))
-
-for n, mod in enumerate(model.neural_visual_transformer.neural_state_stimulus_blocks):
-    mod.register_forward_hook(get_features(f'neural_state_stimulus_block_{n}'))
-
-for n, mod in enumerate(model.neural_visual_transformer.neural_state_stimulus_blocks):
-    mod.attn.attn_drop.register_full_backward_hook(get_grads(f'neural_state_stimulus_block_{n}'))
-
-# %%
-"""
-do a forward pass and save the features
-"""
-
-x, y  = next(iterable)
-
-preds = []
-feats = []
-
-features = {}
-
-with torch.no_grad():
-    logits, feats, loss = model(x, y)
-    for n, mod in enumerate(model.neural_visual_transformer.neural_state_blocks):
-        preds.append(features[f'neural_state_block_{n}'])
-    for n, mod in enumerate(model.neural_visual_transformer.neural_state_history_blocks):
-        preds.append(features[f'neural_state_history_block_{n}'])
-    for n, mod in enumerate(model.neural_visual_transformer.neural_state_history_self_attention):
-        preds.append(features[f'neural_state_history_self_attention_{n}'])
-    for n, mod in enumerate(model.neural_visual_transformer.neural_state_stimulus_blocks):
-        preds.append(features[f'neural_state_stimulus_block_{n}'])
-
-# %%
-model.neural_visual_transformer.neural_state_stimulus_blocks[0].attn.attn_drop
-
-# %%
-df['Trial'].max()
-
-# %%
 att_matrix = np.zeros((len(stoi.keys()), 1000))
 neurons = sorted(list(set(df['ID'].unique())))
 
-att_data = df
+att_data = df[df['Trial'].isin([i for i in range(0, 20)])]
 att_dataset = SpikeTimeVidData2(att_data, None, block_size, id_block_size, frame_block_size, prev_id_block_size, 
                                   window, dt, frame_memory, stoi, itos, neurons, stoi_dt, itos_dt, frame_feats,
                                   pred=False, window_prev=window_prev, frame_window=frame_window,
                                   dt_frames=dt_frames, intervals=intervals)
-loader = DataLoader(att_dataset, batch_size=32, shuffle=False, num_workers=1)
+loader = DataLoader(att_dataset, batch_size=32, shuffle=True, num_workers=1)
 # model = model.to("cuda")
 model.load_state_dict(torch.load(load_weights, map_location=torch.device('cpu')))
-model = model.cpu()
 
 # %%
-# os.environ["CUDA_VISIBLE_DEVICES"] = "6, 7"
+# x, y = next(iter(loader))
+
+# _, _, _, = model(x, y)
+# atts = get_atts(model)
+
+# # %%
+LAYER_KEY = "neural_state_block"
+
+# print(atts['neural_state_block_0'].shape)
+# print(atts['neural_stimulus_block_0'].shape)
+
+# agg_atts = cat_atts(atts, LAYER_KEY)
+# agg_atts = stack_atts(atts, LAYER_KEY)
 
 # %%
-device = torch.device("cuda") if torch.cuda.is_available() else "cpu"
-# device = "cpu"
+# device = torch.device("cuda") if torch.cuda.is_available() else "cpu"
+device = "cpu"
 model.to(device)
 model.zero_grad()
 pbar = tqdm(loader)
 
 model.eval()
-att_matrix = np.zeros((1000, 1000))
+att_matrix = np.zeros((1003, 1003))
 
 grad_cond = False
+
 for x, y in pbar:
     model.zero_grad()
     x, y = all_device((x, y), device)
     model.to(device)
     with torch.set_grad_enabled(grad_cond):
-        _, _, _, = model(x, y)
-    # model.cpu()
+        _, _, _, = model(x, y) if grad_cond else model(x)
+    model.cpu()
     x, y = all_device((x, y), "cpu")
     attentions = get_atts(model)
     if grad_cond:
@@ -405,28 +350,34 @@ for x, y in pbar:
 
     # att = accum_atts(attentions, key='neural_stimulus_block').sum(0)
     # att = cat_atts(attentions, layer_key='neural_stimulus_block')
-    att = stack_atts(attentions, layer_key='neural_stimulus_block')
-    att = att.max(-4)[0].min(-3)[0] 
+    att = stack_atts(attentions, layer_key=LAYER_KEY)
+    # att = att.max(-4)[0].min(-3)[0] 
+    att = att.sum(-4).sum(-3)
     # att = att[:, -1,].min(-3)[0]
 
-    if len(att.size()) > 2:
-        # flatten batch
-        att = att.view(-1, 1000)
-    x_id = x['id'].flatten()
-    y_id = y['id'].flatten()
+    # if len(att.size()) > 2:
+    #     # flatten batch
+    #     att = att.view(-1, 150)
+    x_id = x['id']
+    y_id = y['id']
     
     # neurons = [int(itos[int(n)]) if not isinstance(itos[int(n)], str) else 1001 for n in x_id]
-    neurons, indexes = [], []
-    for n, n_id in enumerate(x_id):
-        n_id = itos[int(n_id)]
-        if not isinstance(n_id, str):
-            neurons.append(int(n_id))
-            indexes.append(n)
-    if len(att) > 1:
-        for neuron, index in zip(neurons, indexes):
-            att_matrix[neuron] += np.array(att[index])
+    for batch in range(x_id.size(0)):
+        neurons_x, neurons_y, indexes = [], [], []
+        for n, (xid, yid) in enumerate(zip(x_id[batch], y_id[batch])):
+            xid = itos[int(xid)]
+            yid = itos[int(yid)]
+            if not isinstance(xid, str) and not isinstance(yid, str):
+                neurons_x.append(int(xid))
+                neurons_y.append(int(yid))
+                indexes.append(n)
+        # if len(att) > 1:
+        #     for neuron, index in zip(neurons_x, neurons_y, indexes):
+        #         att_matrix[neuron][neurons_] += np.array(att[index][neuron])
+        att_matrix[neurons_x, neurons_x] += np.array(att[batch][indexes, indexes])
+
     # clear gpu memory
-    del x, y, attentions, att, x_id, y_id, neurons
+    del x, y, attentions, att, x_id, y_id
     if grad_cond:
         del gradients
     model.zero_grad()
@@ -437,125 +388,12 @@ att_path = os.path.join(base_path, "attentions")
 if not os.path.exists(att_path):
     os.mkdir(att_path)
 n_files = len(glob.glob(os.path.join(att_path, "*.npy")))
-
-save_path = os.path.join(att_path, f"{n_files}_att_matrix_gradcam_{grad_cond}_lastlayer.npy")
+ 
+save_path = os.path.join(att_path, f"{n_files}_self-att_{grad_cond}_lastlayer.npy")
 np.save(save_path, att_matrix)
 print(f"Saved attention matrix to {save_path}")
 
 # %%
-# # os.path.join(att_path, f"{n_files}_{grad_cond}_att_matrix_gradcam.npy")
-
-# # %%
-# loader = DataLoader(att_dataset, batch_size=1, shuffle=True, num_workers=2)
-# iterable = iter(loader)
-
-# # %%
-# x, y = next(iterable)
-# _, _, _, = model(x, y)
-# attentions = get_atts(model)
-# att = accum_atts(attentions, key='neural_stimulus_block')
-
-# # %%
-# def gradcam(atts, grads):
-#     common_keys = set(atts.keys()).intersection(set(grads.keys()))
-#     for key in common_keys:
-#         atts[key] = atts[key] * grads[key].clamp(min=0)
-#     return atts
-
-# # %%
-# att_vis = accum_atts(attentions, key='neural_stimulus_block').mean(0)
-
-# # %%
-# from visualize import set_plot_white
-# set_plot_white()
-
-# loader = DataLoader(att_dataset, batch_size=1, shuffle=True, num_workers=2)
-# iterable = iter(loader)
-
-# last_layer = f"neural_stimulus_block_{n}".format(n=mconf.n_stimulus_layers-1)
-# n_neurons = 10
-# ncols = 5
-# nrows = n_neurons // ncols
-
-# plt.figure(figsize=(40, (20) * (n_neurons // 20)))
-
-# model.eval()
-# model.to("cpu")
-# n_idx = 3
-# counter = 0
-# pbar = tqdm(range(n_neurons))
-# while pbar:
-#     x, y = next(iterable)
-#     model.zero_grad()
-#     with torch.set_grad_enabled(True):
-#         _, _, _, = model(x, y)
-#     attentions = get_atts(model)
-#     gradients = get_grads(model)
-#     attentions = gradcam(attentions, gradients)
-
-#     att_vis = attentions[last_layer].min(dim=1)[0]
-    
-#     # # x, y = all_device((x, y), "cpu")
-#     # att_vis = accum_atts(attentions, key='neural_stimulus_block').view(-1, 1000)
-#     # # att_id, att_vis_grad = interpret(x, y, model)
-#     # # att_vis_grad = reshape_attentions(att_vis)
-
-#     # for n_idx in range(att_vis.shape[0]):
-#         # n_idx = 1
-#     try:
-#         neuron_x = int(itos[int(x['id'].flatten()[n_idx])])
-#         neuron_y = int(itos[int(y['id'].flatten()[n_idx])])
-#         counter += 1
-#     except:
-#         continue
-
-#     lw = 10
-#     fs = 15
-#     plt.subplot(nrows, ncols, counter)
-#     plt.grid()
-#     plt.title(f"x: {neuron_x}, y: {neuron_y}", fontsize=20)
-#     plt.plot(att_vis[n_idx])
-#     plt.axvline(x=neuron_x, color='b', label='x', linewidth=lw)
-#     plt.axvline(x=neuron_y, color='g', label='y', linewidth=lw)
-
-#     save_dir = os.path.join(base_path, "gradcam")
-#     if not os.path.exists(save_dir):
-#         os.mkdir(save_dir)
-#     n_plots = glob.glob(os.path.join(save_dir, "**/**.png"))
-#     plt.savefig(os.path.join(save_dir, f"{len(n_plots)}.png"))
-#     # plt.plot(att_vis_grad[n_idx], color='purple', linestyle='--', label='grad')
-#     # plt.xlabel("Channel", fontsize=fs)
-#     # plt.ylabel("Attention", fontsize=fs)
-#     if counter == 0:
-#         plt.legend()
-
-# # %%
-# from attentionVis import interpret
-
-# id_x = x['id'].flatten()[n_idx]
-# neuron_x = int(itos[int(id_x)])
-
-# R_id, R_id_vis = interpret(x, y, model)
-
-# # %%
-# accum_atts(R_id_vis, key='neural_stimulus_block')
-
-# # %%
-# def reshape_attentions(att_vis):
-#     n_id_block, n_vis_block = att_vis.shape[-2], att_vis.shape[-1]
-#     att_vis = att_vis.view(n_id_block, n_vis_block)
-#     reshape_c = att_vis.shape[-1] // stimulus.shape[0]
-#     assert att_vis.shape[-1] % stimulus.shape[0] == 0, "Attention shape does not match stimulus shape"
-#     att_vis = att_vis.view(att_vis.shape[0], reshape_c, att_vis.shape[1] // reshape_c)
-#     att_vis = att_vis.sum(-2)
-#     return att_vis
-
-# # %%
-# reshape_attentions(R_id_vis).shape
-
-# # %%
-
-# # %%
 
 
 
