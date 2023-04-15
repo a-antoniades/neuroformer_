@@ -33,6 +33,11 @@ from einops.layers.torch import Rearrange
 import timm
 import omegaconf
 
+from modules import (PositionalEmbedding, PositionalEncoding2D, 
+                     PositionalEncodingPermute2D, PositionalEncoding3D,
+                     TemporalEmbedding, LearntTemporalEmbedding,
+                     contrastive_loss)
+import collections
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +65,14 @@ def convert_weights(model: nn.Module):
 
     model.apply(_convert_weights_to_fp16)
 
+def freeze_weights(model, keep_param):
+    for name, param in model.named_parameters():
+        if keep_param in name:
+            print(f"keeping param {name}")
+            param.requires_grad = True
+        else:
+            param.requires_grad = False
+
 def _get_clones(module, N):
     return nn.ModuleList([copy.deepcopy(module) for i in range(N)])
 
@@ -86,6 +99,7 @@ class GPTConfig:
     self_att_layers = 0
     resnet_backbone = False
     vit_encoder = True
+    freeze_weights = None
 
 
     def __init__(self, vocab_size, block_size, **kwargs):
@@ -184,8 +198,10 @@ class VideoEncoder(nn.Module):
         
         if self.conv_layer:
             kernel_size = config.kernel_size
+            stride_size = config.stride_size if hasattr(config, 'stride_size') else kernel_size
+            padding_size = config.padding_size if hasattr(config, 'padding_size') else 0
             self.conv_block = torch.nn.Sequential(
-                    nn.Conv3d(1, config.n_embd, kernel_size=kernel_size, stride=kernel_size, padding=0),
+                    nn.Conv3d(1, config.n_embd, kernel_size=kernel_size, stride=stride_size, padding=padding_size),
                     Rearrange('b e t h w -> b t h w e'),
                     nn.LayerNorm([config.n_embd]),
                     nn.ReLU()
@@ -292,12 +308,13 @@ class MultiheadfAttention(nn.Module):
         return att
 
     def forward(self, q, k=None, v=None, tgt_mask=None, pad=None, dtx=None, sparse_topk=None):
+        assert torch.equal(k, v) is True, "Keys and Values must be the same"
         if None not in (k, v):
             assert k.size() == v.size(), "Keys and Values must be of same size"
             # assert q.size(-1) == k.size(-1) == v.size(-1), "Embedding dims must be of same size"
         else:
             k, v = q, q
-        
+
         Bt, Tt, Ct = q.size()
         Bs, Ts, Cs = k.size()
 
@@ -327,7 +344,6 @@ class MultiheadfAttention(nn.Module):
         # Explicit Sparse Attention - Use top-K qk values
         if self.sparse_topk is not None and self.sparse_topk < att.shape[-1]:
             top, _ = torch.topk(att, self.sparse_topk, dim=-1)
-            # print(top.shape)
             vk = top[..., -1].unsqueeze(-1).expand_as(att)
             mask = att < vk
             att.masked_fill_(mask, float('-inf'))
@@ -343,189 +359,6 @@ class MultiheadfAttention(nn.Module):
         # output projection
         y = self.resid_drop(self.proj(y))
         return y
-
-
-class PositionalEmbedding(nn.Module):
-    """ Implement the PE function. """
-    def __init__(self, n_embd, p_drop,  max_len=1500):
-        super().__init__()
-        self.dropout = nn.Dropout(p=p_drop)
-        
-        # Compute the positional encodings once in log space.
-        pe = torch.zeros(max_len, n_embd)
-        position = torch.arange(0, max_len).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, n_embd, 2) *
-                             -(math.log(10000.0) / n_embd))
-        pe[:, 0::2] = torch.sin(position * div_term)
-        pe[:, 1::2] = torch.cos(position * div_term)
-        pe = pe.unsqueeze(0)
-        self.register_buffer('pe', pe)
-        
-    def forward(self, x):
-        x = Variable(self.pe[:, :x.size(1)], 
-                         requires_grad=False)
-        return self.dropout(x)
-    
-
-class PositionalEncoding2D(nn.Module):
-    def __init__(self, channels):
-        """
-        :param channels: The last dimension of the tensor you want to apply pos emb to.
-        """
-        super(PositionalEncoding2D, self).__init__()
-        self.org_channels = channels
-        channels = int(np.ceil(channels / 4) * 2)
-        self.channels = channels
-        inv_freq = 1.0 / (10000 ** (torch.arange(0, channels, 2).float() / channels))
-        self.register_buffer("inv_freq", inv_freq)
-        self.cached_penc = None
-
-    def forward(self, tensor):
-        """
-        :param tensor: A 4d tensor of size (batch_size, x, y, ch)
-        :return: Positional Encoding Matrix of size (batch_size, x, y, ch)
-        """
-        if len(tensor.shape) != 4:
-            raise RuntimeError("The input tensor has to be 4d!")
-
-        if self.cached_penc is not None and self.cached_penc.shape == tensor.shape:
-            return self.cached_penc
-
-        self.cached_penc = None
-        batch_size, x, y, orig_ch = tensor.shape
-        pos_x = torch.arange(x, device=tensor.device).type(self.inv_freq.type())
-        pos_y = torch.arange(y, device=tensor.device).type(self.inv_freq.type())
-        sin_inp_x = torch.einsum("i,j->ij", pos_x, self.inv_freq)
-        sin_inp_y = torch.einsum("i,j->ij", pos_y, self.inv_freq)
-        emb_x = get_emb(sin_inp_x).unsqueeze(1)
-        emb_y = get_emb(sin_inp_y)
-        emb = torch.zeros((x, y, self.channels * 2), device=tensor.device).type(
-            tensor.type()
-        )
-        emb[:, :, : self.channels] = emb_x
-        emb[:, :, self.channels : 2 * self.channels] = emb_y
-
-        self.cached_penc = emb[None, :, :, :orig_ch].repeat(tensor.shape[0], 1, 1, 1)
-        return self.cached_penc.to(tensor.device)
-
-
-class PositionalEncoding3D(nn.Module):
-    def __init__(self, channels):
-        """
-        :param channels: The last dimension of the tensor you want to apply pos emb to.
-        """
-        super(PositionalEncoding3D, self).__init__()
-        self.org_channels = channels
-        channels = int(np.ceil(channels / 6) * 2)
-        if channels % 2:
-            channels += 1
-        self.channels = channels
-        inv_freq = 1.0 / (10000 ** (torch.arange(0, channels, 2).float() / channels))
-        self.register_buffer("inv_freq", inv_freq)
-        self.cached_penc = None
-
-    def forward(self, tensor):
-        """
-        :param tensor: A 5d tensor of size (batch_size, x, y, z, ch)
-        :return: Positional Encoding Matrix of size (batch_size, x, y, z, ch)
-        """
-        if len(tensor.shape) != 5:
-            raise RuntimeError("The input tensor has to be 5d!")
-
-        if self.cached_penc is not None and self.cached_penc.shape == tensor.shape:
-            return self.cached_penc
-
-        self.cached_penc = None
-        batch_size, x, y, z, orig_ch = tensor.shape
-        pos_x = torch.arange(x, device=tensor.device).type(self.inv_freq.type())
-        pos_y = torch.arange(y, device=tensor.device).type(self.inv_freq.type())
-        pos_z = torch.arange(z, device=tensor.device).type(self.inv_freq.type())
-        sin_inp_x = torch.einsum("i,j->ij", pos_x, self.inv_freq)
-        sin_inp_y = torch.einsum("i,j->ij", pos_y, self.inv_freq)
-        sin_inp_z = torch.einsum("i,j->ij", pos_z, self.inv_freq)
-        emb_x = (
-            torch.cat((sin_inp_x.sin(), sin_inp_x.cos()), dim=-1)
-            .unsqueeze(1)
-            .unsqueeze(1)
-        )
-        emb_y = torch.cat((sin_inp_y.sin(), sin_inp_y.cos()), dim=-1).unsqueeze(1)
-        emb_z = torch.cat((sin_inp_z.sin(), sin_inp_z.cos()), dim=-1)
-        emb = torch.zeros((x, y, z, self.channels * 3), device=tensor.device).type(
-            tensor.type()
-        )
-        emb[:, :, :, : self.channels] = emb_x
-        emb[:, :, :, self.channels : 2 * self.channels] = emb_y
-        emb[:, :, :, 2 * self.channels :] = emb_z
-
-        self.cached_penc = emb[None, :, :, :, :orig_ch].repeat(batch_size, 1, 1, 1, 1)
-        return self.cached_penc
-
-# class RotarySpatioTemporalEmbedding(nn.Module):
-#     """ Rotary temporal embeddings - block_size = id_blk_sz """
-#     def __init__(self, config):
-#         super().__init__()
-#         self.frame_block_size = config.frame_block_size
-#         self.id_block_size = config.id_block_size
-#         self.emb = RotaryEmbedding(dim=32)
-
-#     def forward(self, q, k, t):
-#         b = t.shape[0]
-#         tf = self.frame_block_size
-#         queries = []
-#         keys = []
-#         for B in range(b):
-#             im_temp_emb = torch.tensor([-0.5] * (tf//2) + [0.5] * (tf//2))
-#             im_pos_emb = torch.arange(self.frame_block_size)
-#             im_emb = torch.stack([im_temp_emb, im_pos_emb], dim=0)
-#             id_temp_emb = self.temp_emb(t[B], cache_key=self.block_size)
-#             freqs = self.emb(torch.cat(im_emb, id_temp_emb))
-#             queries.append(apply_rotary_emb(freqs, q[B][None, ...]))
-#             keys.append(apply_rotary_emb(freqs, k[B][None, ...]))
-#         q, k = torch.cat(queries), torch.cat(keys)
-#         return q, k
-
-
-class TemporalEmbedding(nn.Module):
-    """ encoding temporal information using fourrier signals """
-    def __init__(self, n_embd, p_drop, position=None, max_len=2500):
-        super().__init__()
-        self.dropout = nn.Dropout(p=p_drop)
-        # Compute the positional encodings once in log space.
-        if position is None:
-            pe = torch.zeros(max_len, n_embd)
-            position = torch.arange(0, max_len).unsqueeze(1)
-        else:
-            pe = torch.zeros(position.shape[0], n_embd)
-        div_term = torch.exp(torch.arange(0, n_embd, 2) *
-                             -(math.log(10000.0) / n_embd))
-        pe[:, 0::2] = torch.sin(position * div_term)
-        pe[:, 1::2] = torch.cos(position * div_term)
-        pe = pe.unsqueeze(0)
-        self.register_bugger('div_term', di)
-        self.register_buffer('pe', pe)
-    def forward(self, x):
-        x = Variable(self.pe[:, :x.size(0)], 
-                         requires_grad=False)
-        return self.dropout(x)
-
-
-class LearntTemporalEmbedding(nn.Module):
-    """
-    Project B x T x 1 time sequence to
-            B x T x C
-    """
-    def __init__(self, block_sz, n_embd, p_drop=0.2):
-        super().__init__()
-        self.temp_emb = nn.Sequential(
-            nn.Linear(1, n_embd // 2),
-            nn.GELU(),
-            nn.Linear(n_embd // 2, n_embd),
-            nn.Dropout(p_drop)
-        )
-    
-    def forward(self, x):
-        return self.temp_emb(x.unsqueeze(-1))
-
 
 class ProjectNorm(nn.Module):
 
@@ -758,36 +591,36 @@ class BlockSequential(nn.Sequential):
 
 
 
-def contrastive_loss(image_features, neural_features, temp=0.5):
+# def contrastive_loss(image_features, neural_features, temp=0.5):
 
-    device = image_features.device
+#     device = image_features.device
 
-    Bid, Tid = image_features.size()
-    Bim, Tim = neural_features.size()
+#     Bid, Tid = image_features.size()
+#     Bim, Tim = neural_features.size()
 
-    assert Tid==Tim, "feature sequences not equal"
-    B = Bid = Bim
-    T = Tid = Tim
+#     assert Tid==Tim, "feature sequences not equal"
+#     B = Bid = Bim
+#     T = Tid = Tim
 
-    # resize
-    # image_features = image_features.contiguous().view(B * T, -1) # (B x T, C) 
-    # neural_features = neural_features.contiguous().view(B * T, -1) # (B x T, C)
+#     # resize
+#     # image_features = image_features.contiguous().view(B * T, -1) # (B x T, C) 
+#     # neural_features = neural_features.contiguous().view(B * T, -1) # (B x T, C)
 
-    # normalize
-    image_features = image_features / image_features.norm(dim=-1, keepdim=True)
-    neural_features = neural_features / neural_features.norm(dim=-1, keepdim=True)
+#     # normalize
+#     image_features = image_features / image_features.norm(dim=-1, keepdim=True)
+#     neural_features = neural_features / neural_features.norm(dim=-1, keepdim=True)
 
-    # cosine similarity as logits
-    logits_per_image = temp * image_features @ neural_features.t()
-    logits_per_neurons = temp * neural_features @ image_features.t()
+#     # cosine similarity as logits
+#     logits_per_image = temp * image_features @ neural_features.t()
+#     logits_per_neurons = temp * neural_features @ image_features.t()
 
-    # (a)symmetric loss function
-    labels = torch.arange(B).to(device)
-    loss_i = F.cross_entropy(logits_per_image, labels)
-    loss_n = F.cross_entropy(logits_per_neurons, labels)
-    loss = (1/2 * loss_i) + (1/2 * loss_n) 
+#     # (a)symmetric loss function
+#     labels = torch.arange(B).to(device)
+#     loss_i = F.cross_entropy(logits_per_image, labels)
+#     loss_n = F.cross_entropy(logits_per_neurons, labels)
+#     loss = (1/2 * loss_i) + (1/2 * loss_n) 
 
-    return loss
+#     return loss
 
 
 class CLIP(nn.Module):
@@ -864,7 +697,7 @@ class MultimodalTransformer(nn.Module):
         self.ln_f = nn.LayerNorm(config.n_embd)
         self.epoch = 0
 
-        self.register_buffer("mask", self.build_mask(config.id_block_size))  
+        self.register_buffer("mask", self.build_mask(config.id_block_size))            
     
     def build_mask(self, block_size):
         mask = torch.tril(torch.ones((block_size, block_size)),
@@ -921,9 +754,10 @@ class MultimodalTransformer(nn.Module):
         for mod in self.neural_state_stimulus_blocks:
             x = mod(x, stimulus, stimulus)
         if hasattr(self.config, 'n_behavior_layers') and self.config.n_behavior_layers > 0:
-            behavior = features['behavior']
-            for mod in self.neural_state_behavior_blocks:
-                x = mod(x, behavior, behavior)
+            if 'behavior' in features:
+                behavior = features['behavior']
+                for mod in self.neural_state_behavior_blocks:
+                    x = mod(x, behavior, behavior)
         for mod in self.neural_state_blocks:
             x = mod(x, x, x, mask)
         # x = self.output_att[0](x, x, x, mask)
@@ -950,7 +784,9 @@ class GPT(nn.Module):
         if config.temp_emb:
             self.temp_emb = LearntTemporalEmbedding(config.id_block_size, config.n_embd)
             self.temp_emb_prev = LearntTemporalEmbedding(config.prev_id_block_size, config.n_embd)
-        if hasattr(config, 'n_behavior_layers') and config.n_behavior_layers > 0:
+            # self.temp_emb = TemporalEmbedding(config.n_embd, config.id_drop)
+            # self.temp_emb_prev = TemporalEmbedding(config.n_embd, config.id_drop)
+        if hasattr(config, 'n_behavior_layers'):
             self.mlp_behavior = ProjectNorm(1, config.n_embd)
             self.pos_emb_behavior = PositionalEncoding2D(config.n_embd)
             self.temp_emb_behavior = LearntTemporalEmbedding(config.behavior_block_size, config.n_embd)
@@ -988,9 +824,8 @@ class GPT(nn.Module):
         print(config.n_embd, config.n_dt)
         self.head_id = nn.Linear(config.n_embd, config.vocab_size, bias=False)  # ProjectNorm(config.n_embd, config.vocab_size)
         self.head_dt = nn.Linear(config.n_embd, config.n_dt, bias=False)        # ProjectNorm(config.n_embd, config.n_dt)
-        # self.proj_time = TimeProjection(config.block_size, config.id_block_size, config.n_embd, config.n_dt)
-        # self.proj_time = ProjectNorm(config.n_embd, config.n_dt)
-        # self.proj_time = ProjectNorm(config.n_embd, 1)
+        if self.config.predict_behavior:
+            self.head_behavior = nn.Linear(config.n_embd, config.n_behavior, bias=False)
 
         self.block_size = config.block_size
         self.apply(self._init_weights)
@@ -1012,6 +847,14 @@ class GPT(nn.Module):
         elif isinstance(module, nn.LayerNorm):
             module.bias.data.zero_()
             module.weight.data.fill_(1.0)
+        # if self.config.freeze_weights is not None:
+        #     # freeze_weights(self, self.config.freeze_weights)
+        #     for name, param in self.named_parameters():
+        #         if name in self.config.freeze_weights:
+        #             print(f"NOT Freezing {name}")
+        #             param.requires_grad = True
+        #         else:
+        #             param.requires_grad = False
 
     def configure_optimizers(self, train_config):
         """
@@ -1041,7 +884,7 @@ class GPT(nn.Module):
             for mods in black_list_mods:
                 for name, param in self.named_parameters():
                     if mods in name:
-                        print(name)
+                        print(f"not decaying: {name}")
                         no_decay.add(name)    # also pos_emb
             
             # validate that we considered every parameter
@@ -1054,7 +897,6 @@ class GPT(nn.Module):
             assert len(param_dict.keys() - union_params) == 0, "parameters %s were not separated into either decay/no_decay set!" \
                                                         % (str(param_dict.keys() - union_params), )
 
-            
             # create the pytorch optimizer object
             optim_groups = [
                 {"params": [param_dict[pn] for pn in sorted(list(decay))], "weight_decay": train_config.weight_decay},
@@ -1123,8 +965,10 @@ class GPT(nn.Module):
             # we have n vars, for which we have time
             behavior_temp_emb = behavior_temp_emb.repeat(1, n_vars, 1)
             behavior_emb = rearrange(behavior_emb, 'b t c e -> b (t c) e')
+            # average over time for contrastive learning
             behavior_pos_emb = rearrange(behavior_pos_emb, 'b t c e -> b (t c) e')
             behavior_emb = self.id_drop(behavior_emb + behavior_pos_emb + behavior_temp_emb)
+            features['behavior_mean'] = behavior_emb.mean(dim=1)
             features['behavior'] = behavior_emb
         
         # Tidy up
@@ -1134,6 +978,11 @@ class GPT(nn.Module):
         features['raw_frames'] = frames
         
         return features, pad
+
+    def predict_var(self, x):
+        x_mean = x.mean(dim=1)
+        logits = self.head_behavior(x_mean)
+        return logits
 
     def forward(self, x, targets=None):
         idx = x['id']
@@ -1150,10 +999,13 @@ class GPT(nn.Module):
         x = self.neural_visual_transformer(features)
         id_logits = self.head_id(x)
         dt_logits = self.head_dt(x)    # (B, T_id, 1)
+        if self.config.predict_behavior:
+            behavior_logits = self.predict_var(x)
 
         # if targets, calculate loss
         # calculate loss on logits up to padding token for each batch
         loss = None
+        preds = dict()
         loss_frames = 0
         loss_id = []
         loss_time = []
@@ -1162,26 +1014,57 @@ class GPT(nn.Module):
         F1 = []
         torch.cuda.empty_cache()
         if targets is not None:
+            loss = collections.defaultdict(float)
+            n = float('inf')
 
             if self.config.class_weights is not None:
                 loss_id = F.cross_entropy(id_logits.view(-1, id_logits.size(-1)), targets['id'].view(-1), weight=self.class_weights_id)
                 loss_time = F.cross_entropy(dt_logits.view(-1, dt_logits.size(-1)), targets['dt'].view(-1), weight=self.class_weights_dt)
             else:
-                loss_id =  F.cross_entropy(id_logits.view(-1, id_logits.size(-1)), targets['id'].view(-1), ignore_index=self.config.ignore_index_id) #, weight=self.class_weights_id)
-                loss_time = F.cross_entropy(dt_logits.view(-1, dt_logits.size(-1)), targets['dt'].view(-1), ignore_index=self.config.ignore_index_dt) #, weight=self.class_weights_dt)
+                loss_id =  F.cross_entropy(id_logits.view(-1, id_logits.size(-1)), targets['id'].view(-1), ignore_index=self.config.ignore_index_id) 
+                loss_time = F.cross_entropy(dt_logits.view(-1, dt_logits.size(-1)), targets['dt'].view(-1), ignore_index=self.config.ignore_index_dt)
 
-            loss = dict()
-            # loss['frames'] = loss_frames / (b / 3)
-            n = float('inf')
-            if self.config.contrastive:
-                n = 2
-                loss['clip'] = self.clip(features['frames'][:, 0], features['id'][:, -1]) * (1 / n) 
-            loss['id'] = ((3 / 4) * loss_id) * (1 - 1 / n)   # sum(loss_id) / (b * 2)   # / len(loss_id)
-            loss['time'] = ((1 / 4) * loss_time) * (1 - 1 / n)
+            if self.config.predict_behavior and 'behavior' in targets:
+                # loss_behavior = F.mse_loss(behavior_logits, targets['behavior'].view(b, -1))
+                loss_behavior = F.cross_entropy(behavior_logits.view(-1, behavior_logits.size(-1)), targets['behavior'].view(-1))
             
-            for B, P in enumerate(pad):                
+            if self.config.contrastive:
+                clip_id_feats = []
+                for B, P in enumerate(pad):
+                    clip_id_feats.append(features['id'][B, t - P])
+                clip_id_feats = torch.stack(clip_id_feats)
+                n = 2
+                # loss['clip'] = self.clip(features['frames'][:, 0], features['id'][:, -1]) * (1 / n) 
+                # loss['clip'] = self.clip(features['frames'][:, 0], clip_id_feats) * (1 / n)
+                feats_clip = dict()
+                feat_contra_frames = features['frames']
+                # average pool over 1st dim
+                feat_contra_frames = feat_contra_frames.mean(dim=1)
+                feat_contra_frames = features['id'].mean(dim=1)
+                if hasattr(self.config, 'contrastive_vars'):
+                    for variable in self.config.contrastive_vars:
+                        if variable == 'id':
+                            feats_clip['id'] = clip_id_feats
+                        elif variable == 'frames':
+                            feats_clip['frames'] = feat_contra_frames
+                        else:
+                            feats_clip[variable] = features[variable]
+                else:
+                    feats_clip['id'] = clip_id_feats
+                    feats_clip['frames'] = feat_contra_frames
+                assert len(feats_clip.keys()) >= 2, "Need at least 2 variables for contrastive loss"
+                loss['clip'] = contrastive_loss(feats_clip) * (1 / n)
+            
+            loss['id'] = ((9 / 10) * loss_id) * (1 - 1 / n)   # sum(loss_id) / (b * 2)   # / len(loss_id)
+            loss['time'] = ((1 / 10) * loss_time) * (1 - 1 / n)
+            if self.config.predict_behavior and 'behavior' in targets:
+                loss['behavior'] = ((1 / 4) * loss_behavior) * (1 - 1 / n)
+                preds['behavior'] = behavior_logits
+
+            for B, P in enumerate(pad):
+                n_batches = pad.shape[0]
                 id_targets = targets['id'][B, :t - P]
-                id_logits_ = id_logits[B, :t - P]         
+
                 if len(id_targets) > 0:
 
                     ## score metrics
@@ -1203,7 +1086,6 @@ class GPT(nn.Module):
             recall.append(zero_tensor)
             F1.append(zero_tensor) 
 
-        preds = dict()
         preds['id'] = id_logits    # [:, tf:]    # only id logits
         preds['dt'] = dt_logits
         preds['precision'] = torch.stack(precision).mean()

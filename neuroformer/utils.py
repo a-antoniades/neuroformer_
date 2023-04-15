@@ -10,12 +10,18 @@ import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
+from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
+
 from beam_search import beam_decode
+from SpikeVidUtils import get_interval, round_n
+from SpikeVidUtils import SpikeTimeVidData2 as SP
+from model_neuroformer import GPT
+
+import yaml
+
 logger = logging.getLogger(__name__)
 
-from model_neuroformer import GPT
-import yaml
 
 
 
@@ -54,6 +60,18 @@ def get_interval_dist(df, plot_dist=False):
         plt.show()
     return dist
 
+def get_best_ckpt(base_path, model_path=None):
+    model_weights = glob.glob(os.path.join(base_path, '**/**.pt'), recursive=True)
+    model_weights = sorted(model_weights, key=os.path.getmtime, reverse=True)
+    assert len(model_weights) > 0, "No model weights found"
+
+    if model_path in model_weights:
+        load_weights = model_path
+    else:
+        load_weights = model_weights[0]
+    
+    return load_weights
+
 def convert_weights(model: nn.Module):
     """Convert applicable model parameters to fp16"""
 
@@ -76,6 +94,17 @@ def convert_weights(model: nn.Module):
                     attr.data = attr.data.half()
 
     model.apply(_convert_weights_to_fp16)
+
+def update_object(obj1, obj2):
+    for attr_name in dir(obj2):
+        # Ignore special attributes
+        if not attr_name.startswith('__'):
+            attr_value = getattr(obj2, attr_name)
+
+            # Set the attribute if it doesn't exist in obj1
+            # if not hasattr(obj1, attr_name):
+            print(f"Setting {attr_name} to {attr_value}")
+            setattr(obj1, attr_name, attr_value)
 
 def df_to_dict(df):
     d = {k: f.groupby('Interval').apply(lambda x: {'Time': np.array(x['Time']), 'ID': np.array(x['ID'])}).to_dict()
@@ -181,18 +210,18 @@ def process_predictions(results, stoi, itos, window):
     true_keys = ['true', 'time']
     true_dict = {k: results[k] for k in results if k in true_keys}
     df_true = pd.DataFrame(true_dict)
-    if 'SOS' in stoi:
-        # sos_id = list(itos.keys())[list(itos.values()).index('SOS')]
-        sos_id = stoi['SOS']
-        n_sos = len(df_true[df_true['true'] == sos_id])
-        print(f'SOS fouuuund: {n_sos}')
-        df_true = df_true[df_true['true'] != sos_id]
-    if 'EOS' in stoi:
-        # eos_id = list(itos.keys())[list(itos.values()).index('EOS')]
-        eos_id = stoi['EOS']
-        n_eos = len(df_true[df_true['true'] == eos_id])
-        print(f'EOS fouuuund: {n_eos}')
-        df_true = df_true[df_true['true'] != eos_id]
+    # if 'SOS' in stoi:
+    #     # sos_id = list(itos.keys())[list(itos.values()).index('SOS')]
+    #     sos_id = stoi['SOS']
+    #     n_sos = len(df_true[df_true['true'] == sos_id])
+    #     print(f'SOS fouuuund: {n_sos}')
+    #     df_true = df_true[df_true['true'] != sos_id]
+    # if 'EOS' in stoi:
+    #     # eos_id = list(itos.keys())[list(itos.values()).index('EOS')]
+    #     eos_id = stoi['EOS']
+    #     n_eos = len(df_true[df_true['true'] == eos_id])
+    #     print(f'EOS fouuuund: {n_eos}')
+    #     df_true = df_true[df_true['true'] != eos_id]
     df_true.rename({'true':'ID', 'time':'dt'}, axis=1, inplace=True)
     # df_true['time'] = df_true['dt'] + df_true['interval'] - 0.5
 
@@ -265,10 +294,6 @@ def model_ensemble(models, x):
         logits_total['dt'] = logits['dt'] + logits_total['dt'] if 'dt' in logits_total else logits['dt']
     return logits 
 
-
-from torch.utils.data.dataloader import DataLoader
-from SpikeVidUtils import get_interval, round_n
-from SpikeVidUtils import SpikeTimeVidData2 as SP
 @torch.no_grad()
 def predict_raster_recursive_time_auto(model, dataset, window, window_prev, stoi, itos_dt, itos=None, 
                                       get_dt=False, sample=False, top_k=0, top_p=0, top_p_t=0, temp=1, temp_t=1, 
@@ -375,7 +400,7 @@ def predict_raster_recursive_time_auto(model, dataset, window, window_prev, stoi
         for key, value in y.items():
             y[key] = y[key].to(device)
         
-        if x['interval'] > window_prev + 2:
+        if x['interval'] > window_prev + window:
             df = {k: v for k, v in data.items() if k in ('ID', 'dt', 'Trial', 'Interval', 'Time')}
             df = pd.DataFrame(df)
 
@@ -386,7 +411,7 @@ def predict_raster_recursive_time_auto(model, dataset, window, window_prev, stoi
             df['Time'] = df['dt'] + df['Interval']
 
             prev_id_interval, current_id_interval = dataset.calc_intervals(x['interval'])
-            x['id_prev'], x['dt_prev'], pad_prev = dataset.get_interval(prev_id_interval, float(x['trial']), T_id_prev)
+            x['id_prev'], x['dt_prev'], pad_prev = dataset.get_interval(prev_id_interval, float(x['trial']), T_id_prev, data=df)
             x['id_prev'] = torch.tensor(x['id_prev'], dtype=torch.long).unsqueeze(0).to(device)
             x['dt_prev'] = torch.tensor(x['dt_prev'], dtype=torch.long).unsqueeze(0).to(device)
             
@@ -441,10 +466,29 @@ def predict_raster_recursive_time_auto(model, dataset, window, window_prev, stoi
                 topk=5
                 topk_indices = np.argpartition(probs_n, -topk)[-topk:]
                 topk_probs = probs_n[topk_indices]
+                print(f"topk_ix: {topk_indices}")
+                print(f"topk_probs: {topk_probs}")
                 plt.figure()
                 plt.title(f"t={i}, indices: {topk_indices}")
+                plt.axvline(x=ix, color='b')
                 plt.bar(xaxis, probs_n)
                 plt.show()
+
+                # # plot dt probs
+                # print(x['dt'])
+                # print(f"i: {i} ix_dt: {ix_dt}, dt_true: {y['dt'][0, i]}")
+                # probs_dt_n = np.array(probs_dt)[0]
+                # xaxis = np.arange(len(probs_dt_n))
+                # topk=5
+                # topk_indices = np.argpartition(probs_dt_n, -topk)[-topk:]
+                # topk_probs = probs_dt_n[topk_indices]
+                # print(f"topk_ix_dt: {topk_indices} \
+                #         topk_dt_probs: {topk_probs}")
+                # plt.figure()
+                # plt.title(f"t={i}, indices: {topk_indices}")
+                # plt.bar(xaxis, probs_dt_n)
+                # plt.axvline(x=ix_dt, color='b')
+                # plt.show()
             
             # convert ix_dt to dt and add to current time
             # print(f"ix: {ix}, x_true: {y['id'][0, i]} ")
@@ -513,8 +557,55 @@ def predict_beam_search(model, loader, stoi, frame_end=0):
         ix = beam_decode(model, stoi, x, frame_end)
         predicted_raster = torch.cat((predicted_raster, ix))
     return true_raster[1:], predicted_raster[1:]
-    
 
+
+@torch.no_grad()
+def predict_behavior(model, dataset, itos, sample=False):
+    loader = DataLoader(dataset, shuffle=False, pin_memory=False)
+    pbar = tqdm(enumerate(loader), total=len(loader))
+    model.cpu()
+    model.eval()
+    behavior_preds = []
+    intervals = []
+    trials = []
+    behavior_true = []
+    for it, (x, y) in pbar:
+        x = all_device(x, 'cpu')
+        y = all_device(y, 'cpu')
+        logits, features, loss = model(x, y)
+        probs = F.softmax(logits['behavior'], dim=-1)
+        if sample:
+            ix =  torch.multinomial(probs, 1).flatten()
+        else:
+            ix = torch.argmax(probs, dim=-1).flatten()
+        ix_itos = itos[int(ix)]
+        interval = float(x['interval'].flatten())
+        trial = float(x['trial'].flatten())
+        y_behavior = itos[int(y['behavior'])]
+        behavior_preds.append(ix_itos)
+        intervals.append(interval)
+        trials.append(trial)
+        behavior_true.append(y_behavior)
+    
+    # make behavior preds, intervals etc into dataframe
+    behavior_preds = pd.DataFrame(behavior_preds)
+    behavior_preds.columns = ['behavior']
+    behavior_preds['interval'] = intervals
+    behavior_preds['trial'] = trials
+    behavior_preds['true'] = behavior_true
+
+    # make cum interval
+    behavior_preds['cum_interval'] = behavior_preds['interval'].copy()
+    prev_trial = None
+    for trial in behavior_preds['trial'].unique():
+        if prev_trial is None:
+            prev_trial = trial
+            continue
+        else:
+            max_interval = behavior_preds[behavior_preds['trial'] == prev_trial]['interval'].max()
+            behavior_preds.loc[behavior_preds['trial'] >= trial, 'cum_interval'] += max_interval
+
+    return behavior_preds
 
 @torch.no_grad()
 def predict_beam_search_time(model, loader, stoi, itos_dt, frame_end=0):
@@ -689,3 +780,36 @@ def get_class_weights(dataset, stoi, stoi_dt):
 # precision_score['Ground Truth'] = np.mean(np.nan_to_num(precision))
 # recall_score['Ground Truth'] = np.mean(np.nan_to_num(recall))
 # f1_score['Ground Truth'] = np.mean(np.nan_to_num(f1))
+
+import cv2
+import numpy as np
+
+def draw_grid(image, n, m, color=(0, 255, 0), thickness=1):
+    """
+    Draw an n x m grid on an image.
+
+    Args:
+        image (np.array): Input image. (height, width, channels)
+        n (int): Number of horizontal grid lines.
+        m (int): Number of vertical grid lines.
+        color (tuple, optional): Color of the grid lines. Default is green (0, 255, 0).
+        thickness (int, optional): Thickness of the grid lines. Default is 1.
+
+    Returns:
+        np.array: Image with the grid drawn.
+    """
+    height, width, _ = image.shape
+
+    # Calculate the step size for the grid lines
+    step_x = width // (m + 1)
+    step_y = height // (n + 1)
+
+    # Draw the vertical grid lines
+    for i in range(1, m + 1):
+        cv2.line(image, (i * step_x, 0), (i * step_x, height), color, thickness)
+
+    # Draw the horizontal grid lines
+    for j in range(1, n + 1):
+        cv2.line(image, (0, j * step_y), (width, j * step_y), color, thickness)
+
+    return image

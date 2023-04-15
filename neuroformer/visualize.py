@@ -2,9 +2,9 @@ from matplotlib import pyplot as plt
 from matplotlib.patches import Polygon
 import seaborn as sns
 
-from utils import *
-from analysis import *
-from SpikeVidUtils import *
+# from utils import *
+# from analysis import *
+# from SpikeVidUtils import *
 
 def set_plot_params():
     ## fonts
@@ -117,6 +117,8 @@ def plot_losses_wattr(trainer, model_attr):
     plt.legend(title="epoch")
 
     plt.show()
+
+# def horizontal_plot()
 
 
 def tidy_axis(ax, top=False, right=False, left=False, bottom=False):

@@ -51,7 +51,7 @@ set_plot_params()
 parent_path = os.path.dirname(os.path.dirname(os.getcwd())) + "/"
 
 
-from model_neuroformer import GPT, GPTConfig, neuralGPTConfig, Decoder
+from model_neuroformer import GPT, GPTConfig
 from trainer import Trainer, TrainerConfig
 
 
@@ -192,13 +192,13 @@ shuffle = True
 
 weighted = True if mconf.class_weights is not None else False
 title =  f'window:{window}_prev:{window_prev}'
-model_path = f"""./models/tensorboard/LRL2_small/weight_decay/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{window}_wp:{window_prev}/{6}_Cont:{mconf.contrastive}_window:{window}_f_window:{frame_window}_df:{dt}_blocksize:{id_block_size}_conv_{conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
+model_path = f"""./models/tensorboard/LRL2_small/weight_decay/2_{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{window}_wp:{window_prev}/{6}_Cont:{mconf.contrastive}_window:{window}_f_window:{frame_window}_df:{dt}_blocksize:{id_block_size}_conv_{conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
 
 # if os.path.exists(model_path):
 #     model.load_state_dict(torch.load(model_path))
 #     print(f"-- loaded model from {model_path} --")
 
-# model.load_state_dict(torch.load("/data5/antonis/neuroformer/models/tensorboard/LRL2/ignore_index/window:1_prev:19/sparse_f:None_id:None/w:1_wp:19/6_Cont:False_window:1_f_window:20_df:0.1_blocksize:150_conv_False_shuffle:True_batch:256_sparse_(None_None)_blocksz1450_pos_emb:False_temp_emb:True_drop:0.2_dt:True_2.0_191_max0.1_(6, 4, 4)_8_256.pt"))
+model.load_state_dict(torch.load("/data5/antonis/neuroformer/models/tensorboard/LRL2_small/weight_decay/window:0.5_prev:19.5/sparse_f:None_id:None/w:0.5_wp:19.5/6_Cont:False_window:0.5_f_window:20_df:0.1_blocksize:150_conv_False_shuffle:True_batch:118_sparse_(None_None)_blocksz1950_pos_emb:False_temp_emb:True_drop:0.2_dt:True_2.0_197_max0.1_(12, 12, 12)_4_256.pt", map_location=torch.device('cpu')))
 
 tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rate=3e-4, 
                     num_workers=4, lr_decay=False, patience=3, warmup_tokens=8e7, 

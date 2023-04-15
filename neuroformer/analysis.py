@@ -49,7 +49,10 @@ def get_rates(df, ids, intervals, interval='Interval'):
         rates[id] = set_rates(df, id, intervals)
     return rates
 
-def calc_corr_psth(rates1, rates2):
+def calc_corr_psth(rates1, rates2, neurons=None):
+    if neurons is not None:
+        rates1 = {k: v for k, v in rates1.items() if k in neurons}
+        rates2 = {k: v for k, v in rates2.items() if k in neurons}
     pearson_r = dict()
     for id in list((set(rates1.keys()) & set(rates2.keys()))):
         pearson_r[id] = stats.pearsonr(rates1[id], rates2[id])[0]

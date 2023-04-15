@@ -44,7 +44,13 @@ from SpikeVidUtils import image_dataset
 from SpikeVidUtils import trial_df_combo3
 
 
-def prepare_onecombo_real(window, dt,):
+class DataLinks:
+    MedialVRDataset = "https://drive.google.com/drive/folders/1XJmKvlXNMMBHj_1JsiblfwDMhnk2VJ2C?usp=sharing"
+    LatervalVRDataset = "https://drive.google.com/drive/folders/1F8n1qhqnxm-SIi4Vq9_C8mb82gc09P17?usp=share_link"
+    
+
+
+def prepare_onecombo_real(window, dt):
     # R3D: (3 x T x H x W)
     stim_folder = "/home/antonis/projects/slab/git/slab/transformer_exp/code/data/OneCombo3/stimuli"
     im_path = ['/Combined Stimuli 3-grating.tif',
@@ -151,3 +157,73 @@ def load_LRL2_small():
     df['ID'] = df['ID'].astype(int)
 
     return df, stimulus
+
+
+from SpikeVidUtils import trial_df_real
+import scipy.io as scipyio
+
+def load_natmovie_real(response_path, stimulus_path, dt_frames=0.05):
+    spike_data = scipyio.loadmat(response_path)
+    spike_data = trial_df_real(np.squeeze(spike_data['spiketrain']['st'].T, axis=-1))
+    df = spike_data[spike_data['Time'] > 0]
+    df['Time'] = df['Time'] * 0.1499
+
+    stimulus = torch.load(stimulus_path)
+    for trial in df['Trial'].unique():
+        video_trial = stimulus[trial]
+        video_duration = video_trial.shape[1] * dt_frames
+        df = df[(df['Trial'] != trial) | (df['Time'] <= video_duration)]
+    df = df.reset_index(drop=True)
+
+    """
+    for trial in df['Trial'].unique():
+        max_interval = df[df['Trial'] == trial]['Interval'].max()
+        video_dur = stimulus[trial].shape[1] * dt_frames
+        print(f"n_movie: {trial}, max_interval: {max_interval}, video_dur: {video_dur}, diff: {max_interval - video_dur}")
+    """
+
+    return df, stimulus
+
+import mat73
+from SpikeVidUtils import make_intervals, get_df_visnav
+def load_visnav_1(behavior, behavior_vars):
+    data_path = "../data/VisNav_VR_Expt/experiment_data.mat"
+    data = mat73.loadmat(data_path)['neuroformer']
+    stimulus = data['vid_sm']
+    response = data['spiketimes']['spks']
+    trial_data = data['trialsummary']
+    # response = data_response['spiketime_sel2']['spks']
+
+    print(data.keys())
+
+    df = get_df_visnav(response, trial_data, dt_vars)
+    # df = df[df['ID'].isin(neurons_sel1)].reset_index(drop=True)
+
+    if behavior is True:
+        behavior = pd.DataFrame({k: data[k] for k in behavior_vars + ['t']})
+        # rename t to time
+        behavior = behavior.rename(columns={'t': 'Time'}) if behavior is not None else None
+        behavior['Interval'] = make_intervals(behavior, window)
+        behavior['Interval_2'] = make_intervals(behavior, window_prev)
+
+        # prepare speed variables
+        behavior['speed'] = behavior['speed'].apply(lambda x: round_n(x, dt_speed))
+        dt_range_speed = behavior['speed'].min(), behavior['speed'].max()
+        dt_range_speed = np.arange(dt_range_speed[0], dt_range_speed[1] + dt_speed, dt_speed)
+        n_behavior = len(dt_range_speed)
+
+        stoi_speed = { round_n(ch, dt_speed):i for i,ch in enumerate(dt_range_speed) }
+        itos_speed = { i:round_n(ch, dt_speed) for i,ch in enumerate(dt_range_speed) }
+        assert (window_behavior) % dt_vars < 1e-5, "window + window_prev must be divisible by dt_vars"
+        samples_per_behavior = int((window + window_prev) // dt_vars)
+        behavior_block_size = int((window + window_prev) // dt_vars) * (len(behavior.columns) - 1)
+    else:
+        behavior = None
+        behavior_vars = None
+        behavior_block_size = 0
+        samples_per_behavior = 0
+        stoi_speed = None
+        itos_speed = None
+        dt_range_speed = None
+        n_behavior = None
+

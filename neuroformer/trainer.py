@@ -60,6 +60,7 @@ class TrainerConfig:
     no_pbar = True
     dist = False
     save_every = 0
+    loss_bprop = None
 
     def __init__(self, **kwargs):
         for k, v in kwargs.items():
@@ -207,7 +208,11 @@ class Trainer:
                         # print(key)
                         value = value.mean()
                         loss[key] = value
-                        total_loss += value
+                        if config.loss_bprop is not None \
+                            and key not in config.loss_bprop:
+                                continue
+                        else:
+                            total_loss += value
                         losses[key].append(value.item())
             
                 if is_train:
@@ -257,7 +262,11 @@ class Trainer:
             total_losses = 0
             for key, value in losses.items():
                 av_losses[key] = np.array(value).mean()
-                total_losses += av_losses[key]
+                if config.loss_bprop is not None \
+                    and key not in config.loss_bprop:
+                        continue
+                else:
+                    total_losses += av_losses[key]
                 self.writer.add_scalar(f"Loss/{split}_{str(key)}", av_losses[key], epoch)
             self.writer.add_scalar(f"Loss/{split}_total", total_losses, epoch) 
 
