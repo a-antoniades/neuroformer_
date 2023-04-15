@@ -158,4 +158,7 @@ training/*.ipynb
 **/neuroformer_manuscript
 **/.vscode
 **/paper_plots/
+**/a_yiyi
+**/configs
+**/image_detectors
 
