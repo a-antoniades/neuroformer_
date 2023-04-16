@@ -847,9 +847,9 @@ class SpikeTimeVidData2(Dataset):
                         f_idx_1 = f_idx_0 + f_b
                         x['frames'] = frame_feats_stim[f_idx_0:f_idx_1].type(torch.float32).unsqueeze(0)
                     else:
-                        f_idx_0 = max(0, frame_idx - f_b)
+                        f_idx_0 = max(0, frame_idx - n_frames)
                         # f_idx_1 = min(f_idx_0 + f_b, frame_feats_stim.shape[1])
-                        f_idx_1 = f_idx_0 + f_b
+                        f_idx_1 = f_idx_0 + n_frames
                         assert f_idx_1 - f_idx_0 == n_frames, f"f_idx_1 {f_idx_1} - f_idx_0 {f_idx_0} != n_frames {n_frames}"
                         x['frames'] = frame_feats_stim[f_idx_0:f_idx_1].type(torch.float32).unsqueeze(0)
                     # else:

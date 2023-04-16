@@ -50,7 +50,7 @@ import argparse
 from neuroformer.SpikeVidUtils import round_n
 import argparse
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+
 
 # set up logging
 import logging
@@ -66,6 +66,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     # parser.add_argument("--infer", action="store_true", help="Inference mode")
     parser.add_argument("--train", action="store_true", default=False, help="Train mode")
+    parser.add_argument("--resume", type=str, default=None, help="Resume from checkpoint")
     return parser.parse_args()
 
 # if __name__ == "__main__":
@@ -83,6 +84,8 @@ except:
     print("Running in terminal")
     args = parse_args()
     INFERENCE = not args.train
+
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 
 # %%
@@ -123,13 +126,15 @@ for i in range(3):
     ax[i].imshow(video_stack[i, 1, 0].permute(0, 1))
 
 
-
 # %%
 # load config files
 import yaml
 
 # base_path = "configs/visnav/predict_behavior"
-base_path = "./models/tensorboard/V1_AL/downstream2/pad_loss/sparse_f:None_id:None/w:0.05_wp:0.25"
+if args.resume is None:
+    base_path = "./models/tensorboard/V1_AL/downstream/learnt_temporal_embeddings/sparse_f:None_id:None/w:0.05_wp:0.25"
+else:
+    base_path = os.path.dirname(args.resume)
 
 with open(os.path.join(base_path, 'mconf.yaml'), 'r') as stream:
     mconf = yaml.full_load(stream)
@@ -147,6 +152,7 @@ from omegaconf import OmegaConf
 mconf = OmegaConf.create(mconf)
 tconf = OmegaConf.create(tconf)
 dconf = OmegaConf.create(dconf)
+
 
 # %%
 
@@ -249,7 +255,7 @@ kernel_size = [n_frames, 8, 8]
 stride_size = kernel_size
 padding_size = 0
 n_embd = 256
-n_embd_frames = mconf.n_embd_frames
+n_embd_frames = 64
 frame_feats = stimulus if visual_stim else None
 frame_block_size = 0
 frame_feats = torch.tensor(stimulus, dtype=torch.float32)
@@ -305,31 +311,31 @@ small_data = df[df['Trial'].isin([5])].reset_index(drop=True)
 from neuroformer.SpikeVidUtils import SpikeTimeVidData2
 
 train_dataset = SpikeTimeVidData2(train_data, None, block_size, id_block_size, frame_block_size, prev_id_block_size, 
-                                window, dt, frame_memory, stoi, itos, neurons, stoi_dt, itos_dt, frame_feats,
-                                pred=False, window_prev=window_prev, frame_window=frame_window,
-                                dt_frames=dt_frames, intervals=None, dataset=DATASET,
-                                behavior=behavior, behavior_vars=behavior_vars, dt_vars=dt_vars,
-                                behavior_block_size=behavior_block_size, samples_per_behavior=samples_per_behavior,
-                                window_behavior=window_behavior, predict_behavior=predict_behavior,
-                                stoi_speed=stoi_speed, itos_speed=itos_speed, dt_speed=dt_speed)
+                                  window, dt, frame_memory, stoi, itos, neurons, stoi_dt, itos_dt, frame_feats,
+                                  pred=False, window_prev=window_prev, frame_window=frame_window,
+                                  dt_frames=dt_frames, intervals=None, dataset=DATASET,
+                                  behavior=behavior, behavior_vars=behavior_vars, dt_vars=dt_vars,
+                                  behavior_block_size=behavior_block_size, samples_per_behavior=samples_per_behavior,
+                                  window_behavior=window_behavior, predict_behavior=predict_behavior,
+                                  stoi_speed=stoi_speed, itos_speed=itos_speed, dt_speed=dt_speed)
 
 test_dataset = SpikeTimeVidData2(train_data, None, block_size, id_block_size, frame_block_size, prev_id_block_size, 
-                                window, dt, frame_memory, stoi, itos, neurons, stoi_dt, itos_dt, frame_feats,
-                                pred=False, window_prev=window_prev, frame_window=frame_window,
-                                dt_frames=dt_frames, intervals=None, dataset=DATASET,
-                                behavior=behavior, behavior_vars=behavior_vars, dt_vars=dt_vars,
-                                behavior_block_size=behavior_block_size, samples_per_behavior=samples_per_behavior,
-                                window_behavior=window_behavior, predict_behavior=predict_behavior,
-                                stoi_speed=stoi_speed, itos_speed=itos_speed, dt_speed=dt_speed)
+                                  window, dt, frame_memory, stoi, itos, neurons, stoi_dt, itos_dt, frame_feats,
+                                  pred=False, window_prev=window_prev, frame_window=frame_window,
+                                  dt_frames=dt_frames, intervals=None, dataset=DATASET,
+                                  behavior=behavior, behavior_vars=behavior_vars, dt_vars=dt_vars,
+                                  behavior_block_size=behavior_block_size, samples_per_behavior=samples_per_behavior,
+                                  window_behavior=window_behavior, predict_behavior=predict_behavior,
+                                  stoi_speed=stoi_speed, itos_speed=itos_speed, dt_speed=dt_speed)
 
 finetune_dataset = SpikeTimeVidData2(finetune_data, None, block_size, id_block_size, frame_block_size, prev_id_block_size, 
-                                window, dt, frame_memory, stoi, itos, neurons, stoi_dt, itos_dt, frame_feats,
-                                pred=False, window_prev=window_prev, frame_window=frame_window,
-                                dt_frames=dt_frames, intervals=None, dataset=DATASET,
-                                behavior=behavior, behavior_vars=behavior_vars, dt_vars=dt_vars,
-                                behavior_block_size=behavior_block_size, samples_per_behavior=samples_per_behavior,
-                                window_behavior=window_behavior, predict_behavior=predict_behavior,
-                                stoi_speed=stoi_speed, itos_speed=itos_speed, dt_speed=dt_speed)
+                                  window, dt, frame_memory, stoi, itos, neurons, stoi_dt, itos_dt, frame_feats,
+                                  pred=False, window_prev=window_prev, frame_window=frame_window,
+                                  dt_frames=dt_frames, intervals=None, dataset=DATASET,
+                                  behavior=behavior, behavior_vars=behavior_vars, dt_vars=dt_vars,
+                                  behavior_block_size=behavior_block_size, samples_per_behavior=samples_per_behavior,
+                                  window_behavior=window_behavior, predict_behavior=predict_behavior,
+                                  stoi_speed=stoi_speed, itos_speed=itos_speed, dt_speed=dt_speed)
 
 if INFERENCE:
     update_object(train_dataset, dconf)
@@ -346,16 +352,17 @@ print(f'train: {len(train_dataset)}, test: {len(test_dataset)}')
 from model_neuroformer import GPT, GPTConfig
 
 layers = (mconf.n_state_layers, mconf.n_state_history_layers, mconf.n_stimulus_layers)   
-max_epochs = 80
+max_epochs = 250
 batch_size = round((32 * 2))
 shuffle = True
 
-title =  f'learnt_temporal_embeddings'
+title =  f'fixed'
 
 if INFERENCE:
     model_path = glob.glob(os.path.join(base_path, '**.pt'), recursive=True)[0]
 else:
-    model_path = f"""./models/tensorboard/V1_AL/downstream3/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{window}_wp:{window_prev}/{6}_Cont:{mconf.contrastive}_window:{window}_f_window:{frame_window}_df:{dt}_blocksize:{id_block_size}_conv_{conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
+    model_path = f"""./models/tensorboard/V1_AL/downstream4/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{window}_wp:{window_prev}/{6}_Cont:{mconf.contrastive}_window:{window}_f_window:{frame_window}_df:{dt}_blocksize:{id_block_size}_conv_{conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
+
 
 model_conf = GPTConfig(train_dataset.population_size, block_size,    # frame_block_size
                         id_vocab_size=train_dataset.id_population_size,
@@ -368,10 +375,10 @@ model_conf = GPTConfig(train_dataset.population_size, block_size,    # frame_blo
                         n_dt=len(n_dt),
                         class_weights=None,
                         pretrain=False,
-                        n_state_layers=4, n_state_history_layers=4,
-                        n_stimulus_layers=4, self_att_layers=0,
+                        n_state_layers=8, n_state_history_layers=8,
+                        n_stimulus_layers=8, self_att_layers=8,
                         n_behavior_layers=0, predict_behavior=predict_behavior, n_behavior=n_behavior,
-                        n_head=4, n_embd=n_embd, 
+                        n_head=8, n_embd=n_embd, 
                         contrastive=False, clip_emb=1024, clip_temp=mconf.clip_temp,
                         conv_layer=conv_layer, kernel_size=kernel_size, stride_size=stride_size, padding_size=padding_size,
                         temp_emb=mconf.temp_emb, pos_emb=False,
@@ -381,15 +388,16 @@ model_conf = GPTConfig(train_dataset.population_size, block_size,    # frame_blo
                         ignore_index_id=stoi['PAD'], ignore_index_dt=stoi_dt['PAD'])  # 0.35
 
 
+
 if INFERENCE:
     update_object(model_conf, mconf)
 model = GPT(model_conf)
-# model_weights = "models/tensorboard/visnav/behavior_predict/long_no_classification/finetune/window:0.05_prev:0.25/sparse_f:None_id:None/w:0.05_wp:0.25/6_Cont:False_window:0.05_f_window:0.2_df:0.005_blocksize:100_conv_True_shuffle:True_batch:224_sparse_(None_None)_blocksz446_pos_emb:False_temp_emb:True_drop:0.35_dt:True_2.0_52_max0.005_(8, 8, 8)_8_256.pt"
-# if model_weights is not None:
-#     model.load_state_dict(torch.load(model_weights), strict=False)
 
-# %%
-model.config.id_vocab_size
+if args.resume is not None:
+    model.load_state_dict(torch.load(args.resume))
+    print(f"// -- Loading model from {args.resume} -- //")
+    model_path = f"{args.resume[:-3]}_resume.pt"
+    update_object(model_conf, mconf)
 
 # %%
 tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rate=1e-4, 
@@ -405,7 +413,7 @@ tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rat
                     dist=False, save_every=1000, loss_bprop=loss_bprop)
 
 if not INFERENCE:
-    trainer = Trainer(model, finetune_dataset, test_dataset, tconf, model_conf)
+    trainer = Trainer(model, train_dataset, test_dataset, tconf, model_conf)
     trainer.train()
 else:
     model_path = glob.glob(os.path.join(base_path, '**.pt'), recursive=True)[0]
@@ -443,38 +451,48 @@ for k in x.keys():
 # %%
 from neuroformer.utils import predict_raster_recursive_time_auto, process_predictions
 
+PARALLEL = True
+df_pred_path = None
+
 model.load_state_dict(torch.load(model_path))
 
 results_dict = dict()
-df_pred = None
+df_pred = None if df_pred_path is None else pd.read_csv(df_pred_path)
 df_true = None
 
-top_p = 0.75
-top_p_t = 0.75
-temp = 1.25
-temp_t = 1.25
+top_p = 0.95
+top_p_t = 0.95
+temp = 1.0
+temp_t = 1.0
 
-# Define a function to process each trial
-def process_trial(model, train_dataset, df, stoi, itos_dt, itos, window, window_prev, top_p, top_p_t, temp, temp_t, trial):
-    print(f"-- No. {n} Trial: {trial} --")
-    df_trial = df[df['Trial'] == trial]
-    trial_dataset = train_dataset.copy(df_trial)
-    results_trial = predict_raster_recursive_time_auto(model, trial_dataset, window, window_prev, stoi, itos_dt, itos=itos, 
-                                                    sample=True, top_p=top_p, top_p_t=top_p_t, temp=temp, temp_t=temp_t, 
-                                                    frame_end=0, get_dt=True, gpu=False, pred_dt=True, plot_probs=False)
-    df_trial_pred, df_trial_true = process_predictions(results_trial, stoi, itos, window)
-    print(f"pred: {df_trial_pred.shape}, true: {df_trial_true.shape}" )
-    return df_trial_pred, df_trial_true
+trials = sorted(train_data['Trial'].unique())[::4]
 
-from joblib import Parallel, delayed
+if df_pred_path is None:
+    from joblib import Parallel, delayed
+    # Define a function to process each trial
+    def process_trial(model, train_dataset, df, stoi, itos_dt, itos, window, window_prev, top_p, top_p_t, temp, temp_t, trial):
+        print(f"-- No. {n} Trial: {trial} --")
+        df_trial = df[df['Trial'] == trial]
+        trial_dataset = train_dataset.copy(df_trial)
+        results_trial = predict_raster_recursive_time_auto(model, trial_dataset, window, window_prev, stoi, itos_dt, itos=itos, 
+                                                        sample=True, top_p=top_p, top_p_t=top_p_t, temp=temp, temp_t=temp_t, 
+                                                        frame_end=0, get_dt=True, gpu=False, pred_dt=True, plot_probs=False)
+        df_trial_pred, df_trial_true = process_predictions(results_trial, stoi, itos, window)
+        print(f"pred: {df_trial_pred.shape}, true: {df_trial_true.shape}" )
+        return df_trial_pred, df_trial_true
 
-if __name__ == '__main__':
-    # Define the list of trials to be processed
-    trials = sorted(train_data['Trial'].unique())[::4]
-    
-    # Process each trial in parallel
-    results = Parallel(n_jobs=-1)(delayed(process_trial)(model, train_dataset, df, stoi, itos_dt, itos, window, window_prev, top_p, top_p_t, temp, temp_t, trial) for trial in trials)
-
+    if PARALLEL:
+        # Process each trial in parallel
+        results = Parallel(n_jobs=-1)(delayed(process_trial)(model, train_dataset, df, stoi, itos_dt, 
+                                                            itos, window, window_prev, top_p, top_p_t, 
+                                                            temp, temp_t, trial) for trial in trials)
+    else:
+        # Process each trial sequentially
+        results = []
+        for trial in trials:
+            results.append(process_trial(model, train_dataset, df, stoi, itos_dt, 
+                                            itos, window, window_prev, top_p, top_p_t, 
+                                            temp, temp_t, trial))
     # Combine the results from each trial
     for n, (df_trial_pred, df_trial_true) in enumerate(results):   
         print(f"-- No. {n} Trial --")
@@ -485,225 +503,203 @@ if __name__ == '__main__':
             df_pred = pd.concat([df_pred, df_trial_pred])
             df_true = pd.concat([df_true, df_trial_true])
 
-    # # trials = test_data['Trial'].unique()[:4]
-    # trials = sorted(train_data['Trial'].unique())[::4]
-    # for n, trial in enumerate(trials):   
-    #         print(f"-- No. {n} Trial: {trial} --")
-    #         df_trial = df[df['Trial'] == trial]
-    #         trial_dataset = train_dataset.copy(df_trial)
-    #         results_trial = predict_raster_recursive_time_auto(model, trial_dataset, window, window_prev, stoi, itos_dt, itos=itos, 
-    #                                                            sample=True, top_p=top_p, top_p_t=top_p_t, temp=temp, temp_t=temp_t, 
-    #                                                            frame_end=0, get_dt=True, gpu=False, pred_dt=True, plot_probs=True)
-    #         # results_trial = predict_raster_hungarian(model, loader, itos_dt, top_p=0.75, temp=1)
-    #         # print(f"MAX ID ---- {sorted(results_trial['ID'].unique()[-10])}")
-    #         df_trial_pred, df_trial_true = process_predictions(results_trial, stoi, itos, window)
-    #         print(f"pred: {df_trial_pred.shape}, true: {df_trial_true.shape}" )
-    #         if df_pred is None:
-    #             df_pred = df_trial_pred
-    #             df_true = df_trial_true
-    #         else:
-    #             df_pred = pd.concat([df_pred, df_trial_pred])
-    #             df_true = pd.concat([df_true, df_trial_true])
-
-
-
-    # dir_name = os.path.dirname(model_path)
-    # model_name = os.path.basename(model_path)
-    # df_pred.to_csv(os.path.join(dir_name, F'df_pred_.csv'))
-
-    # # %%
-    # """
-    
-    # Split data into full-stimulus trials
-
-    # """
-    # dir_name = os.path.dirname(model_path)
-    # df_pred = pd.read_csv(os.path.join(dir_name, F'df_pred_.csv'))
-
-    # from neuroformer.analysis import get_rates_trial, calc_corr_psth, get_accuracy, compute_scores
-    # from neuroformer.SpikeVidUtils import create_full_trial, set_intervals
-
-    # t_1, t_2 = 35, 36
-    # trial_data_1 = df[df['Trial'] == t_1]
-    # trial_dataset_1 = SpikeTimeVidData2(train_data, None, block_size, id_block_size, frame_block_size, prev_id_block_size, window, dt, frame_memory, stoi, itos, neurons, stoi_dt, itos_dt, frame_feats, pred=False, window_prev=window_prev)
-    # trial_loader_1 = DataLoader(trial_dataset_1, shuffle=False, pin_memory=False)
-
-    # def loader_trial(df, n_trial):
-    #     trial_data = df[df['Trial'] == n_trial]
-    #     trial_dataset = SpikeTimeVidData2(trial_data, None, block_size, id_block_size, frame_block_size, prev_id_block_size, window, dt, frame_memory, stoi, itos, neurons, stoi_dt, itos_dt, frame_feats, pred=False, window_prev=window_prev)
-    #     trial_loader = DataLoader(trial_dataset, shuffle=False, pin_memory=False)
-    #     return trial_loader
-
-    # trial_data_1 = loader_trial(df, t_1)
-    # trial_data_2 = loader_trial(df, t_2)
-
-    # iterable1 = iter(trial_data_1)
-    # iterable2 = iter(trial_data_2)
-
-    # n_1 = test_data['Trial'].unique()
-    # n_2 = test_data['Trial'].unique() + 1
-
-    # df_pred_full = create_full_trial(df_pred)
-    # df_1 = create_full_trial(df, trials)
-    # df_2 = create_full_trial(df, n_1)
-    # df_3 = create_full_trial(df, n_2)
-
-    # # sort by interval, trial
-    # window_pred = 0.5
-    # min_window = window_prev + window
-    # df_pred_full = set_intervals(df_pred_full, window, window_prev, window_pred)
-    # df_1 = set_intervals(df_1, window, window_prev, window_pred)
-    # df_2 = set_intervals(df_2, window, window_prev, window_pred)
-    # df_3 = set_intervals(df_3, window, window_prev, window_pred)
-
-    # window_pred = window if window_pred is None else window_pred
-    # intervals = np.array(sorted(set(df['Interval'].unique()) & set(df['Interval'].unique())))
-    # labels = np.array([round(window_pred + window_pred*n, 2) for n in range(0, int(max(df_pred_full['Interval']) / window_pred))])
-    # ids = sorted(set(df['ID'].unique()) & set(df['ID'].unique()))
-
-    # # labels = sorted(set(df_pred_full['Interval'].unique()))
-    # rates_pred = get_rates_trial(df_pred_full, labels)
-    # rates_1 = get_rates_trial(df_1, labels)
-    # rates_2 = get_rates_trial(df_2, labels)
-    # rates_3 = get_rates_trial(df_3, labels)
-
-    # neurons = df['ID'].unique()
-    # top_corr_pred = calc_corr_psth(rates_pred, rates_1, neurons=neurons)
-    # top_corr_real = calc_corr_psth(rates_1, rates_2, neurons=neurons)
-    # top_corr_real_2 = calc_corr_psth(rates_1, rates_3, neurons=neurons)
-
-    # # %%
-    # """
-
-    # Evaluate results
-
-    # """
-
-
-    # from neuroformer.visualize import set_plot_white, plot_distribution
-
-    # # df_2['Trial'] -= 2
-    # id_pred, id_true_1, id_true_2 = len(df_pred_full['ID'].unique()), len(df_1['ID'].unique()), len(df_2['ID'].unique())
-    # print(f"id_pred: {id_pred}, id_true_1: {id_true_1}, id_true_2: {id_true_2}")
+from neuroformer.analysis import compute_scores
+df_true = df[df['Trial'].isin(trials)]
+scores = compute_scores(df_true, df_pred)
+print(scores)
+print(f"len predL: {len(df_pred)}, len true: {len(df_true)}")
 
-    # len_pred, len_true = len(df_pred_full), len(df_1)
-    # print(f"len_pred: {len_pred}, len_true: {len_true}")
+dir_name = os.path.dirname(model_path)
+model_name = os.path.basename(model_path)
+df_pred.to_csv(os.path.join(dir_name, F'df_pred_.csv'))
 
-    # accuracy = get_accuracy(df_pred, df_2)
+# %%
+"""
 
-    # scores = compute_scores(df_1, df_2)
-    # pred_scores = compute_scores(df_1, df_pred_full)
-    # print(f"real: {scores}")
-    # print(f"pred: {pred_scores}")
+Split data into full-stimulus trials
+
+"""
+dir_name = os.path.dirname(model_path)
+df_pred = pd.read_csv(os.path.join(dir_name, F'df_pred_.csv'))
+
+from neuroformer.analysis import get_rates_trial, calc_corr_psth, get_accuracy, compute_scores
+from neuroformer.SpikeVidUtils import create_full_trial, set_intervals
+
+
+t_1, t_2 = 35, 36
+trial_data_1 = df[df['Trial'] == t_1]
+trial_dataset_1 = SpikeTimeVidData2(train_data, None, block_size, id_block_size, frame_block_size, prev_id_block_size, window, dt, frame_memory, stoi, itos, neurons, stoi_dt, itos_dt, frame_feats, pred=False, window_prev=window_prev)
+trial_loader_1 = DataLoader(trial_dataset_1, shuffle=False, pin_memory=False)
 
-    # # dir_name = os.path.dirname(model_path)
-    # dir_name = model_path
-    # model_name = os.path.basename(model_path)
-    # save_dir = model_name
-    # if not os.path.exists(save_dir):
-    #     os.makedirs(save_dir)
+def loader_trial(df, n_trial):
+    trial_data = df[df['Trial'] == n_trial]
+    trial_dataset = SpikeTimeVidData2(trial_data, None, block_size, id_block_size, frame_block_size, prev_id_block_size, window, dt, frame_memory, stoi, itos, neurons, stoi_dt, itos_dt, frame_feats, pred=False, window_prev=window_prev)
+    trial_loader = DataLoader(trial_dataset, shuffle=False, pin_memory=False)
+    return trial_loader
 
-    # df_pred.to_csv(os.path.join(save_dir, F'df_pred.csv'))
+trial_data_1 = loader_trial(df, t_1)
+trial_data_2 = loader_trial(df, t_2)
 
-    # set_plot_white()
-    # plt.figure(figsize=(10, 10), facecolor='white')
-    # plt.title(f'PSTH Correlations (V1 + AL) bin {window_pred}', fontsize=25)
-    # plt.ylabel('Count (n)', fontsize=25)
-    # plt.xlabel('Pearson r', fontsize=25)
-    # plt.hist(top_corr_real, label='real - real2', alpha=0.6)
-    # # plt.hist(top_corr_real_2, label='real - real3', alpha=0.6)
-    # plt.hist(top_corr_pred, label='real - simulated', alpha=0.6)
-    # plt.legend(fontsize=20)
-    # plt.savefig(os.path.join(save_dir, F'psth_corr_{title}.svg'))
-    # plt.show()
+iterable1 = iter(trial_data_1)
+iterable2 = iter(trial_data_2)
 
-    # plot_distribution(df_1, df_pred, save_path=os.path.join(save_dir, F'psth_dist_{title}.svg'))
+n_1 = test_data['Trial'].unique()
+n_2 = test_data['Trial'].unique() + 1
 
-    # total_scores = dict()
-    # total_scores['real'] = scores
-    # total_scores['pred'] = pred_scores
+df_pred_full = create_full_trial(df_pred)
+df_1 = create_full_trial(df, trials)
+df_2 = create_full_trial(df, n_1)
+df_3 = create_full_trial(df, n_2)
 
-    # print(f"model: {title}")
+# sort by interval, trial
+window_pred = 0.5
+min_window = window_prev + window
+df_pred_full = set_intervals(df_pred_full, window, window_prev, window_pred)
+df_1 = set_intervals(df_1, window, window_prev, window_pred)
+df_2 = set_intervals(df_2, window, window_prev, window_pred)
+df_3 = set_intervals(df_3, window, window_prev, window_pred)
 
-    # # %%
-    # loader = DataLoader(test_dataset, shuffle=True, pin_memory=False)
-    # iterable = iter(test_dataset)
+window_pred = window if window_pred is None else window_pred
+intervals = np.array(sorted(set(df['Interval'].unique()) & set(df['Interval'].unique())))
+labels = np.array([round(window_pred + window_pred*n, 2) for n in range(0, int(max(df_pred_full['Interval']) / window_pred))])
+ids = sorted(set(df['ID'].unique()) & set(df['ID'].unique()))
 
+# labels = sorted(set(df_pred_full['Interval'].unique()))
+rates_pred = get_rates_trial(df_pred_full, labels)
+rates_1 = get_rates_trial(df_1, labels)
+rates_2 = get_rates_trial(df_2, labels)
+rates_3 = get_rates_trial(df_3, labels)
 
-    # # %%
-    # var_group = 'Interval'
-    # int_trials = df.groupby([var_group, 'Trial']).size()
-    # print(int_trials.mean())
-    # # df.groupby(['Interval', 'Trial']).agg(['nunique'])
-    # n_unique = len(df.groupby([var_group, 'Trial']).size())
-    # df.groupby([var_group, 'Trial']).size().nlargest(int(0.2 * n_unique))
-    # # df.groupby(['Interval_2', 'Trial']).size().mean()
+neurons = df['ID'].unique()
+top_corr_pred = calc_corr_psth(rates_pred, rates_1, neurons=neurons)
+top_corr_real = calc_corr_psth(rates_1, rates_2, neurons=neurons)
+top_corr_real_2 = calc_corr_psth(rates_1, rates_3, neurons=neurons)
 
+# %%
+"""
 
-    # # %%
-    # x, y = next(iterable)
+Evaluate results
 
-    # T = len(x['id'])
-    # P = x['pad'] - 1
-    # T_prev = len(x['id_prev'])
-    # P_prev = x['pad_prev'] - 4
+"""
 
-    # iv = float(x['interval'])
 
-    # xid = x['id'][: T - P]
-    # xid = [itos[int(i)] for i in xid]
+from neuroformer.visualize import set_plot_white, plot_distribution
 
-    # xid_prev = x['id_prev'][: T_prev - P_prev]
-    # xid_prev = [itos[int(i)] for i in xid_prev]
+# df_2['Trial'] -= 2
+id_pred, id_true_1, id_true_2 = len(df_pred_full['ID'].unique()), len(df_1['ID'].unique()), len(df_2['ID'].unique())
+print(f"id_pred: {id_pred}, id_true_1: {id_true_1}, id_true_2: {id_true_2}")
 
-    # print(f"iv: {iv}, ix+window: {iv + window} pid: {x['pid']} cid: {x['cid']}")
-    # print(f"x: {xid}")
+len_pred, len_true = len(df_pred_full), len(df_1)
+print(f"len_pred: {len_pred}, len_true: {len_true}")
 
-    # print(f"xid_prev: {xid_prev}")
+accuracy = get_accuracy(df_pred, df_2)
 
-    # tdiff = 0
-    # t_var = 'Time' # 'Interval'
-    # int_var = 'cid'
-    # # df[(df[t_var] >= iv - tdiff) & (df[t_var] <= iv + (window + tdiff)) & (df['Trial'] == int(x['trial']))]
-    # # df[(df[t_var] >= float(x[int_var][0]) - tdiff) & (df[t_var] <= float(x[int_var][1] + tdiff)) & (df['Trial'] == int(x['trial']))]
-    # df[(df[t_var] > float(x[int_var][0]) - tdiff) & (df[t_var] <= float(x['cid'][1] + tdiff)) & (df['Trial'] == int(x['trial']))]
+scores = compute_scores(df_1, df_2)
+pred_scores = compute_scores(df_1, df_pred_full)
+print(f"real: {scores}")
+print(f"pred: {pred_scores}")
 
-    # # t_var = 'Time' # 'Interval'
-    # # int_var = 'pid'
-    # # df[(df[t_var] > round(float(x[int_var][0]), 2) - tdiff) & (df[t_var] <= round(float(x[int_var][1]), 2)) & (df['Trial'] == int(x['trial']))
+# dir_name = os.path.dirname(model_path)
+dir_name = model_path
+model_name = os.path.basename(model_path)
+save_dir = model_name
+if not os.path.exists(save_dir):
+    os.makedirs(save_dir)
 
-    # # print(f"trial: {x['trial']}, pid: {x['pid']}, cid: {x['cid']}")
+df_pred.to_csv(os.path.join(save_dir, F'df_pred.csv'))
 
-    # # plt.imshow(x['frames'][0, 0])
+set_plot_white()
+plt.figure(figsize=(10, 10), facecolor='white')
+plt.title(f'PSTH Correlations (V1 + AL) bin {window_pred}', fontsize=25)
+plt.ylabel('Count (n)', fontsize=25)
+plt.xlabel('Pearson r', fontsize=25)
+plt.hist(top_corr_real, label='real - real2', alpha=0.6)
+# plt.hist(top_corr_real_2, label='real - real3', alpha=0.6)
+plt.hist(top_corr_pred, label='real - simulated', alpha=0.6)
+plt.legend(fontsize=20)
+plt.savefig(os.path.join(save_dir, F'psth_corr_{title}.svg'))
+plt.show()
 
-    # # %%
-    # x['frames'][0, 0]
+plot_distribution(df_1, df_pred, save_path=os.path.join(save_dir, F'psth_dist_{title}.svg'))
 
-    # # %%
-    # df['ID'].max()
+total_scores = dict()
+total_scores['real'] = scores
+total_scores['pred'] = pred_scores
 
-    # # %%
-    # plt.imshow(x['frames'][0, 0])
+print(f"model: {title}")
 
+# %%
+loader = DataLoader(test_dataset, shuffle=False, pin_memory=False)
+iterable = iter(test_dataset)
 
 
+# %%
+var_group = 'Interval'
+int_trials = df.groupby([var_group, 'Trial']).size()
+print(int_trials.mean())
+# df.groupby(['Interval', 'Trial']).agg(['nunique'])
+n_unique = len(df.groupby([var_group, 'Trial']).size())
+df.groupby([var_group, 'Trial']).size().nlargest(int(0.2 * n_unique))
+# df.groupby(['Interval_2', 'Trial']).size().mean()
 
 
+# %%
+# while iv < 1.95:
+x, y = next(iterable)
 
+T = len(x['id'])
+P = x['pad']
+T_prev = len(x['id_prev'])
+P_prev = x['pad_prev'] - 4
 
+T_y = len(y['id'])
+P_y = x['pad']
 
+iv = float(x['interval'])
 
+xid = x['id'][: T - P]
+xid = [itos[int(i)] for i in xid]
+xdt = x['dt'][: T - P]
 
+yid = y['id'][: T_y - P_y]
+yid = [itos[int(i)] for i in yid]
+ydt = y['dt'][: T - P]
 
+xid_prev = x['id_prev'][: T_prev - P_prev]
+xid_prev = [itos[int(i)] for i in xid_prev]
 
+print(f"iv: {iv}, ix+window: {iv + window} pid: {x['pid']} cid: {x['cid']}")
+print(f"x: {xid}")
+print(f"xdt: {xdt}")
+print(f"y: {yid}")
+print(f"ydt: {ydt}")
 
+print(f"xid_prev: {xid_prev}")
 
+tdiff = 0
+t_var = 'Time' # 'Interval'
+int_var = 'cid'
+# df[(df[t_var] >= iv - tdiff) & (df[t_var] <= iv + (window + tdiff)) & (df['Trial'] == int(x['trial']))]
+# df[(df[t_var] >= float(x[int_var][0]) - tdiff) & (df[t_var] <= float(x[int_var][1] + tdiff)) & (df['Trial'] == int(x['trial']))]
+df[(df[t_var] > float(x[int_var][0]) - tdiff) & (df[t_var] <= float(x['cid'][1] + tdiff)) & (df['Trial'] == int(x['trial']))]
 
+# t_var = 'Time' # 'Interval'
+# int_var = 'pid'
+# df[(df[t_var] > round(float(x[int_var][0]), 2) - tdiff) & (df[t_var] <= round(float(x[int_var][1]), 2)) & (df['Trial'] == int(x['trial']))
 
+# print(f"trial: {x['trial']}, pid: {x['pid']}, cid: {x['cid']}")
 
+# plt.imshow(x['frames'][0, 0])
 
+# %%
+itos_dt
 
+# %%
+loader = DataLoader(test_dataset, shuffle=True, pin_memory=False)
+iterable = iter(loader)
 
-
+# %%
+x, y = next(iterable)
+preds, features, loss = model(x, y)
 
 
