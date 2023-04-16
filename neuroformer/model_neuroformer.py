@@ -1,9 +1,5 @@
 # from code.transformer_vid.utils import convert_weights
 # import rotary_embedding_torch
-from xml.etree.ElementPath import xpath_tokenizer
-
-from grpc import xds_channel_credentials
-from sympy import xfield
 from torch.nn.modules.activation import GELU, ReLU
 # from data.OneCombo3.trainer import TrainerConfig
 import math
@@ -1064,6 +1060,7 @@ class GPT(nn.Module):
             for B, P in enumerate(pad):
                 n_batches = pad.shape[0]
                 id_targets = targets['id'][B, :t - P]
+                id_logits_ = id_logits[B, :t - P]
 
                 if len(id_targets) > 0:
 
