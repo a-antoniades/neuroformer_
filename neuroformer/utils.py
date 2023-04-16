@@ -103,7 +103,7 @@ def update_object(obj1, obj2):
 
             # Set the attribute if it doesn't exist in obj1
             # if not hasattr(obj1, attr_name):
-            print(f"Setting {attr_name} to {attr_value}")
+            # print(f"Setting {attr_name} to {attr_value}")
             setattr(obj1, attr_name, attr_value)
 
 def df_to_dict(df):
@@ -459,36 +459,36 @@ def predict_raster_recursive_time_auto(model, dataset, window, window_prev, stoi
                 _, ix_dt = torch.topk(probs_dt, k=1, dim=-1)
 
             if plot_probs:
-                print(x['id'])
-                print(f"i: {i} ix: {ix}, x_true: {y['id'][0, i]}")
                 probs_n = np.array(probs)[0]
                 xaxis = np.arange(len(probs_n))
                 topk=5
                 topk_indices = np.argpartition(probs_n, -topk)[-topk:]
                 topk_probs = probs_n[topk_indices]
-                print(f"topk_ix: {topk_indices}")
-                print(f"topk_probs: {topk_probs}")
                 plt.figure()
                 plt.title(f"t={i}, indices: {topk_indices}")
                 plt.axvline(x=ix, color='b')
                 plt.bar(xaxis, probs_n)
                 plt.show()
+                print(x['id'])
+                print(f"i: {i} ix: {ix}, x_true: {y['id'][0, i]}")
+                print(f"topk_ix: {topk_indices}")
+                print(f"topk_probs: {topk_probs}")
 
-                # # plot dt probs
-                # print(x['dt'])
-                # print(f"i: {i} ix_dt: {ix_dt}, dt_true: {y['dt'][0, i]}")
-                # probs_dt_n = np.array(probs_dt)[0]
-                # xaxis = np.arange(len(probs_dt_n))
-                # topk=5
-                # topk_indices = np.argpartition(probs_dt_n, -topk)[-topk:]
-                # topk_probs = probs_dt_n[topk_indices]
-                # print(f"topk_ix_dt: {topk_indices} \
-                #         topk_dt_probs: {topk_probs}")
-                # plt.figure()
-                # plt.title(f"t={i}, indices: {topk_indices}")
-                # plt.bar(xaxis, probs_dt_n)
-                # plt.axvline(x=ix_dt, color='b')
-                # plt.show()
+                # plot dt probs
+                probs_dt_n = np.array(probs_dt)[0]
+                xaxis = np.arange(len(probs_dt_n))
+                topk=5
+                topk_indices = np.argpartition(probs_dt_n, -topk)[-topk:]
+                topk_probs = probs_dt_n[topk_indices]
+                plt.figure()
+                plt.title(f"t={i}, indices: {topk_indices}")
+                plt.bar(xaxis, probs_dt_n)
+                plt.axvline(x=ix_dt, color='b')
+                plt.show()
+                print(x['dt'])
+                print(f"i: {i} ix_dt: {ix_dt}, dt_true: {y['dt'][0, i]}")
+                print(f"topk_ix_dt: {topk_indices} \
+                        topk_dt_probs: {topk_probs}")
             
             # convert ix_dt to dt and add to current time
             # print(f"ix: {ix}, x_true: {y['id'][0, i]} ")

@@ -1062,8 +1062,8 @@ class GPT(nn.Module):
                 preds['behavior'] = behavior_logits
 
             for B, P in enumerate(pad):
-                n_batches = pad.shape[0]
                 id_targets = targets['id'][B, :t - P]
+                id_logits_ = id_logits[B, :t - P]
 
                 if len(id_targets) > 0:
 
