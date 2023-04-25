@@ -62,6 +62,9 @@ def parse_args():
     parser.add_argument("--seed", type=int, default=25)
     parser.add_argument("--behavior", action="store_true", default=False, help="Behavior task")
     parser.add_argument("--predict_behavior", action="store_true", default=False, help="Predict behavior")
+    parser.add_argument("--past_state", action="store_true", default=False, help="Input past state")
+    parser.add_argument("--visual", action="store_true", default=False, help="Visualize")
+    parser.add_argument("--contrastive", action="store_true", default=False, help="Contrastive")
     return parser.parse_args()
 
 # if __name__ == "__main__":
@@ -75,7 +78,7 @@ try:
     shell = get_ipython().__class__.__name__
     print("Running in Jupyter notebook")
     INFERENCE = False
-    DOWNSTREAM = True
+    DOWNSTREAM = False
     RESUME = None
     RAND_PERM = False
     MCONF = None
@@ -84,6 +87,9 @@ try:
     SEED = 25
     BEHAVIOR = False
     PREDICT_BEHAVIOR = False
+    PAST_STATE = True
+    VISUAL = True
+    CONTRASTIVE = True
 except:
     print("Running in terminal")
     args = parse_args()
@@ -97,11 +103,14 @@ except:
     SEED = args.seed
     BEHAVIOR = args.behavior
     PREDICT_BEHAVIOR = args.predict_behavior
-    
-
+    PAST_STATE = args.past_state
+    VISUAL = args.visual
+    CONTRASTIVE = args.contrastive
 
 set_seed(25)
 
+print(f" // CONTRASTIVE: {CONTRASTIVE} //")
+print(f" // VISUAL: {VISUAL} //")
 # set up logging
 import logging
 logging.basicConfig(
@@ -109,7 +118,6 @@ logging.basicConfig(
         datefmt="%m/%d/%Y %H:%M:%S",
         level=logging.INFO,
 )
-
 
 
 # %%
@@ -192,7 +200,7 @@ behavior_vars = ['speed']
 n_behavior = len(behavior_vars)
 predict_behavior = PREDICT_BEHAVIOR
 # stimulus
-visual_stim = True
+visual_stim = VISUAL
 
 # %%
 from neuroformer.SpikeVidUtils import trial_df, get_df_visnav, make_intervals
@@ -207,7 +215,7 @@ print(data.keys())
 df = get_df_visnav(response, trial_data, dt_vars)
 # df = df[df['ID'].isin(neurons_sel1)].reset_index(drop=True)
 
-if behavior is True:
+if behavior or predict_behavior is True:
     df_behavior = pd.DataFrame({k: data[k] for k in behavior_vars + ['t']})
     # rename t to time
     df_behavior = df_behavior.rename(columns={'t': 'Time'}) if df_behavior is not None else None
@@ -335,10 +343,6 @@ max_epochs = 1250
 batch_size = round((32 * 7))
 shuffle = True
 
-title =  f'method_behavior_{behavior}_{behavior_vars}'
-
-model_path = f"""./models/tensorboard/visnav_medial/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{window}_wp:{window_prev}/{6}_Cont:{mconf.contrastive}_window:{window}_f_window:{frame_window}_df:{dt}_blocksize:{id_block_size}_conv_{conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
-
 model_conf = GPTConfig(train_dataset.population_size, block_size,    # frame_block_size
                         id_vocab_size=train_dataset.id_population_size,
                         frame_block_size=frame_block_size,
@@ -365,12 +369,34 @@ model_conf = GPTConfig(train_dataset.population_size, block_size,    # frame_blo
 # update_object(model_conf, mconf)
 model_conf.contrastive_vars = ['id', 'frames']
 
-if BEHAVIOR:
-    model_conf.contrastive_vars += ['behavior']
+if BEHAVIOR and not PREDICT_BEHAVIOR:
+    model_conf.contrastive_vars += ['behavior_mean']
+    
+if PREDICT_BEHAVIOR is False:
+    print(f"// Predict behavior: n_behavior_layers = 0 //")
+    model_conf.n_behavior_layers = 0
+
+if PAST_STATE is False:
+    print(f"// -- No past state, layers=0 -- //")
+    model_conf.n_state_history_layers = 0
+
+if CONTRASTIVE is True:
+    print(f"// -- contrastive objective -- //")
+    model_conf.contrastive = True
+else:
+    print(f"// -- NOOO cross entropy objective -- //")
+    model_conf.contrastive = False
+
+if VISUAL is False:
+    print(f"// -- No visual, layers=0 -- //")
+    model_conf.n_stimulus_layers = 0
+
 
 model = GPT(model_conf)
 # model.load_state_dict(torch.load(model_path))
 
+title =  f'paststate{PAST_STATE}_method_behavior_{behavior}_{behavior_vars}_predictbehavior{PREDICT_BEHAVIOR}_visual{visual_stim}_contrastive{model_conf.contrastive}_{model_conf.contrastive_vars}'
+model_path = f"""./models/tensorboard/visnav_medial/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{window}_wp:{window_prev}/{6}_Cont:{mconf.contrastive}_window:{window}_f_window:{frame_window}_df:{dt}_blocksize:{id_block_size}_conv_{conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
 
 # # %%
 # model.cpu()
