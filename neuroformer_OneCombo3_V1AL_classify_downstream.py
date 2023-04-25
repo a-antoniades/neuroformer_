@@ -51,6 +51,7 @@ from neuroformer.SpikeVidUtils import round_n
 import argparse
 
 
+
 # set up logging
 import logging
 logging.basicConfig(
@@ -65,15 +66,6 @@ def parse_args():
     parser = argparse.ArgumentParser()
     # parser.add_argument("--infer", action="store_true", help="Inference mode")
     parser.add_argument("--train", action="store_true", default=False, help="Train mode")
-    parser.add_argument("--resume", type=str, default=None, help="Resume from checkpoint")
-    parser.add_argument("--rand_perm", action="store_true", default=False, help="Randomly permute the ID column")
-    parser.add_argument("--mconf", type=str, default=None, help="Path to model config file")
-    parser.add_argument("--downstream", action="store_true", default=False, help="Downstream task")
-    parser.add_argument("--freeze_model", action="store_true", default=False, help="Freeze model")
-    parser.add_argument("--title", type=str, default=None)
-    parser.add_argument("--dataset", type=str, default="Combo3_V1AL")
-    parser.add_argument("--behavior", type=str)
-    parser.add_argument("--pred_behavior", type=str)
     return parser.parse_args()
 
 # if __name__ == "__main__":
@@ -86,29 +78,13 @@ def parse_args():
 try:
     shell = get_ipython().__class__.__name__
     print("Running in Jupyter notebook")
-    INFERENCE = False
-    DOWNSTREAM = True
-    RESUME = None
-    RAND_PERM = False
-    MCONF = None
-    FREEZE_MODEL = False
-    TITLE = None
-    DATASET = "Combo3_V1AL"
-    BEHAVIOR = False
-    PREDICT_BEHAVIOR = False
+    INFERENCE = True
 except:
     print("Running in terminal")
     args = parse_args()
     INFERENCE = not args.train
-    DOWNSTREAM = args.downstream
-    RESUME = args.resume
-    RAND_PERM = args.rand_perm
-    MCONF = args.mconf
-    FREEZE_MODEL = args.freeze_model
-    DATASET = args.dataset
-    BEHAVIOR = args.behavior
-    PREDICT_BEHAVIOR = args.pred_behavior
 
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 
 # %%
@@ -123,27 +99,22 @@ DOWNLOAD DATA URL = https://drive.google.com/drive/folders/1jNvA4f-epdpRmeG9s2E-
 
 """
 
-if DATASET == "Combo3_V1AL":
-    RESPONSE_PATH = "data/Combo3_V1AL/Combo3_V1AL_response.csv"
-    STIMULUS_PATH = "data/Combo3_V1AL/Combo3_V1AL_stimulus.pt"
+RESPONSE_PATH = "data/Combo3_V1AL/Combo3_V1AL_response.csv"
+STIMULUS_PATH = "data/Combo3_V1AL/Combo3_V1AL_stimulus.pt"
+DATASET = "Combo3_V1AL"
 
-    if not os.path.exists(RESPONSE_PATH):
-        print("Downloading data...")
-        import gdown
-        url = "https://drive.google.com/drive/folders/1jNvA4f-epdpRmeG9s2E-2Sfo-pwYbjeY?usp=share_link"
-        gdown.download_folder(id=url, quiet=False, use_cookies=False)
-else:
-    from neuroformer.prepare_data import DataLinks
-    DataLinkDS = getattr(DataLinks, DATASET)
-    url = DataLinkDS['url']
-    RESPONSE_PATH = DataLinkDS['response_path']
-    STIMULUS_PATH = DataLinkDS['stimulus_path']
-    gdown.download_folder(id=url)
+if not os.path.exists(RESPONSE_PATH):
+    print("Downloading data...")
+    import gdown
+    url = "https://drive.google.com/drive/folders/1jNvA4f-epdpRmeG9s2E-2Sfo-pwYbjeY?usp=share_link"
+    gdown.download_folder(id=url, quiet=False, use_cookies=False)
+
 
 
 df = pd.read_csv(RESPONSE_PATH)
 video_stack = torch.load(STIMULUS_PATH)
 stimulus = video_stack[:, :, 0]
+
 
 
 # %%
@@ -154,19 +125,12 @@ for i in range(3):
     ax[i].imshow(video_stack[i, 1, 0].permute(0, 1))
 
 
-
 # %%
 # load config files
 import yaml
 
 # base_path = "configs/visnav/predict_behavior"
-if MCONF is not None:
-    base_path = os.path.dirname(MCONF)
-elif RESUME is not None:
-    base_path = os.path.dirname(RESUME)
-else:
-    base_path = "./models/tensorboard/V1_AL/downstream/learnt_temporal_embeddings/sparse_f:None_id:None/w:0.05_wp:0.25"
-    
+base_path = "./models/tensorboard/V1_AL/downstream4/fixed/sparse_f:None_id:None/w:0.05_wp:0.25"
 
 with open(os.path.join(base_path, 'mconf.yaml'), 'r') as stream:
     mconf = yaml.full_load(stream)
@@ -184,6 +148,7 @@ from omegaconf import OmegaConf
 mconf = OmegaConf.create(mconf)
 tconf = OmegaConf.create(tconf)
 dconf = OmegaConf.create(dconf)
+
 
 # %%
 
@@ -208,23 +173,25 @@ else:
     dt_speed = 0.2
     intervals = None
 
-# randomly permute 'id' column
-if RAND_PERM:
-    df['ID'] = df['ID'].sample(frac=1, random_state=25).reset_index(drop=True)
 
 
 # %%
 ## choose modalities ##
 
 # behavior
-behavior = BEHAVIOR
+behavior = False
 behavior_vars = ['eyerad', 'phi', 'speed', 'th']
 # behavior_vars = ['speed']
 n_behavior = len(behavior_vars)
-predict_behavior = PREDICT_BEHAVIOR
+predict_behavior = False
 # stimulus
 visual_stim = True
 
+
+
+# %%
+# randomly permute 'id' column
+df['ID'] = df['ID'].sample(frac=1, random_state=25).reset_index(drop=True)
 
 # %%
 from neuroformer.SpikeVidUtils import trial_df, get_df_visnav, make_intervals
@@ -273,16 +240,9 @@ df['real_interval'] = make_intervals(df, 0.05)
 df['Interval_2'] = make_intervals(df, window_prev)
 df = df.reset_index(drop=True)
 
-# randomly permute 'id' column
-if RAND_PERM:
-    print('// randomly permuting ID column //')
-    df['ID'] = df['ID'].sample(frac=1, random_state=25).reset_index(drop=True)
-
 max_window = max(window, window_prev)
 dt_range = math.ceil(max_window / dt) + 1  # add first / last interval for SOS / EOS'
 n_dt = [round(dt * n, 2) for n in range(dt_range)] + ['EOS'] + ['PAD']
-
-
 
 # %%
 from neuroformer.SpikeVidUtils import SpikeTimeVidData2
@@ -291,10 +251,10 @@ from neuroformer.SpikeVidUtils import SpikeTimeVidData2
 n_frames = round(frame_window * 1/dt_frames)
 # kernel_size = (n_frames, 4, 4)
 kernel_size = [n_frames, 8, 8]
-stride_size = [n_frames, 4, 4]
+stride_size = kernel_size
 padding_size = 0
 n_embd = 256
-n_embd_frames = 64
+n_embd_frames = mconf.n_embd_frames
 frame_feats = stimulus if visual_stim else None
 frame_block_size = 0
 frame_feats = torch.tensor(stimulus, dtype=torch.float32)
@@ -317,7 +277,6 @@ stoi = { ch:i for i,ch in enumerate(feat_encodings) }
 itos = { i:ch for i,ch in enumerate(feat_encodings) }
 stoi_dt = { ch:i for i,ch in enumerate(n_dt) }
 itos_dt = { i:ch for i,ch in enumerate(n_dt) }
-
 
 # %%
 import random
@@ -346,46 +305,137 @@ test_data = df[df['Trial'].isin(n)].reset_index(drop=True)
 small_data = df[df['Trial'].isin([5])].reset_index(drop=True)
 
 
+
+# %%
+"""
+image indexes
+
+(140, 260)
+(339, 424)
+(500, 620)
+(680, 840) 
+(960, 1050)
+
+"""
+import tifffile
+
+stim2_path = "./data/Combo3_V1AL/stimuli/Combined Stimuli 3-Movie2.tif"
+stimulus_2 = tifffile.imread(stim2_path)
+
+stim3_path = "./data/Combo3_V1AL/stimuli/Combined Stimuli 3-Movie3.tif"
+stimulus_3 = tifffile.imread(stim3_path)
+
+mouse_indexes = [(140, 260), (339, 424), (500, 620), (680, 840), (960, 1050)]
+stimulus_mice = np.concatenate([stimulus_2[i[0]:i[1]] for i in mouse_indexes])
+stimulus_control = np.concatenate([stimulus_3[i[0]:i[1]] for i in mouse_indexes])
+
+# labels_mice = []
+
+assert stimulus_mice.shape == stimulus_control.shape, "stimulus shapes must be equal"
+
+control_labels = np.zeros(stimulus_control.shape[0])
+mice_labels = np.ones(stimulus_mice.shape[0])
+
+stimulus_task = np.concatenate([stimulus_control, stimulus_mice])
+labels_task = np.concatenate([control_labels, mice_labels])
+
+# %%
+mouse_indexes_downsampled = [tuple(map(lambda x: x // 3, i)) for i in mouse_indexes]
+stim_2_ds = stimulus[1]
+stim_2_ds_mice = np.concatenate([stim_2_ds[i[0]:i[1]] for i in mouse_indexes_downsampled])
+print(mouse_indexes_downsampled)
+
+# %%
+from neuroformer.SpikeVidUtils import get_interval_idx
+
+mouse_indexes_intervals = [tuple(map(lambda x: get_interval_idx(x, 0.05), i)) for i in mouse_indexes_downsampled]
+
+intervals_cls = np.concatenate([np.arange(i[0], i[1], window) for i in mouse_indexes_intervals])
+train_trial_cls = range(21, 41)
+test_trial_cls = range(41, 61)
+
+train_interval_trial_cls = np.array(np.meshgrid(intervals_cls, train_trial_cls)).T.reshape(-1, 2)
+test_interval_trial_cls = np.array(np.meshgrid(intervals_cls, test_trial_cls)).T.reshape(-1, 2)
+
+# %%
+# from neuroformer.SpikeVidUtils import get_interval_trials, get_interval_idx
+
+# # get data for downstream objective
+# train_trial_ds = range(20, 41)
+# test_trial_ds = range(41, 61)
+# mouse_indexes_intervals = [tuple(map(lambda x: get_interval_idx(x, 0.05), i)) for i in mouse_indexes_downsampled]
+# print(mouse_indexes_intervals)
+# # pick out intervals from df according to mouse_indexes_intervals
+
+# def filter_by_range(x, range_tuples):
+#     return any(start <= x <= end for start, end in range_tuples)
+
+# data_cls = df[df['Interval'].apply(lambda x: filter_by_range(x, mouse_indexes_intervals))]
+# train_data_cls = data_cls[(data_cls['Trial'].isin(train_trial_ds)) & (data_cls['Trial'].isin(train_data['Trial'].unique()))]
+# test_data_cls = data_cls[(data_cls['Trial'].isin(test_trial_ds)) & (data_cls['Trial'].isin(test_data['Trial'].unique()))]
+
+# train_intervals_cls = 
+
+# %%
+# n_frames = 20
+# fig, ax = plt.subplots(10, 1, figsize=(200, n_frames))
+# frame_idx = [i for i in range(10)]
+# for i, f_idx in enumerate(frame_idx):
+#     ax[i].imshow(stimulus[1, f_idx, :, :])
+#     ax[i].set_title(f"Frame {f_idx}", fontsize=20)
+#     ax[i].axis('off')
+
+# stim_plot = stim_2_ds_mice
+# n_frames = 10
+# fig, ax = plt.subplots(1, n_frames, figsize=(200, 10))
+# frame_idx = np.random.choice(range(stim_plot.shape[0]), n_frames)
+# # frame_idx = [i for i in range(n_frames)]
+# for i, f_idx in enumerate(frame_idx):
+#     ax[i].imshow(stim_plot[f_idx, :, :])
+#     ax[i].set_title(f"Frame {f_idx}", fontsize=20)
+#     ax[i].axis('off')
+
 # %%
 from neuroformer.SpikeVidUtils import SpikeTimeVidData2
 
 train_dataset = SpikeTimeVidData2(train_data, None, block_size, id_block_size, frame_block_size, prev_id_block_size, 
                                   window, dt, frame_memory, stoi, itos, neurons, stoi_dt, itos_dt, frame_feats,
                                   pred=False, window_prev=window_prev, frame_window=frame_window,
-                                  dt_frames=dt_frames, intervals=None, dataset=DATASET,
+                                  dt_frames=dt_frames, intervals=train_interval_trial_cls, dataset=DATASET,
                                   behavior=behavior, behavior_vars=behavior_vars, dt_vars=dt_vars,
                                   behavior_block_size=behavior_block_size, samples_per_behavior=samples_per_behavior,
                                   window_behavior=window_behavior, predict_behavior=predict_behavior,
                                   stoi_speed=stoi_speed, itos_speed=itos_speed, dt_speed=dt_speed, labels=True)
 
-test_dataset = train_dataset.copy(test_data)
+test_dataset = train_dataset.copy(test_data, t=test_interval_trial_cls)
 
-finetune_dataset = train_dataset.copy(finetune_data)
-
-if INFERENCE:
-    update_object(train_dataset, dconf)
-    update_object(test_dataset, dconf)
-    update_object(finetune_dataset, dconf)
+# if INFERENCE:
+#     update_object(train_dataset, dconf)
+#     update_object(test_dataset, dconf)
     
 print(f'train: {len(train_dataset)}, test: {len(test_dataset)}')
 
-
-
+# %%
+loader = DataLoader(train_dataset, batch_size=1, shuffle=False, num_workers=1, pin_memory=True)
+iterable = iter(loader)
+x, y = next(iterable)
+for k in x.keys():
+    print(k)
+    print(k, x[k].shape)
 
 # %%
 
 layers = (mconf.n_state_layers, mconf.n_state_history_layers, mconf.n_stimulus_layers)   
-max_epochs = 250
-batch_size = round((32 * 4))
+max_epochs = 80
+batch_size = round((32 * 2))
 shuffle = True
 
-title =  f'mlp/freeze_{FREEZE_MODEL}/randperm_{RAND_PERM}/Big_fixed_noself-att'
+title =  f'large_window_2'
 
 if INFERENCE:
     model_path = glob.glob(os.path.join(base_path, '**.pt'), recursive=True)[0]
 else:
-    model_path = f"""./models/tensorboard/{DATASET}/downstream_final/pretrain/{title}_2/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{mconf.window}_wp:{mconf.window_prev}/Cont:{mconf.contrastive}_window:{mconf.window}_f_window:{mconf.frame_window}_df:{mconf.dt}_blocksize:{mconf.id_block_size}_conv_{mconf.conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
-
+    model_path = f"""./models/tensorboard/V1_AL/downstream/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{window}_wp:{window_prev}/{6}_Cont:{mconf.contrastive}_window:{window}_f_window:{frame_window}_df:{dt}_blocksize:{id_block_size}_conv_{conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
 
 model_conf = GPTConfig(train_dataset.population_size, block_size,    # frame_block_size
                         id_vocab_size=train_dataset.id_population_size,
@@ -398,78 +448,25 @@ model_conf = GPTConfig(train_dataset.population_size, block_size,    # frame_blo
                         n_dt=len(n_dt),
                         class_weights=None,
                         pretrain=False,
-                        n_state_layers=8, n_state_history_layers=8,
-                        n_stimulus_layers=8, self_att_layers=0,
+                        n_state_layers=4, n_state_history_layers=4,
+                        n_stimulus_layers=4, self_att_layers=0,
                         n_behavior_layers=0, predict_behavior=predict_behavior, n_behavior=n_behavior,
-                        n_head=8, n_embd=n_embd, 
+                        n_head=4, n_embd=n_embd, 
                         contrastive=False, clip_emb=1024, clip_temp=mconf.clip_temp,
                         conv_layer=conv_layer, kernel_size=kernel_size, stride_size=stride_size, padding_size=padding_size,
                         temp_emb=mconf.temp_emb, pos_emb=False,
-                        id_drop=0.35, im_drop=0.35, b_drop=0.45,
+                        id_drop=0.1, im_drop=0.1, b_drop=0.45,
                         window=window, window_prev=window_prev, frame_window=frame_window, dt=dt,
                         neurons=neurons, stoi_dt=stoi_dt, itos_dt=itos_dt, n_embd_frames=n_embd_frames,
                         ignore_index_id=stoi['PAD'], ignore_index_dt=stoi_dt['PAD'])  # 0.35
 
 
-if INFERENCE or MCONF is not None:
+if INFERENCE:
     update_object(model_conf, mconf)
 model = GPT(model_conf)
-
-if RESUME is not None:
-    update_object(model_conf, mconf)
-    print(f"// -- Loading model from {RESUME} -- //")
-    model.load_state_dict(torch.load(RESUME))
-    if not DOWNSTREAM:
-        model_path = f"{RESUME[:-3]}_resume.pt"
-
-
-# %%
-
-if DOWNSTREAM:
-    print(f"// Downstream Objective: {DOWNSTREAM} //")
-    """
-    image indexes
-
-    (140, 260)
-    (339, 424)
-    (500, 620)
-    (680, 840) 
-    (960, 1050)
-
-    """
-    import tifffile
-    from neuroformer.SpikeVidUtils import get_interval_idx
-    from neuroformer.modules import ClassifierWrapper
-
-    stim2_path = "./data/Combo3_V1AL/stimuli/Combined Stimuli 3-Movie2.tif"
-    stimulus_2 = tifffile.imread(stim2_path)
-
-    stim3_path = "./data/Combo3_V1AL/stimuli/Combined Stimuli 3-Movie3.tif"
-    stimulus_3 = tifffile.imread(stim3_path)
-
-    mouse_indexes = [(140, 260), (339, 424), (500, 620), (680, 840), (960, 1050)]
-    stimulus_mice = np.concatenate([stimulus_2[i[0]:i[1]] for i in mouse_indexes])
-    stimulus_control = np.concatenate([stimulus_3[i[0]:i[1]] for i in mouse_indexes])
-    assert stimulus_mice.shape == stimulus_control.shape, "stimulus shapes must be equal"
-
-    control_labels = np.zeros(stimulus_control.shape[0])
-    mice_labels = np.ones(stimulus_mice.shape[0])
-    stimulus_task = np.concatenate([stimulus_control, stimulus_mice])
-    labels_task = np.concatenate([control_labels, mice_labels])
-    mouse_indexes_downsampled = [tuple(map(lambda x: x // 3, i)) for i in mouse_indexes]
-    stim_2_ds = stimulus[1]
-    stim_2_ds_mice = np.concatenate([stim_2_ds[i[0]:i[1]] for i in mouse_indexes_downsampled])
-    mouse_indexes_intervals = [tuple(map(lambda x: get_interval_idx(x, 0.05), i)) for i in mouse_indexes_downsampled]
-    intervals_cls = np.concatenate([np.arange(i[0], i[1], window) for i in mouse_indexes_intervals])
-    # don't use same intervals for training and testing (because images will be the same)
-    train_interval_cls = np.random.choice(intervals_cls, size=int(len(intervals_cls) * 0.8), replace=False)
-    test_interval_cls = np.setdiff1d(intervals_cls, train_interval_cls)
-    train_trial_cls = train_data[train_data['Trial'] > 20]['Trial'].unique()
-    test_trial_cls = test_data[test_data['Trial'] > 20]['Trial'].unique()
-    train_interval_trial_cls = np.array(np.meshgrid(train_interval_cls, train_trial_cls)).T.reshape(-1, 2)
-    test_interval_trial_cls = np.array(np.meshgrid(test_interval_cls, test_trial_cls)).T.reshape(-1, 2)
-    train_dataset = train_dataset.copy(train_data, t=train_interval_trial_cls)
-    test_dataset = test_dataset.copy(test_data, t=test_interval_trial_cls)
+# model_weights = "models/tensorboard/visnav/behavior_predict/long_no_classification/finetune/window:0.05_prev:0.25/sparse_f:None_id:None/w:0.05_wp:0.25/6_Cont:False_window:0.05_f_window:0.2_df:0.005_blocksize:100_conv_True_shuffle:True_batch:224_sparse_(None_None)_blocksz446_pos_emb:False_temp_emb:True_drop:0.35_dt:True_2.0_52_max0.005_(8, 8, 8)_8_256.pt"
+# if model_weights is not None:
+#     model.load_state_dict(torch.load(model_weights), strict=False)
 
 # %%
 tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rate=1e-4, 
@@ -482,29 +479,25 @@ tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rat
                     id_block_size=train_dataset.id_block_size,
                     show_grads=False, plot_raster=False,
                     ckpt_path=model_path, no_pbar=False, 
-                    dist=False, save_every=20, loss_bprop=loss_bprop)
+                    dist=False, save_every=1000, loss_bprop=loss_bprop)
 
 if not INFERENCE:
     trainer = Trainer(model, train_dataset, test_dataset, tconf, model_conf)
-    if DOWNSTREAM:
-        mconf.__setattr__('freeze_model', FREEZE_MODEL)
-        trainer.config.__setattr__('warmup_tokens', 100)
-        N_CLASSES = 2
-        classifier = ClassifierWrapper(model, mconf, N_CLASSES)
-        train_model = classifier
-
-    else:
-        train_model = model
-    trainer = Trainer(train_model, train_dataset, test_dataset, tconf, model_conf)
     trainer.train()
 else:
     model_path = glob.glob(os.path.join(base_path, '**.pt'), recursive=True)[0]
     model.load_state_dict(torch.load(model_path), strict=False)
 
 # %%
+from neuroformer.modules import ClassifierWrapper
+
+N_CLASSES = 2
+classifier = ClassifierWrapper(model, 2)
+
+
+# %%
 loader = DataLoader(train_dataset, batch_size=1, shuffle=False, num_workers=4, pin_memory=True)
 iterable = iter(loader)
-
 
 # %%
 # model.eval()
@@ -526,10 +519,13 @@ iterable = iter(loader)
 #         ax_step.set_title(f"""{step}""", fontsize=20)
 
 # %%
+train_dataset.t.shape
+
+# %%
 x, y = next(iterable)
 for k in x.keys():
+    print(k)
     print(k, x[k].shape)
-
 
 # %%
 from neuroformer.utils import predict_raster_recursive_time_auto, process_predictions
@@ -596,7 +592,6 @@ dir_name = os.path.dirname(model_path)
 model_name = os.path.basename(model_path)
 df_pred.to_csv(os.path.join(dir_name, F'df_pred_.csv'))
 
-
 # %%
 """
 
@@ -659,7 +654,6 @@ top_corr_pred = calc_corr_psth(rates_pred, rates_1, neurons=neurons)
 top_corr_real = calc_corr_psth(rates_1, rates_2, neurons=neurons)
 top_corr_real_2 = calc_corr_psth(rates_1, rates_3, neurons=neurons)
 
-
 # %%
 """
 
@@ -686,7 +680,7 @@ print(f"pred: {pred_scores}")
 
 # dir_name = os.path.dirname(model_path)
 dir_name = model_path
-model_name = os.path.dirname(model_path)
+model_name = os.path.basename(model_path)
 save_dir = model_name
 if not os.path.exists(save_dir):
     os.makedirs(save_dir)
@@ -713,11 +707,9 @@ total_scores['pred'] = pred_scores
 
 print(f"model: {title}")
 
-
 # %%
 loader = DataLoader(test_dataset, shuffle=False, pin_memory=False)
 iterable = iter(test_dataset)
-
 
 
 # %%
@@ -728,7 +720,6 @@ print(int_trials.mean())
 n_unique = len(df.groupby([var_group, 'Trial']).size())
 df.groupby([var_group, 'Trial']).size().nlargest(int(0.2 * n_unique))
 # df.groupby(['Interval_2', 'Trial']).size().mean()
-
 
 
 # %%
@@ -780,19 +771,23 @@ df[(df[t_var] > float(x[int_var][0]) - tdiff) & (df[t_var] <= float(x['cid'][1] 
 # plt.imshow(x['frames'][0, 0])
 
 # %%
-itos_dt
-
-
-# %%
 loader = DataLoader(test_dataset, shuffle=True, pin_memory=False)
 iterable = iter(loader)
-
 
 # %%
 x, y = next(iterable)
 preds, features, loss = model(x, y)
 
+# %%
+features.keys()
 
+# %%
+features['last_layer'].shape
+
+# %%
+preds, feats, loss = classifier(x)
+
+# %%
 
 
 

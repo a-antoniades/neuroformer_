@@ -32,7 +32,7 @@ import omegaconf
 from modules import (PositionalEmbedding, PositionalEncoding2D, 
                      PositionalEncodingPermute2D, PositionalEncoding3D,
                      TemporalEmbedding, LearntTemporalEmbedding,
-                     contrastive_loss)
+                     contrastive_loss, topk_metrics)
 import collections
 
 logger = logging.getLogger(__name__)
@@ -778,10 +778,13 @@ class GPT(nn.Module):
             self.pos_emb = nn.Parameter(torch.zeros(1, config.id_block_size, config.n_embd))
             self.pos_emb_prev = nn.Parameter(torch.zeros(1, config.prev_id_block_size, config.n_embd))
         if config.temp_emb:
-            self.temp_emb = LearntTemporalEmbedding(config.id_block_size, config.n_embd)
-            self.temp_emb_prev = LearntTemporalEmbedding(config.prev_id_block_size, config.n_embd)
-            # self.temp_emb = TemporalEmbedding(config.n_embd, config.id_drop)
-            # self.temp_emb_prev = TemporalEmbedding(config.n_embd, config.id_drop)
+            """ Choose between learned or sinusoidal temporal embeddings"""
+            if hasattr(config, 'wave_emb') and config.wave_emb:
+                self.temp_emb = TemporalEmbedding(config.n_embd, config.id_drop)
+                self.temp_emb_prev = TemporalEmbedding(config.n_embd, config.id_drop)
+            else:
+                self.temp_emb = LearntTemporalEmbedding(config.id_block_size, config.n_embd)
+                self.temp_emb_prev = LearntTemporalEmbedding(config.prev_id_block_size, config.n_embd)
         if hasattr(config, 'n_behavior_layers'):
             self.mlp_behavior = ProjectNorm(1, config.n_embd)
             self.pos_emb_behavior = PositionalEncoding2D(config.n_embd)
@@ -991,7 +994,6 @@ class GPT(nn.Module):
         # assert t <= self.block_size, "Cannot forward, model block size is exhausted"
         
         features, pad = self.process_features(x)
-        # features['id'] =
         x = self.neural_visual_transformer(features)
         id_logits = self.head_id(x)
         dt_logits = self.head_dt(x)    # (B, T_id, 1)
@@ -1027,7 +1029,7 @@ class GPT(nn.Module):
             if self.config.contrastive:
                 clip_id_feats = []
                 for B, P in enumerate(pad):
-                    clip_id_feats.append(features['id'][B, t - P])
+                    clip_id_feats.append(features['id'][B].mean(0))
                 clip_id_feats = torch.stack(clip_id_feats)
                 n = 2
                 # loss['clip'] = self.clip(features['frames'][:, 0], features['id'][:, -1]) * (1 / n) 
@@ -1036,17 +1038,17 @@ class GPT(nn.Module):
                 feat_contra_frames = features['frames']
                 # average pool over 1st dim
                 feat_contra_frames = feat_contra_frames.mean(dim=1)
-                feat_contra_frames = features['id'].mean(dim=1)
+                feat_contra_id = features['id'].mean(dim=1)
                 if hasattr(self.config, 'contrastive_vars'):
                     for variable in self.config.contrastive_vars:
                         if variable == 'id':
-                            feats_clip['id'] = clip_id_feats
+                            feats_clip['id'] = feat_contra_id
                         elif variable == 'frames':
                             feats_clip['frames'] = feat_contra_frames
                         else:
                             feats_clip[variable] = features[variable]
                 else:
-                    feats_clip['id'] = clip_id_feats
+                    feats_clip['id'] = feat_contra_id
                     feats_clip['frames'] = feat_contra_frames
                 assert len(feats_clip.keys()) >= 2, "Need at least 2 variables for contrastive loss"
                 loss['clip'] = contrastive_loss(feats_clip) * (1 / n)
@@ -1056,11 +1058,9 @@ class GPT(nn.Module):
             if self.config.predict_behavior and 'behavior' in targets:
                 loss['behavior'] = ((1 / 4) * loss_behavior) * (1 - 1 / n)
                 preds['behavior'] = behavior_logits
-
-            for B, P in enumerate(pad):
+            for B, P in enumerate(pad):                
                 id_targets = targets['id'][B, :t - P]
-                id_logits_ = id_logits[B, :t - P]
-
+                id_logits_ = id_logits[B, :t - P]         
                 if len(id_targets) > 0:
 
                     ## score metrics
@@ -1076,12 +1076,22 @@ class GPT(nn.Module):
                         precision.append(precision_score)
                         recall.append(recall_score)
                         F1.append(F1_score)
-        else:
-            zero_tensor = torch.zeros(1).to(self.device)
-            precision.append(zero_tensor)
-            recall.append(zero_tensor)
-            F1.append(zero_tensor) 
+                else:
+                    zero_tensor = torch.zeros(1).to(self.device)
+                    precision.append(zero_tensor)
+                    recall.append(zero_tensor)
+                    F1.append(zero_tensor) 
 
+
+            # # calculate precision, recall, F1
+            # precision_top1, recall_top1, F1_top1 = topk_metrics(id_logits, targets['id'], k=1, 
+            #                                                     num_classes=self.config.id_vocab_size, ignore_index=self.config.ignore_index_id)
+            # preds['precision_top1'], preds['recall_top1'], preds['F1_top1'] = precision_top1, recall_top1, F1_top1
+            # precision_top5, recall_top5, F1_top5 = topk_metrics(id_logits, targets['id'], k=5, 
+            #                                                     num_classes=self.config.id_vocab_size, ignore_index=self.config.ignore_index_id)
+            # preds['precision_top5'], preds['recall_top5'], preds['F1_top5'] = precision_top5, recall_top5, F1_top5
+
+        features['last_layer'] = x
         preds['id'] = id_logits    # [:, tf:]    # only id logits
         preds['dt'] = dt_logits
         preds['precision'] = torch.stack(precision).mean()

@@ -1,6 +1,10 @@
 # %%
-import glob
+# # !CUDA_VISIBLE_DEVICES=4,5,6,7
+# !CUDA_VISIBLE_DEVICES=7,5,3
+
+# %%
 import os
+import glob
 import collections
 
 import pickle
@@ -9,7 +13,6 @@ import glob
 from pathlib import Path, PurePath
 path = Path.cwd()
 parent_path = path.parents[1]
-sys.path.append(str(PurePath(parent_path, 'neuroformer')))
 sys.path.append('neuroformer')
 sys.path.append('.')
 sys.path.append('../')
@@ -30,6 +33,7 @@ from torch.utils.data.dataloader import DataLoader
 import math
 from torch.utils.data import Dataset
 
+from attentionVis import AttentionVis
 from trainer import Trainer, TrainerConfig
 from utils import set_seed
 
@@ -39,7 +43,7 @@ from scipy.special import softmax
 import skimage
 import skvideo.io
 from utils import print_full
-from scipy.ndimage import gaussian_filter, uniform_filter
+from scipy.ndimage.filters import gaussian_filter, uniform_filter
 
 
 import matplotlib.pyplot as plt
@@ -49,43 +53,35 @@ set_plot_params()
 parent_path = os.path.dirname(os.path.dirname(os.getcwd())) + "/"
 
 
-from model_neuroformer import GPT, GPTConfig, neuralGPTConfig
-from trainer import Trainer, TrainerConfig
-
-import json
 # for i in {1..10}; do python3 -m gather_atts.py; done
 
-# set up logging
-import logging
-logging.basicConfig(
-        format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s",
-        datefmt="%m/%d/%Y %H:%M:%S",
-        level=logging.INFO,
-)
-
-
-set_seed(25)
-
 # %%
-DATASET = 'NaturalMovie'
-DATASET = 'NaturalStim'
+""" 
+
+-- DATA --
+neuroformer/data/OneCombo3_V1AL/
+df = response
+video_stack = stimulus
+DOWNLOAD DATA URL = https://drive.google.com/drive/folders/1jNvA4f-epdpRmeG9s2E-2Sfo-pwYbjeY?usp=sharing
 
 
-# %%
-data_dir = "./data/NaturalMovie/"
-data_dir = "./data/NaturalStim/"
+"""
 
-if not os.path.exists(data_dir):
-    print("Downloading data...")
+RESPONSE_PATH = "./data/NaturalMovie/response/NaturalStim_all.csv"
+STIMULUS_PATH = "./data/NaturalMovie/stimulus/docuMovie"
+
+# download data 
+
+if not os.path.exists('./data/NaturalMovie'):
     import gdown
-    url = "https://drive.google.com/drive/folders/1jgYBERZpXdbAP-E5xcSAHsWSa95Z9IFe?usp=sharing"
-    gdown.download_folder(id=url, quiet=False, use_cookies=False, output="data/")
+    id = 'https://drive.google.com/drive/folders/1_G7QHE_Pp5Tkp2qnaG8XZW0MlIxHCEQs?usp=sharing'
+    gdown.download_folder(id=id, output='./data')
 
 # %%
 # load config files
 import yaml
 
-base_path = f"./models/tensorboard/NaturalStim"
+base_path = f"./models/tensorboard/NaturalMovie"
 
 with open(os.path.join(base_path, 'mconf.yaml'), 'r') as stream:
     mconf = yaml.full_load(stream)
@@ -105,53 +101,93 @@ tconf = OmegaConf.create(tconf)
 # dconf = OmegaConf.create(dconf)
 
 # %%
-frame_window = 0.25
-window = 0.05
-window_prev = 0.2
-window_behavior = window
-dt = 0.01
-dt_frames = 0.05
-dt_vars = 0.05
-intervals = None
-n_frames = frame_window // dt_frames
+# R3D: (3 x T x H x W)
 
+from SpikeVidUtils import image_dataset
+
+# def nearest(n, x):
+#   u = n % x > x // 2
+#   return n + (-1)**(1 - u) * abs(x * u - n % x)
+
+# vid_paths = sorted(glob.glob(STIMULUS_PATH + '/*.tif'))
+# vid_list = [skimage.io.imread(vid)[::3] for vid in vid_paths]
+# video_stack = [torch.nan_to_num(image_dataset(vid)).transpose(1, 0) for vid in vid_list]
+# torch.save({k:v for k, v in enumerate(video_stack)}, '/data5/antonis/projects/neuroformer/data/SimNeu3D/NaturalMovie/stimulus/docuMovie.pt')
+
+vs = torch.load("./data/NaturalMovie/stimulus/docuMovie.pt")
+# video_stack = [vs[i] for i in range(len(vs))]
+video_stack = dict()
+for i in range(len(vs)):
+    video_stack[i] = vs[i][0]
+
+# plt.imshow(video_stack[0][0, 0])
 
 # %%
-## choose modalities ##
-
-# behavior
+frame_window = 1
+window = 0.05
+window_prev = 0.2
+dt = 0.01
+dt_frames = 0.05
 visual_stim = True
+DATASET = 'NaturalMovie'
 
+# %%
+max_window = max(window, window_prev)
+dt_range = math.ceil(max_window / dt) + 1  # add first / last interval for SOS / EOS'
+n_dt = [round(dt * n, 2) for n in range(dt_range)] + ['EOS'] + ['PAD']
 
 # %%
 from neuroformer.SpikeVidUtils import trial_df_real, make_intervals
 from neuroformer.prepare_data import load_natmovie_real
 
-response_path = "././data/NaturalStim/20-NatureMovie_part1-A_spikes(1).mat"
-stimulus_path = "././data/NaturalMovie/stimulus/docuMovie.pt"
-df, stimulus = load_natmovie_real(response_path, stimulus_path, dt_frames)
-for key, value in stimulus.items():
-    stimulus[key] = value[0]
+# df['Interval'] = make_intervals(df, window)
+# df['Interval_2'] = make_intervals(df, window_prev)
+# df['Interval_dt'] = make_intervals(df, dt)
+# df['Interval_dt'] = (df['Interval_dt'] - df['Interval'] + window).round(3)
+# df = df.reset_index(drop=True)
+# df.to_csv(f"data/SimNeu3D/NaturalMovie/response/NaturalStim_all_w:{window}_wp:{window_prev}.csv", index=False)
+df = pd.read_csv(f"./data/NaturalMovie/response/NaturalStim_all_w:{window}_wp:{window_prev}.csv")
 
-df['Interval'] = make_intervals(df, window)
-df['real_interval'] = make_intervals(df, 0.05)
-df['Interval_2'] = make_intervals(df, window_prev)
-df = df.reset_index(drop=True)
+# data_dict = pickle.load(open("./data/NaturalMovie/response/neuron_dict.pkl", "rb"))
+
+# df['Interval'] = make_intervals(df, window)
+# df['real_interval'] = make_intervals(df, 0.05)
+# df['Interval_2'] = make_intervals(df, window_prev)
 
 max_window = max(window, window_prev)
 dt_range = math.ceil(max_window / dt) + 1  # add first / last interval for SOS / EOS'
 n_dt = [round(dt * n, 2) for n in range(dt_range)] + ['EOS'] + ['PAD']
 
 # %%
+save_path = "./data/NaturalMovie/response"
+from neuroformer.SpikeVidUtils import neuron_dict
+data_dict = neuron_dict(df)
+dict_path = "./data/NaturalMovie/response/neuron_dict.pkl"
+if not os.path.exists(dict_path):
+    with open(os.path.join(save_path, dict_path), 'wb') as handle:
+        pickle.dump(data_dict, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+data_dict = pickle.load(open(dict_path, "rb"))
+
+# %%
 # int_trials = df.groupby(['Interval', 'Trial']).size()
 # print(int_trials.mean())
 # df.groupby(['Interval', 'Trial']).agg(['nunique'])
 var_group = 'Interval'
-n_unique = len(df.groupby([var_group, 'Trial']).size())
+# n_unique = len(df.groupby([var_group, 'Trial']).size())
 # df.groupby([var_group, 'Trial']).size().nlargest(int(0.2 * n_unique))
-df.groupby([var_group, 'Trial']).size().sort_values(ascending=False).nlargest(int(0.7 * n_unique))
+groups = df.groupby([var_group, 'Trial']).size()
+n_unique = len(groups)
+groups.sort_values(ascending=False).nlargest(int(0.7 * n_unique))
 # df.groupby([var_group, 'Trial']).size().sort_values(ascending=False).nsmallest(int(0.99 * n_unique))
 
+# %%
+var_group = 'Interval_2'
+# n_unique = len(df.groupby([var_group, 'Trial']).size())
+# df.groupby([var_group, 'Trial']).size().nlargest(int(0.2 * n_unique))
+groups = df.groupby([var_group, 'Trial']).size()
+n_unique = len(groups)
+groups.sort_values(ascending=False).nlargest(int(0.7 * n_unique))
 
 # %%
 ## resnet3d feats
@@ -164,11 +200,11 @@ kernel_size = [n_frames, 16, 16]
 stride_size = [n_frames, 8, 8]
 padding_size = [0, 0, 0]
 frame_block_size = ((20 // kernel_size[0] * 64 * 112) // (n_embd_frames))
-frame_feats = stimulus if visual_stim else None
+frame_feats = video_stack if visual_stim else None
 frame_block_size = (20 * 64 * 112) // (n_embd_frames)
 # frame_block_size = 560
-id_block_size = 33
-prev_id_block_size = 100
+id_block_size = 55
+prev_id_block_size = 130
 id_block_size = prev_id_block_size   # 95
 block_size = frame_block_size + id_block_size + prev_id_block_size # frame_block_size * 2  # small window for faster training
 frame_memory = 20   # how many frames back does model see
@@ -187,6 +223,7 @@ itos_dt = { i:ch for i,ch in enumerate(n_dt) }
 
 
 
+
 # %%
 import random
 
@@ -200,7 +237,6 @@ test_trials = [3, 5]
 train_data = df[df['Trial'].isin(train_trials)]
 test_data = df[df['Trial'].isin(test_trials)]
 
-
 # %%
 from neuroformer.SpikeVidUtils import SpikeTimeVidData2
 
@@ -208,19 +244,15 @@ from neuroformer.SpikeVidUtils import SpikeTimeVidData2
 train_dataset = SpikeTimeVidData2(train_data, None, block_size, id_block_size, frame_block_size, prev_id_block_size, 
                                   window, dt, frame_memory, stoi, itos, neurons, stoi_dt, itos_dt, frame_feats,
                                   pred=False, window_prev=window_prev, frame_window=frame_window,
-                                  dt_frames=dt_frames, intervals=None, dataset=DATASET,
-                                  )
+                                  dt_frames=dt_frames, intervals=None, dataset=DATASET, data_dict=data_dict)
 test_dataset = train_dataset.copy(test_data)
 
 print(f'train: {len(train_dataset)}, test: {len(test_dataset)}')
 
+
 # %%
 loader = DataLoader(train_dataset, batch_size=32, shuffle=False, num_workers=4, pin_memory=True)
 iterable = iter(loader)
-
-
-# %%
-x, y = next(iterable)
 
 # %%
 x, y = next(iterable)
@@ -228,16 +260,15 @@ x, y = next(iterable)
 for k in x.keys():
     print(k, x[k].shape)
 
-
 # %%
 from model_neuroformer import GPT, GPTConfig
 
 layers = (mconf.n_state_layers, mconf.n_state_history_layers, mconf.n_stimulus_layers)   
 max_epochs = 300
-batch_size = round((32 * 5))
+batch_size = round((32 * 6))
 shuffle = True
 
-title =  f'contra_3/conv_{kernel_size}'
+title =  f'conv_{kernel_size}'
 
 model_path = f"""./models/tensorboard/{DATASET}/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{window}_wp:{window_prev}/{6}_Cont:{mconf.contrastive}_window:{window}_f_window:{frame_window}_df:{dt}_blocksize:{id_block_size}_conv_{conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
 
@@ -270,15 +301,9 @@ model_conf = GPTConfig(train_dataset.population_size, block_size,    # frame_blo
 model = GPT(model_conf)
 # model.load_state_dict(torch.load(model_path))
 
-# %%
-preds, features, loss = model(x, y)
 
 # %%
-model.cpu()
 preds, features, loss = model(x, y)
-
-# %%
-features['id'].mean(1).shape
 
 # %%
 tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rate=2e-4, 
@@ -295,6 +320,7 @@ tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rat
 
 trainer = Trainer(model, train_dataset, test_dataset, tconf, model_conf)
 trainer.train()
+
 
 # %%
 from neuroformer.utils import predict_raster_recursive_time_auto, process_predictions
@@ -345,6 +371,7 @@ dir_name = os.path.dirname(model_path)
 model_name = os.path.basename(model_path)
 df_pred.to_csv(os.path.join(dir_name, F'df_pred_.csv'))
 
+
 # %%
 from analysis import get_rates_trial, calc_corr_psth
 
@@ -361,7 +388,6 @@ rates_pred = get_rates_trial(df_pred_full, labels)
 rates_1 = get_rates_trial(df_1, labels)
 
 top_corr_pred = calc_corr_psth(rates_pred, rates_1)
-
 
 # %%
 """
@@ -405,6 +431,7 @@ total_scores['pred'] = pred_scores
 
 print(f"model: {title}")
 
+
 # %%
 x, y = next(iterable)
 
@@ -436,5 +463,8 @@ df[(df[t_var] > float(x[int_var][0]) - tdiff) & (df[t_var] <= float(x['cid'][1] 
 # t_var = 'Time' # 'Interval'
 # int_var = 'pid'
 # df[(df[t_var] > round(float(x[int_var][0]), 2) - tdiff) & (df[t_var] <= round(float(x[int_var][1]), 2)) & (df['Trial'] == int(x['trial']))]
+
+
+
 
 

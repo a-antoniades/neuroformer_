@@ -49,6 +49,55 @@ parent_path = os.path.dirname(os.path.dirname(os.getcwd())) + "/"
 
 import argparse
 
+def parse_args():
+    parser = argparse.ArgumentParser()
+    # parser.add_argument("--infer", action="store_true", help="Inference mode")
+    parser.add_argument("--train", action="store_true", default=False, help="Train mode")
+    parser.add_argument("--resume", type=str, default=None, help="Resume from checkpoint")
+    parser.add_argument("--rand_perm", action="store_true", default=False, help="Randomly permute the ID column")
+    parser.add_argument("--mconf", type=str, default=None, help="Path to model config file")
+    parser.add_argument("--downstream", action="store_true", default=False, help="Downstream task")
+    parser.add_argument("--freeze_model", action="store_true", default=False, help="Freeze model")
+    parser.add_argument("--title", type=str, default=None)
+    parser.add_argument("--seed", type=int, default=25)
+    parser.add_argument("--behavior", action="store_true", default=False, help="Behavior task")
+    parser.add_argument("--predict_behavior", action="store_true", default=False, help="Predict behavior")
+    return parser.parse_args()
+
+# if __name__ == "__main__":
+#     args = parse_args()
+#     INFERENCE = not args.train
+# else:
+#     INFERENCE = True
+
+# check if jupyter notebook
+try:
+    shell = get_ipython().__class__.__name__
+    print("Running in Jupyter notebook")
+    INFERENCE = False
+    DOWNSTREAM = True
+    RESUME = None
+    RAND_PERM = False
+    MCONF = None
+    FREEZE_MODEL = False
+    TITLE = None
+    SEED = 25
+    BEHAVIOR = False
+    PREDICT_BEHAVIOR = False
+except:
+    print("Running in terminal")
+    args = parse_args()
+    INFERENCE = not args.train
+    DOWNSTREAM = args.downstream
+    RESUME = args.resume
+    RAND_PERM = args.rand_perm
+    MCONF = args.mconf
+    FREEZE_MODEL = args.freeze_model
+    TITLE = args.title
+    SEED = args.seed
+    BEHAVIOR = args.behavior
+    PREDICT_BEHAVIOR = args.predict_behavior
+    
 
 
 set_seed(25)
@@ -62,14 +111,19 @@ logging.basicConfig(
 )
 
 
+
 # %%
-data_dir = "./data/VisNav_VR_Expt"
+from prepare_data import DataLinks
+
+DATASET = "LateralVRDataset"
+data_dir = f"data/VisNav_VR_Expt/{DATASET}"
+DATA_POINTERS = getattr(DataLinks, DATASET)
 
 if not os.path.exists(data_dir):
     print("Downloading data...")
     import gdown
-    url = "https://drive.google.com/drive/folders/117S-7NmbgrqjmjZ4QTNgoa-mx8R_yUso?usp=sharing"
-    gdown.download_folder(id=url, quiet=False, use_cookies=False, output="data/")
+    url = DATA_POINTERS['url']
+    gdown.download_folder(id=url, quiet=False, use_cookies=False, output=DATA_POINTERS['DIRECTORY'])
 
 
 
@@ -78,24 +132,24 @@ if not os.path.exists(data_dir):
 import yaml
 
 # base_path = "configs/visnav/predict_behavior"
-base_path = "models/tensorboard/visnav/behavior_pred_exp/no_classification/window:0.05_prev:0.25/sparse_f:None_id:None/w:0.05_wp:0.25/"
+base_path = "./models/tensorboard/visnav_medial"
 
 with open(os.path.join(base_path, 'mconf.yaml'), 'r') as stream:
     mconf = yaml.full_load(stream)
 
-with open(os.path.join(base_path, 'tconf.yaml'), 'r') as stream:
-    tconf = yaml.full_load(stream)
+# with open(os.path.join(base_path, 'tconf.yaml'), 'r') as stream:
+#     tconf = yaml.full_load(stream)
 
-with open(os.path.join(base_path, 'dconf.yaml'), 'r') as stream:
-    dconf = yaml.full_load(stream)
+# with open(os.path.join(base_path, 'dconf.yaml'), 'r') as stream:
+#     dconf = yaml.full_load(stream)
 
 import omegaconf
 from omegaconf import OmegaConf
 
 # open yaml as omegacong
 mconf = OmegaConf.create(mconf)
-tconf = OmegaConf.create(tconf)
-dconf = OmegaConf.create(dconf)
+# tconf = OmegaConf.create(tconf)
+# dconf = OmegaConf.create(dconf)
 
 
 
@@ -103,7 +157,11 @@ dconf = OmegaConf.create(dconf)
 import mat73
 import scipy
 
-data_path = "data/VisNav_VR_Expt/experiment_data.mat"
+# data_path = DATA_POINTERS['RESPONSE_PATH']
+# data_path = "./data/VisNav_VR_Expt/LateralVRDataset/experiment_data.mat"
+data_path = "./data/VisNav_VR_Expt/MedialVRDataset/experiment_data.mat"
+# data_path = "./data/VisNav_VR_Expt/experiment_data.mat"
+print(f"Loading data from {data_path}")
 data = mat73.loadmat(data_path)['neuroformer']
 
 # data_response_path = "/data5/antonis/neuroformer/data/VisNav_VR_Expt/yiyi/experiment_data_selected.mat"
@@ -111,12 +169,11 @@ data = mat73.loadmat(data_path)['neuroformer']
 # neurons_sel1 = "./data/VisNav_VR_Expt/yiyi/sel1.csv"
 # neurons_sel1 = pd.read_csv(neurons_sel1)
 # neurons_sel1 = np.array(neurons_sel1).flatten()
-print(data.keys())
 
 # %%
-frame_window = 0.2
 window = 0.05
 window_prev = 0.25
+frame_window = window + window_prev
 window_behavior = window
 dt = 0.005
 dt_frames = 0.05
@@ -124,19 +181,18 @@ dt_vars = 0.05
 dt_speed = 0.2
 intervals = None
 
+
 # %%
 ## choose modalities ##
 
 # behavior
-behavior = True
+behavior = BEHAVIOR
 # behavior_vars = ['t', 'eyerad', 'phi', 'speed', 'th']
 behavior_vars = ['speed']
 n_behavior = len(behavior_vars)
-predict_behavior = False
+predict_behavior = PREDICT_BEHAVIOR
 # stimulus
 visual_stim = True
-
-
 
 # %%
 from neuroformer.SpikeVidUtils import trial_df, get_df_visnav, make_intervals
@@ -152,25 +208,32 @@ df = get_df_visnav(response, trial_data, dt_vars)
 # df = df[df['ID'].isin(neurons_sel1)].reset_index(drop=True)
 
 if behavior is True:
-    behavior = pd.DataFrame({k: data[k] for k in behavior_vars + ['t']})
+    df_behavior = pd.DataFrame({k: data[k] for k in behavior_vars + ['t']})
     # rename t to time
-    behavior = behavior.rename(columns={'t': 'Time'}) if behavior is not None else None
-    behavior['Interval'] = make_intervals(behavior, window)
-    behavior['Interval_2'] = make_intervals(behavior, window_prev)
+    df_behavior = df_behavior.rename(columns={'t': 'Time'}) if df_behavior is not None else None
+    df_behavior['Interval'] = make_intervals(df_behavior, window)
+    df_behavior['Interval_2'] = make_intervals(df_behavior, window_prev)
 
     # prepare speed variables
-    behavior['speed'] = behavior['speed'].apply(lambda x: round_n(x, dt_speed))
-    dt_range_speed = behavior['speed'].min(), behavior['speed'].max()
-    dt_range_speed = np.arange(dt_range_speed[0], dt_range_speed[1] + dt_speed, dt_speed)
-    n_behavior = len(dt_range_speed)
+    if 'speed' in df_behavior.columns:
+        df_behavior['speed'] = df_behavior['speed'].apply(lambda x: round_n(x, dt_speed))
+        dt_range_speed = df_behavior['speed'].min(), df_behavior['speed'].max()
+        dt_range_speed = np.arange(dt_range_speed[0], dt_range_speed[1] + dt_speed, dt_speed)
+        n_behavior = len(dt_range_speed)
+        stoi_speed = { round_n(ch, dt_speed):i for i,ch in enumerate(dt_range_speed) }
+        itos_speed = { i:round_n(ch, dt_speed) for i,ch in enumerate(dt_range_speed) }
+    else:
+        n_behavior = None
+        stoi_speed = None
+        itos_speed = None
+        assert predict_behavior is False
 
-    stoi_speed = { round_n(ch, dt_speed):i for i,ch in enumerate(dt_range_speed) }
-    itos_speed = { i:round_n(ch, dt_speed) for i,ch in enumerate(dt_range_speed) }
     assert (window_behavior) % dt_vars < 1e-5, "window + window_prev must be divisible by dt_vars"
     samples_per_behavior = int((window + window_prev) // dt_vars)
-    behavior_block_size = int((window + window_prev) // dt_vars) * (len(behavior.columns) - 1)
+    behavior_block_size = int((window + window_prev) // dt_vars) * (len(df_behavior.columns) - 1)
 else:
-    behavior = None
+    behavior = False
+    df_behavior = None
     behavior_vars = None
     behavior_block_size = 0
     samples_per_behavior = 0
@@ -178,6 +241,7 @@ else:
     itos_speed = None
     dt_range_speed = None
     n_behavior = None
+
 
 # %%
 from neuroformer.SpikeVidUtils import make_intervals
@@ -190,6 +254,7 @@ df = df.reset_index(drop=True)
 max_window = max(window, window_prev)
 dt_range = math.ceil(max_window / dt) + 1  # add first / last interval for SOS / EOS'
 n_dt = [round(dt * n, 2) for n in range(dt_range)] + ['EOS'] + ['PAD']
+
 
 # %%
 from neuroformer.SpikeVidUtils import SpikeTimeVidData2
@@ -204,8 +269,8 @@ frame_block_size = ((n_frames // kernel_size[0] * 30 * 100) // (n_embd_frames))
 frame_feats = torch.tensor(stimulus, dtype=torch.float32)
 conv_layer = True
 
-prev_id_block_size = 300
-id_block_size = 100   #
+prev_id_block_size = 350
+id_block_size = 125   #
 block_size = frame_block_size + id_block_size + prev_id_block_size
 frame_memory = frame_window // dt_frames
 window = window
@@ -223,6 +288,7 @@ stoi_dt = { ch:i for i,ch in enumerate(n_dt) }
 itos_dt = { i:ch for i,ch in enumerate(n_dt) }
 
 
+
 # %%
 import random
 
@@ -233,7 +299,6 @@ train_trials = random.sample(all_trials, int(len(all_trials) * r_split))
 train_data = df[df['Trial'].isin(train_trials)]
 test_data = df[~df['Trial'].isin(train_trials)]
 
-
 # %%
 from neuroformer.SpikeVidUtils import SpikeTimeVidData2
 
@@ -242,26 +307,18 @@ train_dataset = SpikeTimeVidData2(train_data, None, block_size, id_block_size, f
                                   window, dt, frame_memory, stoi, itos, neurons, stoi_dt, itos_dt, frame_feats,
                                   pred=False, window_prev=window_prev, frame_window=frame_window,
                                   dt_frames=dt_frames, intervals=None, dataset='visnav',
-                                  behavior=behavior, behavior_vars=behavior_vars, dt_vars=dt_vars,
+                                  behavior=df_behavior, behavior_vars=behavior_vars, dt_vars=dt_vars,
                                   behavior_block_size=behavior_block_size, samples_per_behavior=samples_per_behavior,
                                   window_behavior=window_behavior, predict_behavior=predict_behavior,
                                   stoi_speed=stoi_speed, itos_speed=itos_speed, dt_speed=dt_speed)
-test_dataset = SpikeTimeVidData2(train_data, None, block_size, id_block_size, frame_block_size, prev_id_block_size, 
-                                  window, dt, frame_memory, stoi, itos, neurons, stoi_dt, itos_dt, frame_feats,
-                                  pred=False, window_prev=window_prev, frame_window=frame_window,
-                                  dt_frames=dt_frames, intervals=None, dataset='visnav',
-                                  behavior=behavior, behavior_vars=behavior_vars, dt_vars=dt_vars,
-                                  behavior_block_size=behavior_block_size, samples_per_behavior=samples_per_behavior,
-                                  window_behavior=window_behavior, predict_behavior=predict_behavior,
-                                  stoi_speed=stoi_speed, itos_speed=itos_speed, dt_speed=dt_speed)
+test_dataset = train_dataset.copy(test_data)
 
 print(f'train: {len(train_dataset)}, test: {len(test_dataset)}')
+
 
 # %%
 loader = DataLoader(train_dataset, batch_size=2, shuffle=False, num_workers=4, pin_memory=True)
 iterable = iter(loader)
-
-
 
 # %%
 x, y = next(iterable)
@@ -271,16 +328,16 @@ for k in x.keys():
 for k in y.keys():
     print(f"y: {k}, {y[k].shape}")
 
-# %%
 
+# %%
 layers = (mconf.n_state_layers, mconf.n_state_history_layers, mconf.n_stimulus_layers)   
-max_epochs = 2000
+max_epochs = 1250
 batch_size = round((32 * 7))
 shuffle = True
 
-title =  f'pad_forloop_loss'
+title =  f'method_behavior_{behavior}_{behavior_vars}'
 
-model_path = f"""./models/tensorboard/visnav/behavior_pred_exp/multiple-contrastive/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{window}_wp:{window_prev}/{6}_Cont:{mconf.contrastive}_window:{window}_f_window:{frame_window}_df:{dt}_blocksize:{id_block_size}_conv_{conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
+model_path = f"""./models/tensorboard/visnav_medial/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{window}_wp:{window_prev}/{6}_Cont:{mconf.contrastive}_window:{window}_f_window:{frame_window}_df:{dt}_blocksize:{id_block_size}_conv_{conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
 
 model_conf = GPTConfig(train_dataset.population_size, block_size,    # frame_block_size
                         id_vocab_size=train_dataset.id_population_size,
@@ -297,16 +354,20 @@ model_conf = GPTConfig(train_dataset.population_size, block_size,    # frame_blo
                         n_stimulus_layers=mconf.n_stimulus_layers, self_att_layers=mconf.self_att_layers,
                         n_behavior_layers=mconf.n_behavior_layers, predict_behavior=predict_behavior, n_behavior=n_behavior,
                         n_head=mconf.n_head, n_embd=mconf.n_embd, 
-                        contrastive=True, clip_emb=1024, clip_temp=mconf.clip_temp,
+                        contrastive=mconf.contrastive, clip_emb=mconf.clip_emb, clip_temp=mconf.clip_temp,
                         conv_layer=conv_layer, kernel_size=kernel_size,
-                        temp_emb=mconf.temp_emb, pos_emb=False,
+                        temp_emb=mconf.temp_emb, pos_emb=False, wave_emb=True,
                         id_drop=0.35, im_drop=0.35, b_drop=0.45,
                         window=window, window_prev=window_prev, frame_window=frame_window, dt=dt,
                         neurons=neurons, stoi_dt=stoi_dt, itos_dt=itos_dt, n_embd_frames=n_embd_frames,
                         ignore_index_id=stoi['PAD'], ignore_index_dt=stoi_dt['PAD'])  # 0.35
 
 # update_object(model_conf, mconf)
-model_conf.contrastive_vars = ['id', 'frames', 'behavior_mean']
+model_conf.contrastive_vars = ['id', 'frames']
+
+if BEHAVIOR:
+    model_conf.contrastive_vars += ['behavior']
+
 model = GPT(model_conf)
 # model.load_state_dict(torch.load(model_path))
 
@@ -316,6 +377,7 @@ model = GPT(model_conf)
 # preds, features, loss = model(x, y)
 # for key in loss.keys():
 #     print(key, loss[key])
+
 
 
 # %%
@@ -329,10 +391,16 @@ tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rat
                     id_block_size=train_dataset.id_block_size,
                     show_grads=False, plot_raster=False,
                     ckpt_path=model_path, no_pbar=False, 
-                    dist=False, save_every=1000)
+                    dist=False, save_every=50)
 
 trainer = Trainer(model, train_dataset, test_dataset, tconf, model_conf)
 trainer.train()
+
+# loader = DataLoader(train_dataset, batch_size=2, shuffle=False, num_workers=4, pin_memory=True)
+# iterable = iter(loader)
+# x, y = next(iterable)
+
+
 
 # %%
 from neuroformer.utils import predict_raster_recursive_time_auto, process_predictions
@@ -352,14 +420,7 @@ trials = test_data['Trial'].unique()[:8]
 for trial in trials:   
         print(f"Trial: {trial}")
         df_trial = df[df['Trial'] == trial]
-        trial_dataset = SpikeTimeVidData2(df_trial, None, block_size, id_block_size, frame_block_size, prev_id_block_size, 
-                                  window, dt, frame_memory, stoi, itos, neurons, stoi_dt, itos_dt, frame_feats,
-                                  pred=False, window_prev=window_prev, frame_window=frame_window,
-                                  dt_frames=dt_frames, intervals=None, dataset='visnav',
-                                  behavior=behavior, behavior_vars=behavior_vars, dt_vars=dt_vars,
-                                  behavior_block_size=behavior_block_size, samples_per_behavior=samples_per_behavior,
-                                  window_behavior=window_behavior, predict_behavior=predict_behavior,
-                                  stoi_speed=stoi_speed, itos_speed=itos_speed, dt_speed=dt_speed)
+        trial_dataset = train_dataset.copy(df_trial)
         results_trial = predict_raster_recursive_time_auto(model, trial_dataset, window, window_prev, stoi, itos_dt, itos=itos, 
                                                            sample=True, top_p=top_p, top_p_t=top_p_t, temp=temp, temp_t=temp_t, 
                                                            frame_end=0, get_dt=True, gpu=False, pred_dt=True)
@@ -382,8 +443,8 @@ print(f"pred: {len(df_pred)}, true: {len(df_true)}" )
 
 
 dir_name = os.path.dirname(model_path)
-model_name = os.path.basename(model_path)
 df_pred.to_csv(os.path.join(dir_name, F'df_pred_.csv'))
+
 
 
 
@@ -393,7 +454,7 @@ from analysis import get_rates_trial, calc_corr_psth
 df_1 = df_trial
 df_pred_full = df_pred
 
-window_pred = 0.5
+window_pred = 1
 window_pred = window if window_pred is None else window_pred
 intervals = np.array(sorted(set(df['Interval'].unique()) & set(df['Interval'].unique())))
 labels = np.array([round(window_pred + window_pred*n, 2) for n in range(0, int(max(df_pred_full['Interval']) / window_pred))])
@@ -403,6 +464,7 @@ rates_pred = get_rates_trial(df_pred_full, labels)
 rates_1 = get_rates_trial(df_1, labels)
 
 top_corr_pred = calc_corr_psth(rates_pred, rates_1)
+
 
 # %%
 """
@@ -442,11 +504,17 @@ plt.savefig(os.path.join(dir_name, F'psth_corr_{save_title}_.svg'))
 df_pred.to_csv(os.path.join(dir_name, F'df_pred_{save_title}_.csv'))
 
 plot_distribution(df_1, df_pred, save_path=os.path.join(dir_name, F'psth_dist_.svg'))
+# save scores to json
+import json
+with open(os.path.join(dir_name, F'scores_{save_title}_.json'), 'w') as fp:
+    json.dump(pred_scores, fp)
+
 
 total_scores = dict()
 total_scores['pred'] = pred_scores
 
 print(f"model: {title}")
+
 
 
 
@@ -481,6 +549,9 @@ df[(df[t_var] > float(x[int_var][0]) - tdiff) & (df[t_var] <= float(x['cid'][1] 
 # t_var = 'Time' # 'Interval'
 # int_var = 'pid'
 # df[(df[t_var] > round(float(x[int_var][0]), 2) - tdiff) & (df[t_var] <= round(float(x[int_var][1]), 2)) & (df['Trial'] == int(x['trial']))]
+
+
+
 
 
 

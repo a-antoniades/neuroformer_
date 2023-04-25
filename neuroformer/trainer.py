@@ -56,7 +56,7 @@ class TrainerConfig:
     # plot gradient flow
     show_grads = False
     shuffle = True
-    score_metrics = ['precision', 'recall', 'F1']
+    score_metrics = ['precision', 'recall', 'F1'] #, 'precision_top5', 'recall_top5', 'F1_top5']
     no_pbar = True
     dist = False
     save_every = 0

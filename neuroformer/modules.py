@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 from torch.autograd import Variable
 import torch.nn.functional as F
+import torchmetrics
 
 
 def get_emb(sin_inp):
@@ -14,41 +15,8 @@ def get_emb(sin_inp):
     emb = torch.stack((sin_inp.sin(), sin_inp.cos()), dim=-1)
     return torch.flatten(emb, -2, -1)
 
-# def contrastive_loss(features, temp=0.1):
-#     # Get the names and embeddings of all modalities
-#     modalities = list(features.keys())
-#     embeddings = [features[modality] for modality in modalities]
-
-#     batch_size = embeddings[0].size(0)
-#     total_loss = 0.0
-#     num_pairs = 0
-
-#     # Iterate over all pairs of modalities
-#     for i, j in combinations(range(len(modalities)), 2):
-#         emb_i, emb_j = embeddings[i], embeddings[j]
-        
-#         #normalize
-#         emb_i = emb_i / emb_i.norm(dim=-1, keepdim=True)
-#         emb_j = emb_j / emb_j.norm(dim=-1, keepdim=True)
-
-#         # Compute similarity matrix
-#         sim_matrix = torch.matmul(emb_i, emb_j.t()) / temp
-
-#         # Calculate the diagonal elements (correct matches)
-#         pos_sim = torch.diag(sim_matrix)
-
-#         # Calculate the loss for the current pair
-#         pair_loss = -pos_sim + torch.logsumexp(sim_matrix, dim=1)
-#         total_loss += pair_loss
-#         num_pairs += 1
-
-#     # Take the average loss over all pairs of modalities
-#     total_loss /= num_pairs
-#     return total_loss.mean()
-
 def contrastive_loss(features, temp=0.1):
     # Get the names and embeddings of all modalities
-
     modalities = list(features.keys())
     embeddings = [features[modality] for modality in modalities]
 
@@ -65,22 +33,93 @@ def contrastive_loss(features, temp=0.1):
         emb_j = emb_j / emb_j.norm(dim=-1, keepdim=True)
 
         # Compute similarity matrix
-        logits_per_i = temp * emb_i @ emb_j.t()
-        logits_per_j = temp * emb_j @ emb_i.t()
+        sim_matrix = torch.matmul(emb_i, emb_j.t()) / temp
 
-        # (a)ssymetric loss function
-        labels = torch.arange(batch_size, device=emb_i.device)
-        loss_i = F.cross_entropy(logits_per_i, labels)
-        loss_j = F.cross_entropy(logits_per_j, labels)
-        loss = (1/2 * loss_i) + (1/2 * loss_j)
+        # Calculate the diagonal elements (correct matches)
+        pos_sim = torch.diag(sim_matrix)
 
-        total_loss += loss
+        # Calculate the loss for the current pair
+        pair_loss = -pos_sim + torch.logsumexp(sim_matrix, dim=1)
+        total_loss += pair_loss
         num_pairs += 1
 
     # Take the average loss over all pairs of modalities
     total_loss /= num_pairs
-    return total_loss    
+    return total_loss.mean()
 
+# def contrastive_loss(features, temp=0.1):
+#     # Get the names and embeddings of all modalities
+
+#     modalities = list(features.keys())
+#     embeddings = [features[modality] for modality in modalities]
+
+#     batch_size = embeddings[0].size(0)
+#     total_loss = 0.0
+#     num_pairs = 0
+
+#     # Iterate over all pairs of modalities
+#     for i, j in combinations(range(len(modalities)), 2):
+#         emb_i, emb_j = embeddings[i], embeddings[j]
+        
+#         #normalize
+#         emb_i = emb_i / emb_i.norm(dim=-1, keepdim=True)
+#         emb_j = emb_j / emb_j.norm(dim=-1, keepdim=True)
+
+#         # Compute similarity matrix
+#         logits_per_i = temp * emb_i @ emb_j.t()
+#         logits_per_j = temp * emb_j @ emb_i.t()
+
+#         # (a)ssymetric loss function
+#         labels = torch.arange(batch_size, device=emb_i.device)
+#         loss_i = F.cross_entropy(logits_per_i, labels)
+#         loss_j = F.cross_entropy(logits_per_j, labels)
+#         loss = (1/2 * loss_i) + (1/2 * loss_j)
+
+#         total_loss += loss
+#         num_pairs += 1
+
+#     # Take the average loss over all pairs of modalities
+#     total_loss /= num_pairs
+#     return total_loss    
+
+# def topk_metrics(logits, labels, k=3, ignore_index=-100, device=None):
+#     device = logits.device if device is None else device
+
+#     # Get top k predictions
+#     topk_preds = logits.topk(k, dim=-1).indices
+
+#     # Create a mask for ignoring padding tokens
+#     mask = (labels != ignore_index)
+
+#     # Calculate binary ground truth
+#     binary_gt = torch.zeros_like(logits).scatter_(-1, labels.unsqueeze(-1), 1)
+#     binary_preds = torch.zeros_like(logits).scatter_(-1, topk_preds, 1)
+
+#     # Calculate precision, recall, and F1-score
+#     precision = torchmetrics.Precision(average='macro', threshold=0.5, task='binary').to(device)
+#     recall = torchmetrics.Recall(average='macro', threshold=0.5, task='binary').to(device)
+#     f1_score = torchmetrics.F1Score(average='macro', threshold=0.5, task='binary').to(device)
+
+#     topk_precision = precision(binary_preds[mask], binary_gt[mask])
+#     topk_recall = recall(binary_preds[mask], binary_gt[mask])
+#     topk_f1_score = f1_score(binary_preds[mask], binary_gt[mask])
+
+#     return topk_precision, topk_recall, topk_f1_score
+
+def topk_metrics(logits, targets, k, num_classes, ignore_index, device=None):
+    device = logits.device if device is None else device
+    probs = torch.softmax(logits, dim=-1)
+    _, ix_top_k = torch.topk(probs, k=k, dim=-1)
+    pred_neurons = ix_top_k.detach().flatten()
+    true_neurons = targets.repeat_interleave(k).view(-1)  # Repeat true targets 'k' times and flatten
+    
+    precision_score = torchmetrics.functional.precision(true_neurons, pred_neurons, task='multiclass',
+                                                        ignore_index=ignore_index, num_classes=num_classes).to(device)
+    recall_score = torchmetrics.functional.recall(true_neurons, pred_neurons, task='multiclass',
+                                                        ignore_index=ignore_index, num_classes=num_classes).to(device)
+    F1_score = torchmetrics.functional.f1_score(true_neurons, pred_neurons, task='multiclass',
+                                                        ignore_index=ignore_index, num_classes=num_classes).to(device)
+    return precision_score, recall_score, F1_score
 
 
 class PositionalEmbedding(nn.Module):
@@ -268,3 +307,52 @@ class LearntTemporalEmbedding(nn.Module):
     
     def forward(self, x):
         return self.temp_emb(x.unsqueeze(-1))
+
+
+class ClassifierWrapper(nn.Module):
+    def __init__(self, model, config, n_classes):
+        super().__init__()
+        self.model = model
+        self.config = config
+        # self.classifier = nn.Linear(model.config.n_embd, n_classes)
+        self.freeze_model = config.freeze_model
+        self.classifier = nn.Sequential(
+            nn.Linear(model.config.n_embd, 512),
+            nn.GELU(),
+            nn.Dropout(p=0.2),
+            nn.Linear(512, n_classes)
+        )
+    
+    def configure_optimizers(self, config):
+        optimizer = self.model.configure_optimizers(config)
+        # freeze all self.model parameters
+        if self.freeze_model:
+            print('-- Freezing model parameters --')
+            for param in self.model.parameters():
+                param.requires_grad = False
+        return optimizer
+
+    def forward(self, x, targets=None):
+        preds, features, loss = self.model(x, targets)
+        ## previously i mean pooled the last layer
+        # last_layer = features['last_layer'].mean(dim=1)
+        ## but now i just use the SOS token
+        last_layer = features['last_layer'][:, 0, :]
+        x = self.classifier(last_layer)
+
+        if targets is not None:
+            labels = targets['labels'].flatten()
+            cls_loss = F.cross_entropy(x, labels)
+            probs = F.softmax(x, dim=1)
+            _, cls_topk = probs.topk(1, dim=-1)
+            cls_topk = cls_topk.detach().flatten()
+            preds['precision'] = torchmetrics.functional.precision(labels, cls_topk, task='binary').to(self.model.device)
+            preds['recall'] = torchmetrics.functional.recall(labels, cls_topk, task='binary').to(self.model.device)
+            preds['f1'] = torchmetrics.functional.f1_score(labels, cls_topk, task='binary').to(self.model.device)
+
+        preds['cls'] = x
+        features['cls'] = last_layer
+        loss['cls'] = cls_loss
+        
+        return preds, features, loss
+

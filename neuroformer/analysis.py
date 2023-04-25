@@ -6,6 +6,8 @@ from sklearn.metrics.pairwise import cosine_similarity
 from scipy.spatial.distance import cosine
 from scipy.special import kl_div
 
+import torch
+import torchmetrics
 from torch.utils.data.dataloader import DataLoader
 
 from SpikeVidUtils import SpikeTimeVidData2
@@ -320,5 +322,28 @@ def get_score(precision_score, recall_score, f1_score, model, loader, device):
     # f1_score[len(f1_score.keys())].append(np.mean(np.nan_to_num(f1)))
 
     return av_precision, av_recall, av_f1
+
+
+def topk_metrics(logits, labels, k=3, ignore_index=-100):
+    # Get top k predictions
+    topk_preds = logits.topk(k, dim=-1).indices
+
+    # Create a mask for ignoring padding tokens
+    mask = (labels != ignore_index)
+
+    # Calculate binary ground truth
+    binary_gt = torch.zeros_like(logits).scatter_(-1, labels.unsqueeze(-1), 1)
+    binary_preds = torch.zeros_like(logits).scatter_(-1, topk_preds, 1)
+
+    # Calculate precision, recall, and F1-score
+    precision = torchmetrics.Precision(average='macro', threshold=0.5)
+    recall = torchmetrics.Recall(average='macro', threshold=0.5)
+    f1_score = torchmetrics.F1(average='macro', threshold=0.5)
+
+    topk_precision = precision(binary_preds[mask], binary_gt[mask])
+    topk_recall = recall(binary_preds[mask], binary_gt[mask])
+    topk_f1_score = f1_score(binary_preds[mask], binary_gt[mask])
+
+    return topk_precision, topk_recall, topk_f1_score
 
 

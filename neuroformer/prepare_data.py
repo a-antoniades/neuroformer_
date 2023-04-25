@@ -45,9 +45,34 @@ from SpikeVidUtils import trial_df_combo3
 
 
 class DataLinks:
-    MedialVRDataset = "https://drive.google.com/drive/folders/1XJmKvlXNMMBHj_1JsiblfwDMhnk2VJ2C?usp=sharing"
-    LatervalVRDataset = "https://drive.google.com/drive/folders/1F8n1qhqnxm-SIi4Vq9_C8mb82gc09P17?usp=share_link"
-    
+    VisNav_VR_Expt = {
+        "url": "https://drive.google.com/drive/folders/117S-7NmbgrqjmjZ4QTNgoa-mx8R_yUso?usp=sharing",
+        "RESPONSE_PATH": "./data/VisNav_VR_Expt/experiment_data.mat",
+        "STIMULUS_PATH": "./data/VisNav_VR_Expt/stimulus.npy"
+    }
+    LateralVRDataset = {
+        "url": "https://drive.google.com/drive/folders/1F8n1qhqnxm-SIi4Vq9_C8mb82gc09P17?usp=share_link",
+        "DIRECTORY": "data/VisNav_VR_Expt/",
+        "RESPONSE_PATH": "./data/VisNav_VR_Expt/LateralVRDataset/experiment_data.mat",
+        "STIMULUS_PATH": "data/VisNav_VR_Expt/LatervalVRDataset/stimulus.npy"
+    }
+    MedialVRDataset = {
+        "url": "https://drive.google.com/drive/folders/1XJmKvlXNMMBHj_1JsiblfwDMhnk2VJ2C?usp=sharing",
+        "RESPONSE_PATH": "./data/VisNav_VR_Expt/MedialVRDataset/experiment_data.mat",
+        "STIMULUS_PATH": "./data/VisNav_VR_Expt/MedialVRDataset/stimulus.npy"
+    }
+    Combo3_V1AL = {
+        "url" : "https://drive.google.com/drive/folders/1jNvA4f-epdpRmeG9s2E-2Sfo-pwYbjeY?usp=share_link",
+        "RESPONSE_PATH": "./data/Combo3_V1AL/Combo3_V1AL_response.csv",
+        "STIMULUS_PATH": "./data/Combo3_V1AL/Combo3_V1AL_stimulus.pt"
+    }
+    NaturalStim = {
+        "url" : "https://drive.google.com/drive/folders/1jgYBERZpXdbAP-E5xcSAHsWSa95Z9IFe?usp=sharing",
+        "RESPONSE_PATH" : "./data/NaturalMovie/stimulus/docuMovie.pt",
+        "STIMULUS_PATH" : "./data/NaturalMovie/stimulus/docuMovie.pt"
+    }
+
+
 
 
 def prepare_onecombo_real(window, dt):

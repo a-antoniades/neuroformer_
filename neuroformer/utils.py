@@ -96,6 +96,7 @@ def convert_weights(model: nn.Module):
     model.apply(_convert_weights_to_fp16)
 
 def update_object(obj1, obj2):
+    """Update the attributes of obj1 with the attributes of obj2"""
     for attr_name in dir(obj2):
         # Ignore special attributes
         if not attr_name.startswith('__'):
