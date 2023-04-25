@@ -99,9 +99,9 @@ class Trainer:
                 world_size = int(os.environ['WORLD_SIZE'])
                 local_rank = int(os.environ['LOCAL_RANK'])
                 dist.init_process_group(backend='nccl',
-                                                    init_method='env://', 
-                                                    world_size=world_size,
-                                                    rank=rank)
+                                        init_method='env://', 
+                                        world_size=world_size,
+                                        rank=rank)
                 torch.cuda.set_device(local_rank)
                 dist.barrier()
 
