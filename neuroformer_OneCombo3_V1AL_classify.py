@@ -141,17 +141,17 @@ if DATASET == "Combo3_V1AL":
     RESPONSE_PATH = "data/Combo3_V1AL/Combo3_V1AL_response.csv"
     STIMULUS_PATH = "data/Combo3_V1AL/Combo3_V1AL_stimulus.pt"
 
-if not os.path.exists(RESPONSE_PATH):
-    print("Downloading data...")
-    url = "https://drive.google.com/drive/folders/1jNvA4f-epdpRmeG9s2E-2Sfo-pwYbjeY?usp=share_link"
-    gdown.download_folder(id=url, quiet=False, use_cookies=False, output=os.path.dirname(RESPONSE_PATH))
-else:
-    from neuroformer.prepare_data import DataLinks
-    DataLinkDS = getattr(DataLinks, DATASET)
-    url = DataLinkDS['url']
-    RESPONSE_PATH = DataLinkDS['RESPONSE_PATH']
-    STIMULUS_PATH = DataLinkDS['STIMULUS_PATH']
-    gdown.download_folder(id=url)
+# if not os.path.exists(RESPONSE_PATH):
+#     print("Downloading data...")
+#     url = "https://drive.google.com/drive/folders/1jNvA4f-epdpRmeG9s2E-2Sfo-pwYbjeY?usp=share_link"
+#     gdown.download_folder(id=url, quiet=False, use_cookies=False, output=os.path.dirname(RESPONSE_PATH))
+# else:
+from neuroformer.prepare_data import DataLinks
+DataLinkDS = getattr(DataLinks, DATASET)
+url = DataLinkDS['url']
+RESPONSE_PATH = DataLinkDS['RESPONSE_PATH']
+STIMULUS_PATH = DataLinkDS['STIMULUS_PATH']
+gdown.download_folder(id=url)
 
 
 df = pd.read_csv(RESPONSE_PATH)
@@ -445,7 +445,7 @@ if RESUME is not None:
         model_path = f"{RESUME[:-3]}_resume.pt"
 
 
-title =  f'past_state_{PAST_STATE}_visual{VISUAL}_contrastive_{CONTRASTIVE}_freeze_{FREEZE_MODEL}/randperm_{RAND_PERM}/Big_fixed_noself-att'
+title =  f'downstream:{DOWNSTREAM}/past_state_{PAST_STATE}_visual{VISUAL}_contrastive_{CONTRASTIVE}_freeze_{FREEZE_MODEL}/randperm_{RAND_PERM}/Big_fixed_noself-att'
 
 if INFERENCE:
     model_path = glob.glob(os.path.join(base_path, '**.pt'), recursive=True)[0]
