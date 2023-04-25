@@ -782,35 +782,35 @@ def get_class_weights(dataset, stoi, stoi_dt):
 # recall_score['Ground Truth'] = np.mean(np.nan_to_num(recall))
 # f1_score['Ground Truth'] = np.mean(np.nan_to_num(f1))
 
-import cv2
-import numpy as np
+# import cv2
+# import numpy as np
 
-def draw_grid(image, n, m, color=(0, 255, 0), thickness=1):
-    """
-    Draw an n x m grid on an image.
+# def draw_grid(image, n, m, color=(0, 255, 0), thickness=1):
+#     """
+#     Draw an n x m grid on an image.
 
-    Args:
-        image (np.array): Input image. (height, width, channels)
-        n (int): Number of horizontal grid lines.
-        m (int): Number of vertical grid lines.
-        color (tuple, optional): Color of the grid lines. Default is green (0, 255, 0).
-        thickness (int, optional): Thickness of the grid lines. Default is 1.
+#     Args:
+#         image (np.array): Input image. (height, width, channels)
+#         n (int): Number of horizontal grid lines.
+#         m (int): Number of vertical grid lines.
+#         color (tuple, optional): Color of the grid lines. Default is green (0, 255, 0).
+#         thickness (int, optional): Thickness of the grid lines. Default is 1.
 
-    Returns:
-        np.array: Image with the grid drawn.
-    """
-    height, width, _ = image.shape
+#     Returns:
+#         np.array: Image with the grid drawn.
+#     """
+#     height, width, _ = image.shape
 
-    # Calculate the step size for the grid lines
-    step_x = width // (m + 1)
-    step_y = height // (n + 1)
+#     # Calculate the step size for the grid lines
+#     step_x = width // (m + 1)
+#     step_y = height // (n + 1)
 
-    # Draw the vertical grid lines
-    for i in range(1, m + 1):
-        cv2.line(image, (i * step_x, 0), (i * step_x, height), color, thickness)
+#     # Draw the vertical grid lines
+#     for i in range(1, m + 1):
+#         cv2.line(image, (i * step_x, 0), (i * step_x, height), color, thickness)
 
-    # Draw the horizontal grid lines
-    for j in range(1, n + 1):
-        cv2.line(image, (0, j * step_y), (width, j * step_y), color, thickness)
+#     # Draw the horizontal grid lines
+#     for j in range(1, n + 1):
+#         cv2.line(image, (0, j * step_y), (width, j * step_y), color, thickness)
 
-    return image
+#     return image

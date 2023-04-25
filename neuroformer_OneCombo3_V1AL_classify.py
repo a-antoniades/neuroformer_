@@ -48,7 +48,7 @@ parent_path = os.path.dirname(os.path.dirname(os.getcwd())) + "/"
 
 import argparse
 from neuroformer.SpikeVidUtils import round_n
-import argparse
+import gdown
 
 
 # set up logging
@@ -72,8 +72,11 @@ def parse_args():
     parser.add_argument("--freeze_model", action="store_true", default=False, help="Freeze model")
     parser.add_argument("--title", type=str, default=None)
     parser.add_argument("--dataset", type=str, default="Combo3_V1AL")
-    parser.add_argument("--behavior", type=str)
-    parser.add_argument("--pred_behavior", type=str)
+    parser.add_argument("--behavior", action="store_true", default=False, help="Behavior task")
+    parser.add_argument("--pred_behavior", action="store_true", default=False, help="Predict behavior")
+    parser.add_argument("--past_state", action="store_true", default=False, help="Input past state")
+    parser.add_argument("--visual", action="store_true", default=False, help="Visualize")
+    parser.add_argument("--contrastive", action="store_true", default=False, help="Contrastive")
     return parser.parse_args()
 
 # if __name__ == "__main__":
@@ -96,6 +99,9 @@ try:
     DATASET = "Combo3_V1AL"
     BEHAVIOR = False
     PREDICT_BEHAVIOR = False
+    VISUAL = True
+    PAST_STATE = True
+    CONTRASTIVE = False
 except:
     print("Running in terminal")
     args = parse_args()
@@ -108,6 +114,14 @@ except:
     DATASET = args.dataset
     BEHAVIOR = args.behavior
     PREDICT_BEHAVIOR = args.pred_behavior
+    VISUAL = args.visual
+    PAST_STATE = args.past_state
+    CONTRASTIVE = args.contrastive
+
+
+print(f"CONTRASTIUVEEEEEEE {CONTRASTIVE}")
+print(f"VISUAL: {VISUAL}")
+print(f"PAST_STATE: {PAST_STATE}")
 
 
 
@@ -127,17 +141,16 @@ if DATASET == "Combo3_V1AL":
     RESPONSE_PATH = "data/Combo3_V1AL/Combo3_V1AL_response.csv"
     STIMULUS_PATH = "data/Combo3_V1AL/Combo3_V1AL_stimulus.pt"
 
-    if not os.path.exists(RESPONSE_PATH):
-        print("Downloading data...")
-        import gdown
-        url = "https://drive.google.com/drive/folders/1jNvA4f-epdpRmeG9s2E-2Sfo-pwYbjeY?usp=share_link"
-        gdown.download_folder(id=url, quiet=False, use_cookies=False)
+if not os.path.exists(RESPONSE_PATH):
+    print("Downloading data...")
+    url = "https://drive.google.com/drive/folders/1jNvA4f-epdpRmeG9s2E-2Sfo-pwYbjeY?usp=share_link"
+    gdown.download_folder(id=url, quiet=False, use_cookies=False, output=os.path.dirname(RESPONSE_PATH))
 else:
     from neuroformer.prepare_data import DataLinks
     DataLinkDS = getattr(DataLinks, DATASET)
     url = DataLinkDS['url']
-    RESPONSE_PATH = DataLinkDS['response_path']
-    STIMULUS_PATH = DataLinkDS['stimulus_path']
+    RESPONSE_PATH = DataLinkDS['RESPONSE_PATH']
+    STIMULUS_PATH = DataLinkDS['STIMULUS_PATH']
     gdown.download_folder(id=url)
 
 
@@ -223,7 +236,7 @@ behavior_vars = ['eyerad', 'phi', 'speed', 'th']
 n_behavior = len(behavior_vars)
 predict_behavior = PREDICT_BEHAVIOR
 # stimulus
-visual_stim = True
+visual_stim = VISUAL
 
 
 # %%
@@ -376,15 +389,8 @@ print(f'train: {len(train_dataset)}, test: {len(test_dataset)}')
 
 layers = (mconf.n_state_layers, mconf.n_state_history_layers, mconf.n_stimulus_layers)   
 max_epochs = 250
-batch_size = round((32 * 4))
+batch_size = round((32 * 2))
 shuffle = True
-
-title =  f'mlp/freeze_{FREEZE_MODEL}/randperm_{RAND_PERM}/Big_fixed_noself-att'
-
-if INFERENCE:
-    model_path = glob.glob(os.path.join(base_path, '**.pt'), recursive=True)[0]
-else:
-    model_path = f"""./models/tensorboard/{DATASET}/downstream_final/pretrain/{title}_2/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{mconf.window}_wp:{mconf.window_prev}/Cont:{mconf.contrastive}_window:{mconf.window}_f_window:{mconf.frame_window}_df:{mconf.dt}_blocksize:{mconf.id_block_size}_conv_{mconf.conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
 
 
 model_conf = GPTConfig(train_dataset.population_size, block_size,    # frame_block_size
@@ -401,7 +407,7 @@ model_conf = GPTConfig(train_dataset.population_size, block_size,    # frame_blo
                         n_state_layers=8, n_state_history_layers=8,
                         n_stimulus_layers=8, self_att_layers=0,
                         n_behavior_layers=0, predict_behavior=predict_behavior, n_behavior=n_behavior,
-                        n_head=8, n_embd=n_embd, 
+                        n_head=4, n_embd=n_embd, 
                         contrastive=False, clip_emb=1024, clip_temp=mconf.clip_temp,
                         conv_layer=conv_layer, kernel_size=kernel_size, stride_size=stride_size, padding_size=padding_size,
                         temp_emb=mconf.temp_emb, pos_emb=False,
@@ -413,14 +419,38 @@ model_conf = GPTConfig(train_dataset.population_size, block_size,    # frame_blo
 
 if INFERENCE or MCONF is not None:
     update_object(model_conf, mconf)
+
+if PAST_STATE is False:
+    print(f"// -- No past state, layers=0 -- //")
+    model_conf.n_state_history_layers = 0
+
+if CONTRASTIVE is True:
+    print(f"// -- contrastive objective -- //")
+    model_conf.contrastive = True
+
+if VISUAL is False:
+    print(f"// -- No visual, layers=0 -- //")
+    model_conf.n_stimulus_layers = 0
+
+if INFERENCE or MCONF is not None:
+    update_object(model_conf, mconf)
+
 model = GPT(model_conf)
 
 if RESUME is not None:
     update_object(model_conf, mconf)
     print(f"// -- Loading model from {RESUME} -- //")
-    model.load_state_dict(torch.load(RESUME))
+    model.load_state_dict(torch.load(RESUME), strict=False)
     if not DOWNSTREAM:
         model_path = f"{RESUME[:-3]}_resume.pt"
+
+
+title =  f'past_state_{PAST_STATE}_visual{VISUAL}_contrastive_{CONTRASTIVE}_freeze_{FREEZE_MODEL}/randperm_{RAND_PERM}/Big_fixed_noself-att'
+
+if INFERENCE:
+    model_path = glob.glob(os.path.join(base_path, '**.pt'), recursive=True)[0]
+else:
+    model_path = f"""./models/tensorboard/{DATASET}/components/pretrain/{title}_2/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{mconf.window}_wp:{mconf.window_prev}/Cont:{mconf.contrastive}_window:{mconf.window}_f_window:{mconf.frame_window}_df:{mconf.dt}_blocksize:{mconf.id_block_size}_conv_{mconf.conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
 
 
 # %%
@@ -470,6 +500,7 @@ if DOWNSTREAM:
     test_interval_trial_cls = np.array(np.meshgrid(test_interval_cls, test_trial_cls)).T.reshape(-1, 2)
     train_dataset = train_dataset.copy(train_data, t=train_interval_trial_cls)
     test_dataset = test_dataset.copy(test_data, t=test_interval_trial_cls)
+
 
 # %%
 tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rate=1e-4, 
