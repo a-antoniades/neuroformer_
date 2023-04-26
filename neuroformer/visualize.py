@@ -81,6 +81,40 @@ def set_research_params():
     plt.rcParams['axes.linewidth'] = 1.5 / 50
 
 
+def nature_style():
+    # Custom style settings
+    nature_style = {
+        "font.family": "Arial",
+        "axes.labelsize": 12,
+        "xtick.labelsize": 10,
+        "ytick.labelsize": 10,
+        "legend.fontsize": 10,
+        "axes.titlesize": 12,
+        "axes.edgecolor": "#333333",
+        "axes.linewidth": 0.8,
+        "lines.linewidth": 2,
+        "xtick.major.size": 4,
+        "ytick.major.size": 4,
+        "xtick.major.width": 0.8,
+        "ytick.major.width": 0.8,
+        "xtick.direction": "in",
+        "ytick.direction": "in",
+        "xtick.top": True,
+        "ytick.right": True,
+        "figure.figsize": [6, 4],
+        "figure.dpi": 100,
+        "figure.autolayout": True,
+        "savefig.dpi": 300,
+        "axes.prop_cycle": plt.cycler(color=[
+            "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
+            "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"
+        ]),
+    }
+
+    # Apply the custom style
+    plt.style.use(nature_style)
+
+
 
 def plot_losses(trainer): 
     plt.figure(figsize=(20,5))
