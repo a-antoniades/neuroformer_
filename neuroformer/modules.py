@@ -47,40 +47,40 @@ def contrastive_loss(features, temp=0.1):
     total_loss /= num_pairs
     return total_loss.mean()
 
-# def contrastive_loss(features, temp=0.1):
-#     # Get the names and embeddings of all modalities
+def clip_loss(features, temp=0.1):
+    # Get the names and embeddings of all modalities
 
-#     modalities = list(features.keys())
-#     embeddings = [features[modality] for modality in modalities]
+    modalities = list(features.keys())
+    embeddings = [features[modality] for modality in modalities]
 
-#     batch_size = embeddings[0].size(0)
-#     total_loss = 0.0
-#     num_pairs = 0
+    batch_size = embeddings[0].size(0)
+    total_loss = 0.0
+    num_pairs = 0
 
-#     # Iterate over all pairs of modalities
-#     for i, j in combinations(range(len(modalities)), 2):
-#         emb_i, emb_j = embeddings[i], embeddings[j]
+    # Iterate over all pairs of modalities
+    for i, j in combinations(range(len(modalities)), 2):
+        emb_i, emb_j = embeddings[i], embeddings[j]
         
-#         #normalize
-#         emb_i = emb_i / emb_i.norm(dim=-1, keepdim=True)
-#         emb_j = emb_j / emb_j.norm(dim=-1, keepdim=True)
+        #normalize
+        emb_i = emb_i / emb_i.norm(dim=-1, keepdim=True)
+        emb_j = emb_j / emb_j.norm(dim=-1, keepdim=True)
 
-#         # Compute similarity matrix
-#         logits_per_i = temp * emb_i @ emb_j.t()
-#         logits_per_j = temp * emb_j @ emb_i.t()
+        # Compute similarity matrix
+        logits_per_i = temp * emb_i @ emb_j.t()
+        logits_per_j = temp * emb_j @ emb_i.t()
 
-#         # (a)ssymetric loss function
-#         labels = torch.arange(batch_size, device=emb_i.device)
-#         loss_i = F.cross_entropy(logits_per_i, labels)
-#         loss_j = F.cross_entropy(logits_per_j, labels)
-#         loss = (1/2 * loss_i) + (1/2 * loss_j)
+        # (a)ssymetric loss function
+        labels = torch.arange(batch_size, device=emb_i.device)
+        loss_i = F.cross_entropy(logits_per_i, labels)
+        loss_j = F.cross_entropy(logits_per_j, labels)
+        loss = (1/2 * loss_i) + (1/2 * loss_j)
 
-#         total_loss += loss
-#         num_pairs += 1
+        total_loss += loss
+        num_pairs += 1
 
-#     # Take the average loss over all pairs of modalities
-#     total_loss /= num_pairs
-#     return total_loss    
+    # Take the average loss over all pairs of modalities
+    total_loss /= num_pairs
+    return total_loss    
 
 # def topk_metrics(logits, labels, k=3, ignore_index=-100, device=None):
 #     device = logits.device if device is None else device

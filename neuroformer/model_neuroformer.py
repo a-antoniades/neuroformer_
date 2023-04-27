@@ -32,7 +32,7 @@ import omegaconf
 from modules import (PositionalEmbedding, PositionalEncoding2D, 
                      PositionalEncodingPermute2D, PositionalEncoding3D,
                      TemporalEmbedding, LearntTemporalEmbedding,
-                     contrastive_loss, topk_metrics)
+                     contrastive_loss, clip_loss, topk_metrics)
 import collections
 
 logger = logging.getLogger(__name__)
@@ -1090,12 +1090,12 @@ class GPT(nn.Module):
             # precision_top5, recall_top5, F1_top5 = topk_metrics(id_logits, targets['id'], k=5, 
             #                                                     num_classes=self.config.id_vocab_size, ignore_index=self.config.ignore_index_id)
             # preds['precision_top5'], preds['recall_top5'], preds['F1_top5'] = precision_top5, recall_top5, F1_top5
+            preds['precision'] = torch.stack(precision).mean()
+            preds['recall'] = torch.stack(recall).mean()
+            preds['F1'] = torch.stack(F1).mean()
 
         features['last_layer'] = x
         preds['id'] = id_logits    # [:, tf:]    # only id logits
         preds['dt'] = dt_logits
-        preds['precision'] = torch.stack(precision).mean()
-        preds['recall'] = torch.stack(recall).mean()
-        preds['F1'] = torch.stack(F1).mean()
 
         return preds, features, loss

@@ -1,9 +1,8 @@
 # %%
 import glob
 import os
-import collections
+import json
 
-import pickle
 import sys
 import glob
 from pathlib import Path, PurePath
@@ -16,40 +15,27 @@ sys.path.append('../')
 
 import pandas as pd
 import numpy as np
-from einops import rearrange
 
-from tqdm import tqdm
 import numpy as np
 import torch
-import torch.nn as nn
-from torch.nn import functional as F
 import pandas as pd
 import matplotlib.pyplot as plt
 
 from torch.utils.data.dataloader import DataLoader
 
 import math
-from torch.utils.data import Dataset
 
-from neuroformer.model_neuroformer import GPT, GPTConfig, neuralGPTConfig
+from neuroformer.model_neuroformer import GPT, GPTConfig
 from neuroformer.trainer import Trainer, TrainerConfig
 from neuroformer.utils import set_seed, update_object
 from neuroformer.visualize import set_plot_params
 from neuroformer.SpikeVidUtils import round_n
 set_plot_params()
 
-from scipy import io as scipyio
-from scipy.special import softmax
-import skimage
-import skvideo.io
-from scipy.ndimage import gaussian_filter, uniform_filter
-
 parent_path = os.path.dirname(os.path.dirname(os.getcwd())) + "/"
 
 import argparse
 from neuroformer.SpikeVidUtils import round_n
-import gdown
-
 
 # set up logging
 import logging
@@ -371,18 +357,13 @@ train_dataset = SpikeTimeVidData2(train_data, None, block_size, id_block_size, f
                                   window_behavior=window_behavior, predict_behavior=predict_behavior,
                                   stoi_speed=stoi_speed, itos_speed=itos_speed, dt_speed=dt_speed, labels=True)
 
-test_dataset = train_dataset.copy(test_data)
-
-finetune_dataset = train_dataset.copy(finetune_data)
-
 if INFERENCE:
     update_object(train_dataset, dconf)
-    update_object(test_dataset, dconf)
-    update_object(finetune_dataset, dconf)
+    train_dataset = train_dataset.copy(train_data)
+    test_dataset = train_dataset.copy(test_data)
+    finetune_dataset = train_dataset.copy(finetune_data)
     
 print(f'train: {len(train_dataset)}, test: {len(test_dataset)}')
-
-
 
 
 # %%
@@ -436,7 +417,7 @@ if VISUAL is False:
 model = GPT(model_conf)
 
 if RESUME is not None:
-    update_object(model_conf, mconf)
+    # update_object(model_conf, mconf)
     print(f"// -- Loading model from {RESUME} -- //")
     model.load_state_dict(torch.load(RESUME), strict=False)
     if not DOWNSTREAM:
@@ -527,6 +508,7 @@ if not INFERENCE:
     trainer.train()
 else:
     model_path = glob.glob(os.path.join(base_path, '**.pt'), recursive=True)[0]
+    print(f"Loading model from {model_path}")
     model.load_state_dict(torch.load(model_path), strict=False)
 
 # %%
@@ -571,10 +553,10 @@ results_dict = dict()
 df_pred = None if df_pred_path is None else pd.read_csv(df_pred_path)
 df_true = None
 
-top_p = 0.95
-top_p_t = 0.95
-temp = 1.0
-temp_t = 1.0
+top_p = 0.75
+top_p_t = 0.75
+temp = 1.25
+temp_t = 1.25
 
 trials = sorted(train_data['Trial'].unique())[::4]
 
@@ -631,8 +613,8 @@ df_pred.to_csv(os.path.join(dir_name, F'df_pred_.csv'))
 Split data into full-stimulus trials
 
 """
-dir_name = os.path.dirname(model_path)
-df_pred = pd.read_csv(os.path.join(dir_name, F'df_pred_.csv'))
+# dir_name = os.path.dirname(model_path)
+# df_pred = pd.read_csv(os.path.join(dir_name, F'df_pred_.csv'))
 
 from neuroformer.analysis import get_rates_trial, calc_corr_psth, get_accuracy, compute_scores
 from neuroformer.SpikeVidUtils import create_full_trial, set_intervals
@@ -711,14 +693,14 @@ scores = compute_scores(df_1, df_2)
 pred_scores = compute_scores(df_1, df_pred_full)
 print(f"real: {scores}")
 print(f"pred: {pred_scores}")
+# save scores to json
+with open(os.path.join(save_dir, F'scores.json'), 'w') as f:
+    json.dump(scores, f)
+with open(os.path.join(save_dir, F'pred_scores.json'), 'w') as f:
+    json.dump(pred_scores, f)
 
 # dir_name = os.path.dirname(model_path)
-dir_name = model_path
-model_name = os.path.dirname(model_path)
-save_dir = model_name
-if not os.path.exists(save_dir):
-    os.makedirs(save_dir)
-
+save_dir = os.path.dirname(model_path)
 df_pred.to_csv(os.path.join(save_dir, F'df_pred.csv'))
 
 set_plot_white()
@@ -730,10 +712,10 @@ plt.hist(top_corr_real, label='real - real2', alpha=0.6)
 # plt.hist(top_corr_real_2, label='real - real3', alpha=0.6)
 plt.hist(top_corr_pred, label='real - simulated', alpha=0.6)
 plt.legend(fontsize=20)
-plt.savefig(os.path.join(save_dir, F'psth_corr_{title}.svg'))
+plt.savefig(os.path.join(dir_name, F'psth_corr.svg'))
 plt.show()
 
-plot_distribution(df_1, df_pred, save_path=os.path.join(save_dir, F'psth_dist_{title}.svg'))
+plot_distribution(df_1, df_pred, save_path=os.path.join(dir_name, F'psth_dist.svg'))
 
 total_scores = dict()
 total_scores['real'] = scores
