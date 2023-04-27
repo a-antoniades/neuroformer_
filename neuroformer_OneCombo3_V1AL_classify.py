@@ -294,7 +294,7 @@ stride_size = [n_frames, 4, 4]
 padding_size = 0
 n_embd = 256
 n_embd_frames = 64
-frame_feats = stimulus if visual_stim else None
+frame_feats = stimulus
 frame_block_size = 0
 frame_feats = torch.tensor(stimulus, dtype=torch.float32)
 conv_layer = True
@@ -399,20 +399,21 @@ model_conf = GPTConfig(train_dataset.population_size, block_size,    # frame_blo
 if INFERENCE or MCONF is not None:
     update_object(model_conf, mconf)
 
-if PAST_STATE is False:
-    print(f"// -- No past state, layers=0 -- //")
-    model_conf.n_state_history_layers = 0
+if not INFERENCE:
+    if PAST_STATE is False:
+        print(f"// -- No past state, layers=0 -- //")
+        model_conf.n_state_history_layers = 0
 
-if CONTRASTIVE is True:
-    print(f"// -- contrastive objective -- //")
-    model_conf.contrastive = True
-else:
-    print(f"// -- no contrastive objective -- //")
-    model_conf.contrastive = False
+    if CONTRASTIVE is True:
+        print(f"// -- contrastive objective -- //")
+        model_conf.contrastive = True
+    else:
+        print(f"// -- no contrastive objective -- //")
+        model_conf.contrastive = False
 
-if VISUAL is False:
-    print(f"// -- No visual, layers=0 -- //")
-    model_conf.n_stimulus_layers = 0
+    if VISUAL is False:
+        print(f"// -- No visual, layers=0 -- //")
+        model_conf.n_stimulus_layers = 0
 
 model = GPT(model_conf)
 
