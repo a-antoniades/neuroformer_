@@ -401,20 +401,20 @@ def predict_raster_recursive_time_auto(model, dataset, window, window_prev, stoi
         for key, value in y.items():
             y[key] = y[key].to(device)
         
-        if x['interval'] > window_prev + window:
-            df = {k: v for k, v in data.items() if k in ('ID', 'dt', 'Trial', 'Interval', 'Time')}
-            df = pd.DataFrame(df)
+        # if x['interval'] > window_prev + window:
+        #     df = {k: v for k, v in data.items() if k in ('ID', 'dt', 'Trial', 'Interval', 'Time')}
+        #     df = pd.DataFrame(df)
 
-            # filter all instances of ['SOS', 'EOS' and 'PAD'] from all columns of pandas dataframe:
-            df = df[(df != 'SOS').all(axis=1)].reset_index(drop=True)
-            df = df[(df != 'EOS').all(axis=1)].reset_index(drop=True)
-            df = df[(df != 'PAD').all(axis=1)].reset_index(drop=True)
-            df['Time'] = df['dt'] + df['Interval']
+        #     # filter all instances of ['SOS', 'EOS' and 'PAD'] from all columns of pandas dataframe:
+        #     df = df[(df != 'SOS').all(axis=1)].reset_index(drop=True)
+        #     df = df[(df != 'EOS').all(axis=1)].reset_index(drop=True)
+        #     df = df[(df != 'PAD').all(axis=1)].reset_index(drop=True)
+        #     df['Time'] = df['dt'] + df['Interval']
 
-            prev_id_interval, current_id_interval = dataset.calc_intervals(x['interval'])
-            x['id_prev'], x['dt_prev'], pad_prev = dataset.get_interval(prev_id_interval, float(x['trial']), T_id_prev, data=df)
-            x['id_prev'] = torch.tensor(x['id_prev'], dtype=torch.long).unsqueeze(0).to(device)
-            x['dt_prev'] = torch.tensor(x['dt_prev'], dtype=torch.long).unsqueeze(0).to(device)
+        #     prev_id_interval, current_id_interval = dataset.calc_intervals(x['interval'])
+        #     x['id_prev'], x['dt_prev'], pad_prev = dataset.get_interval(prev_id_interval, float(x['trial']), T_id_prev, data=df)
+        #     x['id_prev'] = torch.tensor(x['id_prev'], dtype=torch.long).unsqueeze(0).to(device)
+        #     x['dt_prev'] = torch.tensor(x['dt_prev'], dtype=torch.long).unsqueeze(0).to(device)
             
         pad = x['pad'] if 'pad' in x else 0
         x['id_full'] = x['id'][:, 0]
