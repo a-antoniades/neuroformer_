@@ -205,7 +205,7 @@ print(f'train: {len(train_dataset)}, test: {len(test_dataset)}')
 # class_weights = get_class_weights(train_dataset, stoi, stoi_dt)
 
 
-# %%
+e# %%
 from model_neuroformer_LRN import GPT, GPTConfig
 # initialize config class and model (holds hyperparameters)
    

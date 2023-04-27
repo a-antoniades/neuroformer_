@@ -1020,9 +1020,10 @@ total_loss.backward()
 # # df.groupby(['Interval_2', 'Trial']).size().mean()
 
 # var_group = 'Interval_2'
-# n_unique = len(df.groupby([var_group, 'Trial']).size())
-# df.groupby([var_group, 'Trial']).size().nlargest(int(0.2 * n_unique))
-# # df.groupby([var_group, 'Trial']).size().mean()
+# groups = df.groupby([var_group, 'Trial']).size()
+# n_unique = len(groups)
+# top_k_groups = groups.nlargest(int(0.2 * n_unique))
+# mean_groups = groups.mean()
 
 # df.groupby([var_group, 'Trial']).size().nlargest(int(0.2 * n_unique))
 # df.groupby(['Interval_2', 'Trial']).size().mean()

@@ -785,7 +785,7 @@ class GPT(nn.Module):
             else:
                 self.temp_emb = LearntTemporalEmbedding(config.id_block_size, config.n_embd)
                 self.temp_emb_prev = LearntTemporalEmbedding(config.prev_id_block_size, config.n_embd)
-        if hasattr(config, 'n_behavior_layers'):
+        if hasattr(config, 'n_behavior_layers') and config.n_behavior_layers > 0:
             self.mlp_behavior = ProjectNorm(1, config.n_embd)
             self.pos_emb_behavior = PositionalEncoding2D(config.n_embd)
             self.temp_emb_behavior = LearntTemporalEmbedding(config.behavior_block_size, config.n_embd)
@@ -1013,7 +1013,7 @@ class GPT(nn.Module):
         torch.cuda.empty_cache()
         if targets is not None:
             loss = collections.defaultdict(float)
-            n = float('inf')
+            n = 2
 
             if self.config.class_weights is not None:
                 loss_id = F.cross_entropy(id_logits.view(-1, id_logits.size(-1)), targets['id'].view(-1), weight=self.class_weights_id)
