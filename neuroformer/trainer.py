@@ -111,11 +111,11 @@ class Trainer:
                                                                     device_ids=[torch.cuda.current_device()],
                                                                     output_device=torch.cuda.current_device(),
                                                                     find_unused_parameters=True)
+                            
             else:
                 self.device = torch.device('cuda', torch.cuda.current_device())
                 self.model = self.model.to(self.device)
                 # self.model = torch.nn.DataParallel(self.model)
-                self.criterion = self.criterion.to(self.device)
 
         self.writer.add_scalar(f"model/no_parameters", sum(p.numel() for p in model.parameters())) 
 
