@@ -1053,8 +1053,8 @@ class GPT(nn.Module):
                 assert len(feats_clip.keys()) >= 2, "Need at least 2 variables for contrastive loss"
                 loss['clip'] = contrastive_loss(feats_clip) * (1 / n)
             
-            loss['id'] = ((9 / 10) * loss_id) * (1 - 1 / n)   # sum(loss_id) / (b * 2)   # / len(loss_id)
-            loss['time'] = ((1 / 10) * loss_time) * (1 - 1 / n)
+            loss['id'] = ((3 / 4) * loss_id) * (1 - 1 / n)   # sum(loss_id) / (b * 2)   # / len(loss_id)
+            loss['time'] = ((1 / 4) * loss_time) * (1 - 1 / n)
             if self.config.predict_behavior and 'behavior' in targets:
                 loss['behavior'] = ((1 / 4) * loss_behavior) * (1 - 1 / n)
                 preds['behavior'] = behavior_logits
