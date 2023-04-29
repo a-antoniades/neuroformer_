@@ -817,6 +817,7 @@ class GPT(nn.Module):
         # -- Multimodal Transformer -- #
         if config.contrastive:
             self.clip = CLIP(config)
+            self.contrastive_loss = contrastive_loss if not config.clip_loss else clip_loss
         self.neural_visual_transformer = MultimodalTransformer(config)
        
         ## -- ID, dt, Logit Projections -- ##
@@ -831,6 +832,7 @@ class GPT(nn.Module):
         
         if config.class_weights is not None:
             for key in config.class_weights.keys():
+                print(f"registering class weights for {key}")
                 self.register_buffer(f"class_weights_{key}", config.class_weights[key])  
         
         logger.info("number of parameters: %e", sum(p.numel() for p in self.parameters()))
@@ -909,6 +911,7 @@ class GPT(nn.Module):
             parameters = self.parameters()
             # optimizer = torch.optim.SGD(parameters, lr=train_config.learning_rate, momentum=0.9)
             optimizer = torch.optim.AdamW(parameters, lr=train_config.learning_rate)
+        
         
         return optimizer
     
@@ -1016,8 +1019,10 @@ class GPT(nn.Module):
             n = 2
 
             if self.config.class_weights is not None:
-                loss_id = F.cross_entropy(id_logits.view(-1, id_logits.size(-1)), targets['id'].view(-1), weight=self.class_weights_id)
-                loss_time = F.cross_entropy(dt_logits.view(-1, dt_logits.size(-1)), targets['dt'].view(-1), weight=self.class_weights_dt)
+                loss_id = F.cross_entropy(id_logits.view(-1, id_logits.size(-1)), targets['id'].view(-1),
+                                          gnore_index=self.config.ignore_index_id, weight=self.class_weights_id)
+                loss_time = F.cross_entropy(dt_logits.view(-1, dt_logits.size(-1)), targets['dt'].view(-1), 
+                                          ignore_index=self.config.ignore_index_dt, weight=self.class_weights_dt)
             else:
                 loss_id =  F.cross_entropy(id_logits.view(-1, id_logits.size(-1)), targets['id'].view(-1), ignore_index=self.config.ignore_index_id) 
                 loss_time = F.cross_entropy(dt_logits.view(-1, dt_logits.size(-1)), targets['dt'].view(-1), ignore_index=self.config.ignore_index_dt)
@@ -1029,7 +1034,7 @@ class GPT(nn.Module):
             if self.config.contrastive:
                 clip_id_feats = []
                 for B, P in enumerate(pad):
-                    clip_id_feats.append(features['id'][B].mean(0))
+                    clip_id_feats.append(features['id'][B, t - P])
                 clip_id_feats = torch.stack(clip_id_feats)
                 n = 2
                 # loss['clip'] = self.clip(features['frames'][:, 0], features['id'][:, -1]) * (1 / n) 
@@ -1042,7 +1047,7 @@ class GPT(nn.Module):
                 if hasattr(self.config, 'contrastive_vars'):
                     for variable in self.config.contrastive_vars:
                         if variable == 'id':
-                            feats_clip['id'] = feat_contra_id
+                            feats_clip['id'] = clip_id_feats
                         elif variable == 'frames':
                             feats_clip['frames'] = feat_contra_frames
                         else:
@@ -1051,7 +1056,7 @@ class GPT(nn.Module):
                     feats_clip['id'] = feat_contra_id
                     feats_clip['frames'] = feat_contra_frames
                 assert len(feats_clip.keys()) >= 2, "Need at least 2 variables for contrastive loss"
-                loss['clip'] = contrastive_loss(feats_clip) * (1 / n)
+                loss['clip'] = self.contrastive_loss(feats_clip, temp=self.config.clip_temp) * (1 / n)
             
             loss['id'] = ((9 / 10) * loss_id) * (1 - 1 / n)   # sum(loss_id) / (b * 2)   # / len(loss_id)
             loss['time'] = ((1 / 10) * loss_time) * (1 - 1 / n)
@@ -1062,7 +1067,6 @@ class GPT(nn.Module):
                 id_targets = targets['id'][B, :t - P]
                 id_logits_ = id_logits[B, :t - P]         
                 if len(id_targets) > 0:
-
                     ## score metrics
                     probs_neurons = F.softmax(id_logits_, dim=-1)
                     _, ix_top_k = torch.topk(probs_neurons, k=1, dim=-1)
