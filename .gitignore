@@ -159,6 +159,5 @@ training/*.ipynb
 **/.vscode
 **/paper_plots/
 **/a_yiyi
-**/configs
 **/image_detectors
 

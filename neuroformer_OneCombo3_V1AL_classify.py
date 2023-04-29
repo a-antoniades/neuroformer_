@@ -385,7 +385,7 @@ print(f'train: {len(train_dataset)}, test: {len(test_dataset)}')
 
 layers = (mconf.n_state_layers, mconf.n_state_history_layers, mconf.n_stimulus_layers)   
 max_epochs = 500
-batch_size = round((32 * 4))
+batch_size = round((32 * 2))
 shuffle = True
 
 model_conf = GPTConfig(train_dataset.population_size, block_size,    # frame_block_size
@@ -402,7 +402,7 @@ model_conf = GPTConfig(train_dataset.population_size, block_size,    # frame_blo
                         n_stimulus_layers=8, self_att_layers=0,
                         n_behavior_layers=0, predict_behavior=predict_behavior, n_behavior=n_behavior,
                         n_head=4, n_embd=n_embd, 
-                        contrastive=False, clip_emb=1024, clip_temp=mconf.clip_temp,
+                        contrastive=mconf.contrastive, clip_emb=1024, clip_temp=mconf.clip_temp,
                         conv_layer=conv_layer, kernel_size=kernel_size, stride_size=stride_size, padding_size=padding_size,
                         temp_emb=mconf.temp_emb, pos_emb=False,
                         id_drop=0.35, im_drop=0.35, b_drop=0.45,
@@ -441,12 +441,13 @@ if RESUME is not None:
 
 
 # epoch250_rand{RAND_PERM}_downstream:{DOWNSTREAM}
-title =  f'no_dropout_{CLASS_WEIGHTS}/past_state_{PAST_STATE}_visual{VISUAL}_contrastive_{CONTRASTIVE}_clip_loss{CLIP_LOSS}t{mconf.clip_temp}_freeze_{FREEZE_MODEL}_class_weights{CLASS_WEIGHTS}/randperm_{RAND_PERM}/Big_fixed_noself-att'
-
+# title =  f'3/4prop_{CLASS_WEIGHTS}/past_state_{PAST_STATE}_visual{VISUAL}_contrastive_{CONTRASTIVE}_clip_loss{CLIP_LOSS}t{mconf.clip_temp}_freeze_{FREEZE_MODEL}_class_weights{CLASS_WEIGHTS}/randperm_{RAND_PERM}/Big_fixed_noself-att'
+title = f"epoch70_rand{RAND_PERM}_downstream:{DOWNSTREAM}"
 if INFERENCE:
     model_path = glob.glob(os.path.join(base_path, '**.pt'), recursive=True)[0]
 else:
-    model_path = f"""./models/tensorboard/{DATASET}/ablations_small/{title}_2/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{mconf.window}_wp:{mconf.window_prev}/Cont:{mconf.contrastive}_window:{mconf.window}_f_window:{mconf.frame_window}_df:{mconf.dt}_blocksize:{mconf.id_block_size}_conv_{mconf.conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
+    # model_path = f"""./models/tensorboard/{DATASET}/ablations_small/{title}_2/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{mconf.window}_wp:{mconf.window_prev}/Cont:{mconf.contrastive}_window:{mconf.window}_f_window:{mconf.frame_window}_df:{mconf.dt}_blocksize:{mconf.id_block_size}_conv_{mconf.conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
+    model_path = f"""./models/tensorboard/{DATASET}/pretrain/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{mconf.window}_wp:{mconf.window_prev}/Cont:{mconf.contrastive}_window:{mconf.window}_f_window:{mconf.frame_window}_df:{mconf.dt}_blocksize:{mconf.id_block_size}_conv_{mconf.conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
 
 # %%
 
@@ -511,10 +512,9 @@ tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rat
                     dist=False, save_every=20, loss_bprop=loss_bprop)
 
 if not INFERENCE:
-    trainer = Trainer(model, train_dataset, test_dataset, tconf, model_conf)
     if DOWNSTREAM:
         mconf.__setattr__('freeze_model', FREEZE_MODEL)
-        trainer.config.__setattr__('warmup_tokens', 100)
+        tconf.__setattr__('warmup_tokens', 100)
         N_CLASSES = 2
         classifier = ClassifierWrapper(model, mconf, N_CLASSES)
         train_model = classifier
@@ -575,8 +575,8 @@ df_true = None
 
 top_p = 0.75
 top_p_t = 0.9
-temp = 1
-temp_t = 1.3
+temp = 1.3
+temp_t = 1.
 
 trials = sorted(train_data['Trial'].unique())[::4]
 
@@ -667,7 +667,7 @@ df_2 = create_full_trial(df, n_1)
 df_3 = create_full_trial(df, n_2)
 
 # sort by interval, trial
-window_pred = 1
+window_pred = 0.5
 min_window = window_prev + window
 df_pred_full = set_intervals(df_pred_full, window, window_prev, window_pred)
 df_1 = set_intervals(df_1, window, window_prev, window_pred)
@@ -675,7 +675,8 @@ df_2 = set_intervals(df_2, window, window_prev, window_pred)
 df_3 = set_intervals(df_3, window, window_prev, window_pred)
 
 window_pred = window if window_pred is None else window_pred
-intervals = np.array(sorted(set(df['Interval'].unique()) & set(df['Interval'].unique())))
+# intervals = np.array(sorted(set(df['Interval'].unique()) & set(df['Interval'].unique())))
+intervals = np.array(sorted(set(df_pred_full['Interval'].unique())))
 labels = np.array([round(window_pred + window_pred*n, 2) for n in range(0, int(max(df_pred_full['Interval']) / window_pred))])
 ids = sorted(set(df['ID'].unique()) & set(df['ID'].unique()))
 
