@@ -30,6 +30,7 @@ from neuroformer.trainer import Trainer, TrainerConfig
 from neuroformer.utils import set_seed, update_object
 from neuroformer.visualize import set_plot_params
 from neuroformer.SpikeVidUtils import round_n
+import gdown
 set_plot_params()
 
 parent_path = os.path.dirname(os.path.dirname(os.getcwd())) + "/"
@@ -129,20 +130,20 @@ DOWNLOAD DATA URL = https://drive.google.com/drive/folders/1jNvA4f-epdpRmeG9s2E-
 """
 
 if DATASET == "Combo3_V1AL":
-    RESPONSE_PATH = "data/Combo3_V1AL/Combo3_V1AL_response.csv"
-    STIMULUS_PATH = "data/Combo3_V1AL/Combo3_V1AL_stimulus.pt"
+    RESPONSE_PATH = "./data/Combo3_V1AL/Combo3_V1AL_response.csv"
+    STIMULUS_PATH = "./data/Combo3_V1AL/Combo3_V1AL_stimulus.pt"
 
-# if not os.path.exists(RESPONSE_PATH):
-#     print("Downloading data...")
-#     url = "https://drive.google.com/drive/folders/1jNvA4f-epdpRmeG9s2E-2Sfo-pwYbjeY?usp=share_link"
-#     gdown.download_folder(id=url, quiet=False, use_cookies=False, output=os.path.dirname(RESPONSE_PATH))
-# else:
-from neuroformer.prepare_data import DataLinks
-DataLinkDS = getattr(DataLinks, DATASET)
-url = DataLinkDS['url']
-RESPONSE_PATH = DataLinkDS['RESPONSE_PATH']
-STIMULUS_PATH = DataLinkDS['STIMULUS_PATH']
-# gdown.download_folder(id=url)
+if not os.path.exists(RESPONSE_PATH):
+    print("Downloading data...")
+    url = "https://drive.google.com/drive/folders/1jNvA4f-epdpRmeG9s2E-2Sfo-pwYbjeY?usp=share_link"
+    gdown.download_folder(id=url, quiet=False, use_cookies=False, output=os.path.dirname(RESPONSE_PATH))
+else:
+    from neuroformer.prepare_data import DataLinks
+    DataLinkDS = getattr(DataLinks, DATASET)
+    url = DataLinkDS['url']
+    RESPONSE_PATH = DataLinkDS['RESPONSE_PATH']
+    STIMULUS_PATH = DataLinkDS['STIMULUS_PATH']
+    # gdown.download_folder(id=url)
 
 
 df = pd.read_csv(RESPONSE_PATH)
@@ -384,7 +385,7 @@ print(f'train: {len(train_dataset)}, test: {len(test_dataset)}')
 # %%
 
 layers = (mconf.n_state_layers, mconf.n_state_history_layers, mconf.n_stimulus_layers)   
-max_epochs = 500
+max_epochs = 100
 batch_size = round((32 * 2))
 shuffle = True
 
