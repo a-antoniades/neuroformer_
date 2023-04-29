@@ -37,7 +37,7 @@ from neuroformer.model_neuroformer import GPT, GPTConfig, neuralGPTConfig
 from neuroformer.trainer import Trainer, TrainerConfig
 from neuroformer.utils import set_seed, update_object
 from neuroformer.visualize import set_plot_params
-from neuroformer.SpikeVidUtils import round_n
+from neuroformer.SpikeVidUtils import round_n, set_intervals
 set_plot_params()
 
 from scipy import io as scipyio
@@ -54,6 +54,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     # parser.add_argument("--infer", action="store_true", help="Inference mode")
     parser.add_argument("--train", action="store_true", default=False, help="Train mode")
+    parser.add_argument("--dist", action="store_true", default=False, help="Distrinuted training")
     parser.add_argument("--resume", type=str, default=None, help="Resume from checkpoint")
     parser.add_argument("--rand_perm", action="store_true", default=False, help="Randomly permute the ID column")
     parser.add_argument("--mconf", type=str, default=None, help="Path to model config file")
@@ -68,6 +69,7 @@ def parse_args():
     parser.add_argument("--past_state", action="store_true", default=False, help="Input past state")
     parser.add_argument("--visual", action="store_true", default=False, help="Visualize")
     parser.add_argument("--contrastive", action="store_true", default=False, help="Contrastive")
+    parser.add_argument("--local_rank", type=int, default=0)
     return parser.parse_args()
 
 # if __name__ == "__main__":
@@ -81,6 +83,7 @@ try:
     shell = get_ipython().__class__.__name__
     print("Running in Jupyter notebook")
     INFERENCE = False
+    DIST = False
     DOWNSTREAM = False
     RESUME = "./models/tensorboard/visnav/behavior_pred_exp/classification/window:0.05_prev:0.25/sparse_f:None_id:None/w:0.05_wp:0.25/6_Cont:False_window:0.05_f_window:0.2_df:0.005_blocksize:100_conv_True_shuffle:True_batch:224_sparse_(None_None)_blocksz446_pos_emb:False_temp_emb:True_drop:0.35_dt:True_2.0_52_max0.005_(8, 8, 8)_8_256.pt"
     RAND_PERM = False
@@ -98,6 +101,7 @@ except:
     print("Running in terminal")
     args = parse_args()
     INFERENCE = not args.train
+    DIST = args.dist
     DOWNSTREAM = args.downstream
     RESUME = args.resume
     RAND_PERM = args.rand_perm
@@ -386,7 +390,7 @@ for k in y.keys():
 
 # %%
 layers = (mconf.n_state_layers, mconf.n_state_history_layers, mconf.n_stimulus_layers)   
-max_epochs = 1250
+max_epochs = 2500
 batch_size = round((32 * 7))
 shuffle = True
 
@@ -453,7 +457,7 @@ if RESUME:
     print(f"// -- Resuming model -- //")
     model.load_state_dict(torch.load(RESUME), strict=True)
 
-title =  f'no_RESUME{RESUME == None}_paststate{PAST_STATE}_method_behavior_{behavior}_{behavior_vars}_predictbehavior{PREDICT_BEHAVIOR}_visual{VISUAL}_contrastive{model_conf.contrastive}_{model_conf.contrastive_vars}'
+title =  f'id_dt_prop(3/4)_RESUME{RESUME != None}_paststate{PAST_STATE}_method_behavior_{behavior}_{behavior_vars}_predictbehavior{PREDICT_BEHAVIOR}_visual{VISUAL}_contrastive{model_conf.contrastive}_{model_conf.contrastive_vars}'
 # model_path = f"""./models/tensorboard/visnav_medial/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{window}_wp:{window_prev}/{6}_Cont:{mconf.contrastive}_window:{window}_f_window:{frame_window}_df:{dt}_blocksize:{id_block_size}_conv_{conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt""""
 model_path = f"""./models/tensorboard/visnav/behavior_pred_exp/classification_continue/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{window}_wp:{window_prev}/{6}_Cont:{mconf.contrastive}_window:{window}_f_window:{frame_window}_df:{dt}_blocksize:{id_block_size}_conv_{conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
 
@@ -465,6 +469,7 @@ model_path = f"""./models/tensorboard/visnav/behavior_pred_exp/classification_co
 
 # %%
 
+print(F"DIST: {DIST}")
 tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rate=1e-4, 
                     num_workers=4, lr_decay=True, patience=3, warmup_tokens=8e7, 
                     decay_weights=True, weight_decay=1.0, shuffle=shuffle,
@@ -475,10 +480,10 @@ tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rat
                     id_block_size=train_dataset.id_block_size,
                     show_grads=False, plot_raster=False,
                     ckpt_path=model_path, no_pbar=False, 
-                    dist=False, save_every=50)
+                    dist=DIST, save_every=50)
 
 if not INFERENCE:
-    trainer = Trainer(model, train_dataset, test_dataset, tconf, model_conf)
+    # trainer = Trainer(model, train_dataset, test_dataset, tconf, model_conf)
     # if DOWNSTREAM:
     #     mconf.__setattr__('freeze_model', FREEZE_MODEL)
     #     trainer.config.__setattr__('warmup_tokens', 100)
@@ -574,6 +579,9 @@ df_pred_full = df_pred
 
 window_pred = 1
 window_pred = window if window_pred is None else window_pred
+df_pred_full = set_intervals(df_pred_full, window, window_prev, window_pred)
+df_1 = set_intervals(df_1, window, window_prev, window_pred)
+
 intervals = np.array(sorted(set(df['Interval'].unique()) & set(df['Interval'].unique())))
 labels = np.array([round(window_pred + window_pred*n, 2) for n in range(0, int(max(df_pred_full['Interval']) / window_pred))])
 ids = sorted(set(df['ID'].unique()) & set(df['ID'].unique()))
@@ -621,7 +629,7 @@ plt.savefig(os.path.join(dir_name, F'psth_corr_{save_title}_.svg'))
 df_pred.to_csv(os.path.join(dir_name, F'df_pred_{save_title}_.csv'))
 
 plot_distribution(df_1, df_pred, save_path=os.path.join(dir_name, F'psth_dist_.svg'))
-# save scores to json
+# save scores to json}}
 with open(os.path.join(dir_name, F'scores_{save_title}_.json'), 'w') as fp:
     json.dump(pred_scores, fp)
 
@@ -636,43 +644,36 @@ print(f"model: {title}")
 
 
 # %%
-x, y = next(iterable)
+# x, y = next(iterable)
 
-T = len(x['id'])
-P = x['pad'] - 1
-T_prev = len(x['id_prev'])
-P_prev = x['pad_prev'] - 4
+# T = len(x['id'])
+# P = x['pad'] - 1
+# T_prev = len(x['id_prev'])
+# P_prev = x['pad_prev'] - 4
 
-iv = float(x['interval'])
+# iv = float(x['interval'])
 
-xid = x['id'][: T - P]
-xid = [itos[int(i)] for i in xid]
+# xid = x['id'][: T - P]
+# xid = [itos[int(i)] for i in xid]
 
-xid_prev = x['id_prev'][: T_prev - P_prev]
-xid_prev = [itos[int(i)] for i in xid_prev]
+# xid_prev = x['id_prev'][: T_prev - P_prev]
+# xid_prev = [itos[int(i)] for i in xid_prev]
 
-print(f"iv: {iv}, ix+window: {iv + window} pid: {x['pid']} cid: {x['cid']}")
-print(f"x: {xid}")
+# print(f"iv: {iv}, ix+window: {iv + window} pid: {x['pid']} cid: {x['cid']}")
+# print(f"x: {xid}")
 
-print(f"xid_prev: {xid_prev}")
+# print(f"xid_prev: {xid_prev}")
 
-tdiff = 0
-t_var = 'Time' # 'Interval'
-int_var = 'cid'
-# df[(df[t_var] >= iv - tdiff) & (df[t_var] <= iv + (window + tdiff)) & (df['Trial'] == int(x['trial']))]
-# df[(df[t_var] >= float(x[int_var][0]) - tdiff) & (df[t_var] <= float(x[int_var][1] + tdiff)) & (df['Trial'] == int(x['trial']))]
-df[(df[t_var] > float(x[int_var][0]) - tdiff) & (df[t_var] <= float(x['cid'][1] + tdiff)) & (df['Trial'] == int(x['trial']))]
+# tdiff = 0
+# t_var = 'Time' # 'Interval'
+# int_var = 'cid'
+# # df[(df[t_var] >= iv - tdiff) & (df[t_var] <= iv + (window + tdiff)) & (df['Trial'] == int(x['trial']))]
+# # df[(df[t_var] >= float(x[int_var][0]) - tdiff) & (df[t_var] <= float(x[int_var][1] + tdiff)) & (df['Trial'] == int(x['trial']))]
+# df[(df[t_var] > float(x[int_var][0]) - tdiff) & (df[t_var] <= float(x['cid'][1] + tdiff)) & (df['Trial'] == int(x['trial']))]
 
 # t_var = 'Time' # 'Interval'
 # int_var = 'pid'
 # df[(df[t_var] > round(float(x[int_var][0]), 2) - tdiff) & (df[t_var] <= round(float(x[int_var][1]), 2)) & (df['Trial'] == int(x['trial']))]
-
-
-
-
-
-
-
 
 
 
