@@ -294,10 +294,12 @@ class Trainer:
                 #     scheduler.step(test_loss)
 
             # supports early stopping based on the test loss, or just save always if no test set is provided
-            good_model = self.test_dataset is None or test_loss < best_loss
-            # good_model = self.test_dataset is None or scores['F1'] > best_precision
-            if good_model:
-                best_loss = test_loss
-                self.save_checkpoint(test_loss)
+            if self.test_dataset is None:
+                self.save_checkpoint(epoch)
+            else:
+                good_model = test_loss < best_loss
+                if good_model:
+                    best_loss = test_loss
+                    self.save_checkpoint(test_loss)
                 # best_precision = scores['F1']
                 # self.save_checkpoint(epoch, scores['F1'])

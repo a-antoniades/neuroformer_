@@ -853,7 +853,7 @@ class SpikeTimeVidData2(Dataset):
                         x['frames'] = frame_feats_stim[:, frame_idx].type(torch.float32)
                         x['frames'] = x['frames'].repeat(1, 1).transpose(0, 1)
                     elif self.dataset == 'visnav':
-                        offset = 0
+                        offset = 2
                         f_idx_0 = max(0, frame_idx - n_frames - offset)
                         f_idx_1 = f_idx_0 + n_frames
                         x['frames'] = frame_feats_stim[f_idx_0:f_idx_1].type(torch.float32).unsqueeze(0)

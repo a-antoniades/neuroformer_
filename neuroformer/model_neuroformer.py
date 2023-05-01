@@ -1013,7 +1013,7 @@ class GPT(nn.Module):
         torch.cuda.empty_cache()
         if targets is not None:
             loss = collections.defaultdict(float)
-            n = 2
+            n = float('inf')
 
             if self.config.class_weights is not None:
                 loss_id = F.cross_entropy(id_logits.view(-1, id_logits.size(-1)), targets['id'].view(-1), weight=self.class_weights_id)
@@ -1053,7 +1053,7 @@ class GPT(nn.Module):
                 assert len(feats_clip.keys()) >= 2, "Need at least 2 variables for contrastive loss"
                 loss['clip'] = contrastive_loss(feats_clip) * (1 / n)
             
-            loss['id'] = ((3 / 4) * loss_id) * (1 - 1 / n)   # sum(loss_id) / (b * 2)   # / len(loss_id)
+            loss['id'] = ((2 / 4) * loss_id) * (1 - 1 / n)   # sum(loss_id) / (b * 2)   # / len(loss_id)
             loss['time'] = ((1 / 4) * loss_time) * (1 - 1 / n)
             if self.config.predict_behavior and 'behavior' in targets:
                 loss['behavior'] = ((1 / 4) * loss_behavior) * (1 - 1 / n)
@@ -1076,11 +1076,11 @@ class GPT(nn.Module):
                         precision.append(precision_score)
                         recall.append(recall_score)
                         F1.append(F1_score)
-                else:
-                    zero_tensor = torch.zeros(1).to(self.device)
-                    precision.append(zero_tensor)
-                    recall.append(zero_tensor)
-                    F1.append(zero_tensor) 
+        else:
+            zero_tensor = torch.zeros(1).to(self.device)
+            precision.append(zero_tensor)
+            recall.append(zero_tensor)
+            F1.append(zero_tensor) 
 
 
             # # calculate precision, recall, F1
@@ -1090,9 +1090,9 @@ class GPT(nn.Module):
             # precision_top5, recall_top5, F1_top5 = topk_metrics(id_logits, targets['id'], k=5, 
             #                                                     num_classes=self.config.id_vocab_size, ignore_index=self.config.ignore_index_id)
             # preds['precision_top5'], preds['recall_top5'], preds['F1_top5'] = precision_top5, recall_top5, F1_top5
-            preds['precision'] = torch.stack(precision).mean()
-            preds['recall'] = torch.stack(recall).mean()
-            preds['F1'] = torch.stack(F1).mean()
+        preds['precision'] = torch.stack(precision).mean()
+        preds['recall'] = torch.stack(recall).mean()
+        preds['F1'] = torch.stack(F1).mean()
 
         features['last_layer'] = x
         preds['id'] = id_logits    # [:, tf:]    # only id logits
