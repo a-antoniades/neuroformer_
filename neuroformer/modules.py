@@ -66,8 +66,8 @@ def clip_loss(features, temp=0.1):
         emb_j = emb_j / emb_j.norm(dim=-1, keepdim=True)
 
         # Compute similarity matrix
-        logits_per_i = temp * emb_i @ emb_j.t()
-        logits_per_j = temp * emb_j @ emb_i.t()
+        logits_per_i = emb_i @ emb_j.t() / temp
+        logits_per_j = emb_j @ emb_i.t() / temp
 
         # (a)ssymetric loss function
         labels = torch.arange(batch_size, device=emb_i.device)

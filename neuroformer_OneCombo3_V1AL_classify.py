@@ -30,6 +30,7 @@ from neuroformer.trainer import Trainer, TrainerConfig
 from neuroformer.utils import set_seed, update_object
 from neuroformer.visualize import set_plot_params
 from neuroformer.SpikeVidUtils import round_n
+import gdown
 set_plot_params()
 
 parent_path = os.path.dirname(os.path.dirname(os.getcwd())) + "/"
@@ -45,12 +46,11 @@ logging.basicConfig(
         level=logging.INFO,
 )
 
-set_seed(25)
-
 def parse_args():
     parser = argparse.ArgumentParser()
     # parser.add_argument("--infer", action="store_true", help="Inference mode")
     parser.add_argument("--train", action="store_true", default=False, help="Train mode")
+    parser.add_argument("--seed", type=int, default=25, help="Random seed")
     parser.add_argument("--resume", type=str, default=None, help="Resume from checkpoint")
     parser.add_argument("--rand_perm", action="store_true", default=False, help="Randomly permute the ID column")
     parser.add_argument("--mconf", type=str, default=None, help="Path to model config file")
@@ -63,12 +63,15 @@ def parse_args():
     parser.add_argument("--past_state", action="store_true", default=False, help="Input past state")
     parser.add_argument("--visual", action="store_true", default=False, help="Visualize")
     parser.add_argument("--contrastive", action="store_true", default=False, help="Contrastive")
+    parser.add_argument("--clip_loss", action="store_true", default=False, help="Clip loss")
+    parser.add_argument("--class_weights", action="store_true", default=False, help="Class weights")
     return parser.parse_args()
+
 
 # if __name__ == "__main__":
 #     args = parse_args()
 #     INFERENCE = not args.train
-# else:
+# else:'
 #     INFERENCE = True
 
 # check if jupyter notebook
@@ -76,6 +79,7 @@ try:
     shell = get_ipython().__class__.__name__
     print("Running in Jupyter notebook")
     INFERENCE = False
+    SEED = 25
     DOWNSTREAM = True
     RESUME = None
     RAND_PERM = False
@@ -88,10 +92,13 @@ try:
     VISUAL = True
     PAST_STATE = True
     CONTRASTIVE = False
+    CLIP_LOSS = False
+    CLASS_WEIGHTS = False
 except:
     print("Running in terminal")
     args = parse_args()
     INFERENCE = not args.train
+    SEED = args.seed
     DOWNSTREAM = args.downstream
     RESUME = args.resume
     RAND_PERM = args.rand_perm
@@ -103,12 +110,15 @@ except:
     VISUAL = args.visual
     PAST_STATE = args.past_state
     CONTRASTIVE = args.contrastive
+    CLIP_LOSS = args.clip_loss
+    CLASS_WEIGHTS = args.class_weights
 
+# SET SEED - VERY IMPORTANT
+set_seed(SEED)
 
 print(f"CONTRASTIUVEEEEEEE {CONTRASTIVE}")
 print(f"VISUAL: {VISUAL}")
 print(f"PAST_STATE: {PAST_STATE}")
-
 
 
 # %%
@@ -124,20 +134,20 @@ DOWNLOAD DATA URL = https://drive.google.com/drive/folders/1jNvA4f-epdpRmeG9s2E-
 """
 
 if DATASET == "Combo3_V1AL":
-    RESPONSE_PATH = "data/Combo3_V1AL/Combo3_V1AL_response.csv"
-    STIMULUS_PATH = "data/Combo3_V1AL/Combo3_V1AL_stimulus.pt"
+    RESPONSE_PATH = "./data/Combo3_V1AL/Combo3_V1AL_response.csv"
+    STIMULUS_PATH = "./data/Combo3_V1AL/Combo3_V1AL_stimulus.pt"
 
-# if not os.path.exists(RESPONSE_PATH):
-#     print("Downloading data...")
-#     url = "https://drive.google.com/drive/folders/1jNvA4f-epdpRmeG9s2E-2Sfo-pwYbjeY?usp=share_link"
-#     gdown.download_folder(id=url, quiet=False, use_cookies=False, output=os.path.dirname(RESPONSE_PATH))
-# else:
-from neuroformer.prepare_data import DataLinks
-DataLinkDS = getattr(DataLinks, DATASET)
-url = DataLinkDS['url']
-RESPONSE_PATH = DataLinkDS['RESPONSE_PATH']
-STIMULUS_PATH = DataLinkDS['STIMULUS_PATH']
-# gdown.download_folder(id=url)
+if not os.path.exists(RESPONSE_PATH):
+    print("Downloading data...")
+    url = "https://drive.google.com/drive/folders/1jNvA4f-epdpRmeG9s2E-2Sfo-pwYbjeY?usp=share_link"
+    gdown.download_folder(id=url, quiet=False, use_cookies=False, output=os.path.dirname(RESPONSE_PATH))
+else:
+    from neuroformer.prepare_data import DataLinks
+    DataLinkDS = getattr(DataLinks, DATASET)
+    url = DataLinkDS['url']
+    RESPONSE_PATH = DataLinkDS['RESPONSE_PATH']
+    STIMULUS_PATH = DataLinkDS['STIMULUS_PATH']
+    # gdown.download_folder(id=url)
 
 
 df = pd.read_csv(RESPONSE_PATH)
@@ -344,6 +354,16 @@ train_data = df[~df['Trial'].isin(n)].reset_index(drop=True)
 test_data = df[df['Trial'].isin(n)].reset_index(drop=True)
 small_data = df[df['Trial'].isin([5])].reset_index(drop=True)
 
+# %%
+if CLASS_WEIGHTS:
+    class_weights = {}
+    class_weights['id'] = torch.ones(len(stoi.keys()), dtype=torch.float32)
+    class_weights['id'][stoi['PAD']] = 0
+    class_weights['id'][stoi['EOS']] = 1 / 10
+    class_weights['dt'] = torch.ones(len(stoi_dt.keys()), dtype=torch.float32)
+    class_weights['dt'][stoi_dt['PAD']] = 0
+else:
+    class_weights = None
 
 # %%
 from neuroformer.SpikeVidUtils import SpikeTimeVidData2
@@ -359,17 +379,17 @@ train_dataset = SpikeTimeVidData2(train_data, None, block_size, id_block_size, f
 
 if INFERENCE:
     update_object(train_dataset, dconf)
-    train_dataset = train_dataset.copy(train_data)
-    test_dataset = train_dataset.copy(test_data)
-    finetune_dataset = train_dataset.copy(finetune_data)
+
+train_dataset = train_dataset.copy(train_data)
+test_dataset = train_dataset.copy(test_data)
+finetune_dataset = train_dataset.copy(finetune_data)
     
 print(f'train: {len(train_dataset)}, test: {len(test_dataset)}')
-
 
 # %%
 
 layers = (mconf.n_state_layers, mconf.n_state_history_layers, mconf.n_stimulus_layers)   
-max_epochs = 250
+max_epochs = 200
 batch_size = round((32 * 2))
 shuffle = True
 
@@ -382,19 +402,19 @@ model_conf = GPTConfig(train_dataset.population_size, block_size,    # frame_blo
                         sparse_mask=False, p_sparse=None, 
                         sparse_topk_frame=None, sparse_topk_id=None, sparse_topk_prev_id=None,
                         n_dt=len(n_dt),
-                        class_weights=None,
                         pretrain=False,
                         n_state_layers=8, n_state_history_layers=8,
                         n_stimulus_layers=8, self_att_layers=0,
                         n_behavior_layers=0, predict_behavior=predict_behavior, n_behavior=n_behavior,
                         n_head=4, n_embd=n_embd, 
-                        contrastive=False, clip_emb=1024, clip_temp=mconf.clip_temp,
+                        contrastive=mconf.contrastive, clip_emb=1024, clip_temp=mconf.clip_temp,
                         conv_layer=conv_layer, kernel_size=kernel_size, stride_size=stride_size, padding_size=padding_size,
                         temp_emb=mconf.temp_emb, pos_emb=False,
                         id_drop=0.35, im_drop=0.35, b_drop=0.45,
                         window=window, window_prev=window_prev, frame_window=frame_window, dt=dt,
                         neurons=neurons, stoi_dt=stoi_dt, itos_dt=itos_dt, n_embd_frames=n_embd_frames,
-                        ignore_index_id=stoi['PAD'], ignore_index_dt=stoi_dt['PAD'])  # 0.35
+                        ignore_index_id=stoi['PAD'], ignore_index_dt=stoi_dt['PAD'],
+                        class_weights=class_weights)  # 0.35
 
 if INFERENCE or MCONF is not None:
     update_object(model_conf, mconf)
@@ -404,13 +424,13 @@ if not INFERENCE:
         print(f"// -- No past state, layers=0 -- //")
         model_conf.n_state_history_layers = 0
 
-    if CONTRASTIVE is True:
-        print(f"// -- contrastive objective -- //")
+    if CONTRASTIVE or CLIP_LOSS is True:
+        print(f"// -- contrastive objective clip{CLIP_LOSS} -- //")
         model_conf.contrastive = True
+        model_conf.clip_loss = CLIP_LOSS
     else:
         print(f"// -- no contrastive objective -- //")
         model_conf.contrastive = False
-
     if VISUAL is False:
         print(f"// -- No visual, layers=0 -- //")
         model_conf.n_stimulus_layers = 0
@@ -425,12 +445,14 @@ if RESUME is not None:
         model_path = f"{RESUME[:-3]}_resume.pt"
 
 
-title =  f'epoch250_rand{RAND_PERM}_downstream:{DOWNSTREAM}/past_state_{PAST_STATE}_visual{VISUAL}_contrastive_{CONTRASTIVE}_freeze_{FREEZE_MODEL}/randperm_{RAND_PERM}/Big_fixed_noself-att'
-
+# epoch250_rand{RAND_PERM}_downstream:{DOWNSTREAM}
+# title =  f'3/4prop_{CLASS_WEIGHTS}/past_state_{PAST_STATE}_visual{VISUAL}_contrastive_{CONTRASTIVE}_clip_loss{CLIP_LOSS}t{mconf.clip_temp}_freeze_{FREEZE_MODEL}_class_weights{CLASS_WEIGHTS}/randperm_{RAND_PERM}/Big_fixed_noself-att'
+title = f"epoch{max_epochs}_seed{SEED}rand{RAND_PERM}_/downstream:{DOWNSTREAM}"
 if INFERENCE:
     model_path = glob.glob(os.path.join(base_path, '**.pt'), recursive=True)[0]
 else:
-    model_path = f"""./models/tensorboard/{DATASET}/pretrain/{title}_2/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{mconf.window}_wp:{mconf.window_prev}/Cont:{mconf.contrastive}_window:{mconf.window}_f_window:{mconf.frame_window}_df:{mconf.dt}_blocksize:{mconf.id_block_size}_conv_{mconf.conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
+    # model_path = f"""./models/tensorboard/{DATASET}/ablations_small/{title}_2/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{mconf.window}_wp:{mconf.window_prev}/Cont:{mconf.contrastive}_window:{mconf.window}_f_window:{mconf.frame_window}_df:{mconf.dt}_blocksize:{mconf.id_block_size}_conv_{mconf.conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
+    model_path = f"""./models/tensorboard/{DATASET}/pretrain/downstream_exp/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{mconf.window}_wp:{mconf.window_prev}/Cont:{mconf.contrastive}_window:{mconf.window}_f_window:{mconf.frame_window}_df:{mconf.dt}_blocksize:{mconf.id_block_size}_conv_{mconf.conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
 
 # %%
 
@@ -495,10 +517,9 @@ tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rat
                     dist=False, save_every=20, loss_bprop=loss_bprop)
 
 if not INFERENCE:
-    trainer = Trainer(model, train_dataset, test_dataset, tconf, model_conf)
     if DOWNSTREAM:
         mconf.__setattr__('freeze_model', FREEZE_MODEL)
-        trainer.config.__setattr__('warmup_tokens', 100)
+        tconf.__setattr__('warmup_tokens', 100)
         N_CLASSES = 2
         classifier = ClassifierWrapper(model, mconf, N_CLASSES)
         train_model = classifier
@@ -509,8 +530,13 @@ if not INFERENCE:
     trainer.train()
 else:
     model_path = glob.glob(os.path.join(base_path, '**.pt'), recursive=True)[0]
-    print(f"Loading model from {model_path}")
-    model.load_state_dict(torch.load(model_path), strict=False)
+    if RESUME is None:
+        print(f"Loading model from {model_path}")
+        model.load_state_dict(torch.load(model_path), strict=False)
+    else:
+        print(f"Loading model from {RESUME}")
+        model.load_state_dict(torch.load(RESUME), strict=False)
+    
 
 # %%
 loader = DataLoader(train_dataset, batch_size=1, shuffle=False, num_workers=4, pin_memory=True)
@@ -548,16 +574,14 @@ from neuroformer.utils import predict_raster_recursive_time_auto, process_predic
 PARALLEL = True
 df_pred_path = None
 
-model.load_state_dict(torch.load(model_path))
-
 results_dict = dict()
 df_pred = None if df_pred_path is None else pd.read_csv(df_pred_path)
 df_true = None
 
 top_p = 0.75
-top_p_t = 0.75
-temp = 1.25
-temp_t = 1.25
+top_p_t = 0.9
+temp = 1.3
+temp_t = 1.
 
 trials = sorted(train_data['Trial'].unique())[::4]
 
@@ -601,7 +625,8 @@ from neuroformer.analysis import compute_scores
 df_true = df[df['Trial'].isin(trials)]
 scores = compute_scores(df_true, df_pred)
 print(scores)
-print(f"len predL: {len(df_pred)}, len true: {len(df_true)}")
+print(f"ID unique: pred: {len(df_pred['ID'].unique())}, true: {len(df_true['ID'].unique())}")
+print(f"len pred: {len(df_pred)}, len true: {len(df_true)}")
 
 dir_name = os.path.dirname(model_path)
 model_name = os.path.basename(model_path)
@@ -655,7 +680,8 @@ df_2 = set_intervals(df_2, window, window_prev, window_pred)
 df_3 = set_intervals(df_3, window, window_prev, window_pred)
 
 window_pred = window if window_pred is None else window_pred
-intervals = np.array(sorted(set(df['Interval'].unique()) & set(df['Interval'].unique())))
+# intervals = np.array(sorted(set(df['Interval'].unique()) & set(df['Interval'].unique())))
+intervals = np.array(sorted(set(df_pred_full['Interval'].unique())))
 labels = np.array([round(window_pred + window_pred*n, 2) for n in range(0, int(max(df_pred_full['Interval']) / window_pred))])
 ids = sorted(set(df['ID'].unique()) & set(df['ID'].unique()))
 
@@ -695,10 +721,11 @@ pred_scores = compute_scores(df_1, df_pred_full)
 print(f"real: {scores}")
 print(f"pred: {pred_scores}")
 # save scores to json
-with open(os.path.join(save_dir, F'scores.json'), 'w') as f:
-    json.dump(scores, f)
-with open(os.path.join(save_dir, F'pred_scores.json'), 'w') as f:
-    json.dump(pred_scores, f)
+
+score_dict = {'true': scores, 'pred': pred_scores}
+n_score_paths = len(glob.glob(os.path.join(dir_name, F'scores*.json')))
+with open(os.path.join(dir_name, F'scores_{n}_top:{top_p}_{temp}_{top_p_t}_{temp_t}.json'), 'w') as f:
+    json.dump(score_dict, f)
 
 # dir_name = os.path.dirname(model_path)
 save_dir = os.path.dirname(model_path)
@@ -722,88 +749,83 @@ total_scores = dict()
 total_scores['real'] = scores
 total_scores['pred'] = pred_scores
 
-print(f"model: {title}")
-
-
-# %%
-loader = DataLoader(test_dataset, shuffle=False, pin_memory=False)
-iterable = iter(test_dataset)
+# # %%
+# loader = DataLoader(test_dataset, shuffle=False, pin_memory=False)
+# iterable = iter(test_dataset)
 
 
 
-# %%
-var_group = 'Interval'
-int_trials = df.groupby([var_group, 'Trial']).size()
-print(int_trials.mean())
-# df.groupby(['Interval', 'Trial']).agg(['nunique'])
-n_unique = len(df.groupby([var_group, 'Trial']).size())
-df.groupby([var_group, 'Trial']).size().nlargest(int(0.2 * n_unique))
-# df.groupby(['Interval_2', 'Trial']).size().mean()
+# # %%
+# var_group = 'Interval'
+# int_trials = df.groupby([var_group, 'Trial']).size()
+# print(int_trials.mean())
+# # df.groupby(['Interval', 'Trial']).agg(['nunique'])
+# n_unique = len(df.groupby([var_group, 'Trial']).size())
+# df.groupby([var_group, 'Trial']).size().nlargest(int(0.2 * n_unique))
+# # df.groupby(['Interval_2', 'Trial']).size().mean()
 
 
 
-# %%
-# while iv < 1.95:
-x, y = next(iterable)
+# # %%
+# # while iv < 1.95:
+# x, y = next(iterable)
 
-T = len(x['id'])
-P = x['pad']
-T_prev = len(x['id_prev'])
-P_prev = x['pad_prev'] - 4
+# T = len(x['id'])
+# P = x['pad']
+# T_prev = len(x['id_prev'])
+# P_prev = x['pad_prev'] - 4
 
-T_y = len(y['id'])
-P_y = x['pad']
+# T_y = len(y['id'])
+# P_y = x['pad']
 
-iv = float(x['interval'])
+# iv = float(x['interval'])
 
-xid = x['id'][: T - P]
-xid = [itos[int(i)] for i in xid]
-xdt = x['dt'][: T - P]
+# xid = x['id'][: T - P]
+# xid = [itos[int(i)] for i in xid]
+# xdt = x['dt'][: T - P]
 
-yid = y['id'][: T_y - P_y]
-yid = [itos[int(i)] for i in yid]
-ydt = y['dt'][: T - P]
+# yid = y['id'][: T_y - P_y]
+# yid = [itos[int(i)] for i in yid]
+# ydt = y['dt'][: T - P]
 
-xid_prev = x['id_prev'][: T_prev - P_prev]
-xid_prev = [itos[int(i)] for i in xid_prev]
+# xid_prev = x['id_prev'][: T_prev - P_prev]
+# xid_prev = [itos[int(i)] for i in xid_prev]
 
-print(f"iv: {iv}, ix+window: {iv + window} pid: {x['pid']} cid: {x['cid']}")
-print(f"x: {xid}")
-print(f"xdt: {xdt}")
-print(f"y: {yid}")
-print(f"ydt: {ydt}")
+# print(f"iv: {iv}, ix+window: {iv + window} pid: {x['pid']} cid: {x['cid']}")
+# print(f"x: {xid}")
+# print(f"xdt: {xdt}")
+# print(f"y: {yid}")
+# print(f"ydt: {ydt}")
 
-print(f"xid_prev: {xid_prev}")
+# print(f"xid_prev: {xid_prev}")
 
-tdiff = 0
-t_var = 'Time' # 'Interval'
-int_var = 'cid'
-# df[(df[t_var] >= iv - tdiff) & (df[t_var] <= iv + (window + tdiff)) & (df['Trial'] == int(x['trial']))]
-# df[(df[t_var] >= float(x[int_var][0]) - tdiff) & (df[t_var] <= float(x[int_var][1] + tdiff)) & (df['Trial'] == int(x['trial']))]
-df[(df[t_var] > float(x[int_var][0]) - tdiff) & (df[t_var] <= float(x['cid'][1] + tdiff)) & (df['Trial'] == int(x['trial']))]
-
+# tdiff = 0
 # t_var = 'Time' # 'Interval'
-# int_var = 'pid'
-# df[(df[t_var] > round(float(x[int_var][0]), 2) - tdiff) & (df[t_var] <= round(float(x[int_var][1]), 2)) & (df['Trial'] == int(x['trial']))
+# int_var = 'cid'
+# # df[(df[t_var] >= iv - tdiff) & (df[t_var] <= iv + (window + tdiff)) & (df['Trial'] == int(x['trial']))]
+# # df[(df[t_var] >= float(x[int_var][0]) - tdiff) & (df[t_var] <= float(x[int_var][1] + tdiff)) & (df['Trial'] == int(x['trial']))]
+# df[(df[t_var] > float(x[int_var][0]) - tdiff) & (df[t_var] <= float(x['cid'][1] + tdiff)) & (df['Trial'] == int(x['trial']))]
 
-# print(f"trial: {x['trial']}, pid: {x['pid']}, cid: {x['cid']}")
+# # t_var = 'Time' # 'Interval'
+# # int_var = 'pid'
+# # df[(df[t_var] > round(float(x[int_var][0]), 2) - tdiff) & (df[t_var] <= round(float(x[int_var][1]), 2)) & (df['Trial'] == int(x['trial']))
 
-# plt.imshow(x['frames'][0, 0])
+# # print(f"trial: {x['trial']}, pid: {x['pid']}, cid: {x['cid']}")
 
-# %%
-itos_dt
+# # plt.imshow(x['frames'][0, 0])
 
-
-# %%
-loader = DataLoader(test_dataset, shuffle=True, pin_memory=False)
-iterable = iter(loader)
-
-
-# %%
-x, y = next(iterable)
-preds, features, loss = model(x, y)
+# # %%
+# itos_dt
 
 
+# # %%
+# loader = DataLoader(test_dataset, shuffle=True, pin_memory=False)
+# iterable = iter(loader)
+
+
+# # %%
+# x, y = next(iterable)
+# preds, features, loss = model(x, y
 
 
 
