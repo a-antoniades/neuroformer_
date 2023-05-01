@@ -369,10 +369,20 @@ train_dataset = SpikeTimeVidData2(train_data, None, block_size, id_block_size, f
 
 update_object(train_dataset, dconf)
 train_dataset = train_dataset.copy(train_data)
-test_dataset = train_dataset.copy(test_data)
+# test_dataset = train_dataset.copy(test_data)
+
+test_dataset = SpikeTimeVidData2(test_data, None, block_size, id_block_size, frame_block_size, prev_id_block_size, 
+                                  window, dt, frame_memory, stoi, itos, neurons, stoi_dt, itos_dt, frame_feats,
+                                  pred=False, window_prev=window_prev, frame_window=frame_window,
+                                  dt_frames=dt_frames, intervals=None, dataset='visnav',
+                                  behavior=df_behavior, behavior_vars=behavior_vars, dt_vars=dt_vars,
+                                  behavior_block_size=behavior_block_size, samples_per_behavior=samples_per_behavior,
+                                  window_behavior=window_behavior, predict_behavior=predict_behavior,
+                                  stoi_speed=stoi_speed, itos_speed=itos_speed, dt_speed=dt_speed)
+update_object(test_dataset, dconf)
+test_dataset = test_dataset.copy(test_data)
 
 print(f'train: {len(train_dataset)}, test: {len(test_dataset)}')
-
 
 
 # %%
@@ -457,9 +467,9 @@ if RESUME:
     print(f"// -- Resuming model -- //")
     model.load_state_dict(torch.load(RESUME), strict=True)
 
-title =  f'third/RESUME{RESUME != None}_paststate{PAST_STATE}_method_behavior_{behavior}_{behavior_vars}_predictbehavior{PREDICT_BEHAVIOR}_visual{VISUAL}_contrastive{model_conf.contrastive}_{model_conf.contrastive_vars}'
+title =  f'fourth/RESUME{RESUME != None}_paststate{PAST_STATE}_method_behavior_{behavior}_{behavior_vars}_predictbehavior{PREDICT_BEHAVIOR}_visual{VISUAL}_contrastive{model_conf.contrastive}_{model_conf.contrastive_vars}'
 # model_path = f"""./models/tensorboard/visnav_medial/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{window}_wp:{window_prev}/{6}_Cont:{mconf.contrastive}_window:{window}_f_window:{frame_window}_df:{dt}_blocksize:{id_block_size}_conv_{conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt""""
-model_path = f"""./models/tensorboard/visnav/behavior_pred_exp/classification/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{window}_wp:{window_prev}/{6}_Cont:{mconf.contrastive}_window:{window}_f_window:{frame_window}_df:{dt}_blocksize:{id_block_size}_conv_{conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
+model_path = f"""./models/tensorboard/visnav/behavior_pred_exp/no_classification/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{window}_wp:{window_prev}/{6}_Cont:{mconf.contrastive}_window:{window}_f_window:{frame_window}_df:{dt}_blocksize:{id_block_size}_conv_{conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
 
 # # %%
 # model.cpu()
