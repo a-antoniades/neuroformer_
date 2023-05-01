@@ -46,12 +46,11 @@ logging.basicConfig(
         level=logging.INFO,
 )
 
-set_seed(25)
-
 def parse_args():
     parser = argparse.ArgumentParser()
     # parser.add_argument("--infer", action="store_true", help="Inference mode")
     parser.add_argument("--train", action="store_true", default=False, help="Train mode")
+    parser.add_argument("--seed", type=int, default=25, help="Random seed")
     parser.add_argument("--resume", type=str, default=None, help="Resume from checkpoint")
     parser.add_argument("--rand_perm", action="store_true", default=False, help="Randomly permute the ID column")
     parser.add_argument("--mconf", type=str, default=None, help="Path to model config file")
@@ -68,6 +67,7 @@ def parse_args():
     parser.add_argument("--class_weights", action="store_true", default=False, help="Class weights")
     return parser.parse_args()
 
+
 # if __name__ == "__main__":
 #     args = parse_args()
 #     INFERENCE = not args.train
@@ -79,6 +79,7 @@ try:
     shell = get_ipython().__class__.__name__
     print("Running in Jupyter notebook")
     INFERENCE = False
+    SEED = 25
     DOWNSTREAM = True
     RESUME = None
     RAND_PERM = False
@@ -97,6 +98,7 @@ except:
     print("Running in terminal")
     args = parse_args()
     INFERENCE = not args.train
+    SEED = args.seed
     DOWNSTREAM = args.downstream
     RESUME = args.resume
     RAND_PERM = args.rand_perm
@@ -111,10 +113,12 @@ except:
     CLIP_LOSS = args.clip_loss
     CLASS_WEIGHTS = args.class_weights
 
+# SET SEED - VERY IMPORTANT
+set_seed(SEED)
+
 print(f"CONTRASTIUVEEEEEEE {CONTRASTIVE}")
 print(f"VISUAL: {VISUAL}")
 print(f"PAST_STATE: {PAST_STATE}")
-
 
 
 # %%
@@ -385,7 +389,7 @@ print(f'train: {len(train_dataset)}, test: {len(test_dataset)}')
 # %%
 
 layers = (mconf.n_state_layers, mconf.n_state_history_layers, mconf.n_stimulus_layers)   
-max_epochs = 100
+max_epochs = 200
 batch_size = round((32 * 2))
 shuffle = True
 
@@ -443,12 +447,12 @@ if RESUME is not None:
 
 # epoch250_rand{RAND_PERM}_downstream:{DOWNSTREAM}
 # title =  f'3/4prop_{CLASS_WEIGHTS}/past_state_{PAST_STATE}_visual{VISUAL}_contrastive_{CONTRASTIVE}_clip_loss{CLIP_LOSS}t{mconf.clip_temp}_freeze_{FREEZE_MODEL}_class_weights{CLASS_WEIGHTS}/randperm_{RAND_PERM}/Big_fixed_noself-att'
-title = f"epoch70_rand{RAND_PERM}_downstream:{DOWNSTREAM}"
+title = f"epoch{max_epochs}_seed{SEED}rand{RAND_PERM}_/downstream:{DOWNSTREAM}"
 if INFERENCE:
     model_path = glob.glob(os.path.join(base_path, '**.pt'), recursive=True)[0]
 else:
     # model_path = f"""./models/tensorboard/{DATASET}/ablations_small/{title}_2/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{mconf.window}_wp:{mconf.window_prev}/Cont:{mconf.contrastive}_window:{mconf.window}_f_window:{mconf.frame_window}_df:{mconf.dt}_blocksize:{mconf.id_block_size}_conv_{mconf.conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
-    model_path = f"""./models/tensorboard/{DATASET}/pretrain/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{mconf.window}_wp:{mconf.window_prev}/Cont:{mconf.contrastive}_window:{mconf.window}_f_window:{mconf.frame_window}_df:{mconf.dt}_blocksize:{mconf.id_block_size}_conv_{mconf.conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
+    model_path = f"""./models/tensorboard/{DATASET}/pretrain/downstream_exp/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{mconf.window}_wp:{mconf.window_prev}/Cont:{mconf.contrastive}_window:{mconf.window}_f_window:{mconf.frame_window}_df:{mconf.dt}_blocksize:{mconf.id_block_size}_conv_{mconf.conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
 
 # %%
 
@@ -821,9 +825,7 @@ total_scores['pred'] = pred_scores
 
 # # %%
 # x, y = next(iterable)
-# preds, features, loss = model(x, y)
-
-
+# preds, features, loss = model(x, y
 
 
 
