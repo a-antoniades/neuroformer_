@@ -697,7 +697,7 @@ class SpikeTimeVidData2(Dataset):
                 data = self.data if data is None else data
                 if self.data_dict is None:
                     if interval[0] < 0 and \
-                       self.dataset in ['LRN', 'vinav']:
+                       self.dataset in ['LRN']: # , 'visnav']:
                         data, id_interval = self.get_data_prev_trial(trial, interval)
                     else:
                         data = data[data['Trial'] == trial]
