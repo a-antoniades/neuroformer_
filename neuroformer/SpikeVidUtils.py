@@ -138,6 +138,34 @@ def trial_combo_rampV2(spike_data, video_stack):
     df['Time'] *= dt
     df = df.sort_values(by=['Trial', 'Stimulus', 'Time',])
 
+def set_trials(df, trials):
+    """
+    Add a trial column to df according
+    to trial intervals specified in trials.
+    """
+    df['Trial'] = 1
+    # for i, trial in enumerate(trials):
+    #     if i < len(trials) - 1:
+    #         df.loc[(df['Time'] >= trial[0]) & (df['Time'] < trial[1]), 'Trial'] = i
+    #     else:
+    #         df.loc[(df['Time'] >= trial[0]), 'Trial'] = i
+    # df['Trial'][df['Trial'] < 2] = 1
+
+    for i in range(len(trials)):
+        trial = trials[i]
+        interval_1 = trial[1]
+        n_trial = trial[0]
+
+        if i < len(trials) - 1:
+            trial_next = trials[i+1] if i < len(trials) - 1 else df['Time'].max()
+            interval_2 = trial_next[1]
+        else:
+            interval_2 = df['Time'].max() + 1
+        df['Trial'][(df['Time'] >= interval_1) & (df['Time'] < interval_2)] = i
+        df['Time'][(df['Time'] >= interval_1) & (df['Time'] < interval_2)] -= interval_1
+    assert np.all(df['Trial'] != -1), 'Some trials were not assigned'
+    return df
+
 
 def get_df_visnav(data, trials=None, dt_vars=None):
     """
@@ -168,7 +196,7 @@ def get_df_visnav(data, trials=None, dt_vars=None):
     df = df.dropna().reset_index(drop=True)
     df['raw_time'] = df['Time']
     if dt_vars is not None:
-        df['raw_interval'] = df['raw_time'].apply(lambda x: round_n(x, dt_vars))
+        df['raw_interval'] = make_intervals(df, dt_vars, 'raw_time')
     
     if trials is not None:
 
@@ -253,11 +281,11 @@ def set_intervals(df, window, window_prev, pred_window=None, max_window=None, mi
 #     intervals = np.array(intervals).round(2)
 #     return intervals
 
-def make_intervals(data, window):
+def make_intervals(data, window, col='Time'):
     def round_up_to_nearest_half_int(num, window):
         return math.ceil(num * (1 / window)) / (1 / window)
     # print(f"3: {data['Interval'].max()}")
-    intervals = data['Time'].apply(lambda x: round_up_to_nearest_half_int(x, window))
+    intervals = data[col].apply(lambda x: round_up_to_nearest_half_int(x, window))
     # print(f"4: {data['Interval'].max()}")
 
     return intervals
@@ -518,8 +546,8 @@ def get_var(data, interval, variable=None, trial=None):
         data = data[data['Trial'] == trial]
     if variable is not None:
         data = data[variable]
-    data = data[(data['Time'] > interval[0]) & 
-                    (data['Time'] <= interval[1])]
+    data = data[(data['Interval'] > interval[0]) & 
+                    (data['Interval'] <= interval[1])]
     return data
     
 # dataloader class
@@ -569,6 +597,7 @@ class SpikeTimeVidData2(Dataset):
                 self.population_size = len([*stoi.keys()])
                 self.id_population_size = len([*stoi.keys()])
                 self.dt_population_size = len([*stoi_dt.keys()])
+                # print the pop, id and dt sizes
                 print("Population Size: ", self.population_size)
                 print("ID Population Size: ", self.id_population_size)
                 print("DT Population Size: ", self.dt_population_size)
@@ -619,17 +648,15 @@ class SpikeTimeVidData2(Dataset):
                 if self.dataset != 'LRN':
                     self.t = self.t[self.t['Interval'] >= self.min_interval].reset_index(drop=True)
                 elif self.dataset == 'LRN':
-                    # for LRN dataset the current trial continues from the previous one
+                    # for LRN dataset the current trial continuous from the previous one
                     self.t[self.t['Trial'] == self.min_trial] = self.t[self.t['Trial'] == self.min_trial][self.t[self.t['Trial'] == self.min_trial]['Interval'] >= self.min_interval]
                     self.t = self.t.dropna().reset_index(drop=True)
 
-        def copy(self, data, t=None):
+        def copy(self, data):
             """return new class with everything the same except data,
             and the recalculation of self.t and self.size"""
             new = copy.deepcopy(self)
             new.data = data
-            if t is not None:
-                new.intervals = t
             new.set_intervals(data)
             return new
 
@@ -637,22 +664,30 @@ class SpikeTimeVidData2(Dataset):
             return round(base * (round(float(x)/base)), 2)
         # return round(base * float(x)/base)
 
+        def calc_intervals(self, interval):
+            prev_int = self.round_n(interval, self.dt)
+            prev_id_interval = self.round_n(prev_int - self.window_prev, self.dt), prev_int
+            current_int = self.round_n(interval, self.dt)
+            current_id_interval = current_int, self.round_n(current_int + self.window, self.dt)
+            assert prev_id_interval[1] == current_id_interval[0]
+            return prev_id_interval, current_id_interval
+
         def get_data_prev_trial(self, trial, prev_id_interval):
             """
             the start of a trial cotninues from the end of the previous trial
             """
             data = self.data
-            max_time_prev = data[data['Trial'] == trial - 1]['Interval'].max()
+            max_time_prev = data[data['Trial'] == trial - 1]['Time'].max()
             
             prev_trial = trial - 1
-            prev_trial_interval = (max_time_prev + prev_id_interval[0] + self.window, max_time_prev)
+            prev_trial_interval = (max_time_prev + prev_id_interval[0], max_time_prev)
             prev_trial_data = data[(data['Trial'] == prev_trial) & 
-                                    (data['Time'] >= prev_trial_interval[0])]
+                                    (data['Time'] > prev_trial_interval[0])]
                 # prev_trial_data['Time'] = prev_trial_data['Time'] - prev_trial_interval[0]
             
             current_trial_data = data[(data['Trial'] == trial) & 
-                                        (data['Time'] >= prev_id_interval[0]) & 
-                                        (data['Time'] < prev_id_interval[1])]
+                                        (data['Time'] > prev_id_interval[0]) & 
+                                        (data['Time'] <= prev_id_interval[1])]
             t_diff = prev_trial_interval[1] - prev_id_interval[0]
             
             prev_trial_data['Time'] = prev_trial_data['Time'] - prev_trial_interval[0].min()
@@ -669,7 +704,7 @@ class SpikeTimeVidData2(Dataset):
             """
             Returns interval[0] >= data < interval[1]
             """
-            data = get_var(data, interval)
+            data = get_var(data, interval, trial=trial)
             variables = data.columns if variables is None else variables
             behavior = torch.tensor(np.array(data[variables]), 
                                     dtype=torch.float32).transpose(0, 1)
@@ -678,14 +713,6 @@ class SpikeTimeVidData2(Dataset):
             behavior = pad_tensor(behavior, self.samples_per_behavior, self.stoi['PAD'])
             behavior_dt = pad_tensor(behavior_dt, self.samples_per_behavior, self.stoi_dt['PAD'])
             return behavior.unsqueeze(-1), behavior_dt
-        
-        def calc_intervals(self, interval):
-            prev_int = self.round_n(interval, self.dt)
-            offset = self.window
-            prev_id_interval = self.round_n(prev_int - self.window_prev - self.window, self.dt), self.round_n(interval - self.window, self.dt)
-            current_id_interval = self.round_n(interval - self.window, self.dt), self.round_n(interval, self.dt)
-            assert prev_id_interval[1] == current_id_interval[0]
-            return prev_id_interval, current_id_interval
 
         def get_interval(self, interval, trial, block_size, data=None, data_dict=None, n_stim=None, pad=True):
                 """
@@ -697,20 +724,20 @@ class SpikeTimeVidData2(Dataset):
                 data = self.data if data is None else data
                 if self.data_dict is None:
                     if interval[0] < 0 and \
-                       self.dataset in ['LRN']: # , 'visnav']:
+                       self.dataset in ['LRN', 'vinav']:
                         data, id_interval = self.get_data_prev_trial(trial, interval)
                     else:
                         data = data[data['Trial'] == trial]
-                        data = data[(data['Time'] >= interval[0]) & 
-                                        (data['Time'] < interval[1])][-(block_size - 2):]
+                        data = data[(data['Time'] > interval[0]) & 
+                                        (data['Time'] <= interval[1])][-(block_size - 2):]
                         if n_stim is not None:
                             data = data[data['Stimulus'] == n_stim]
-                else:
-                    data = self.data_dict[trial]
-                    if interval[1] in data:
-                        data = data[interval[1]]
-                    else:
-                        data = {'Time': np.array([]), 'ID': np.array([])}
+                # else:
+                #     data = self.data_dict[trial]
+                #     if interval[1] in data:
+                #         data = data[interval[1]]
+                #     else:
+                #         data = {'Time': np.array([]), 'ID': np.array([])}
 
                 chunk = data['ID'][-(block_size - 2):]
                 dix = [self.stoi[s] for s in chunk]
@@ -722,12 +749,7 @@ class SpikeTimeVidData2(Dataset):
 
                 # print(data['Time'], "int", interval[0])
                 dt_chunk = (data['Time'] - (interval[0])) if interval[0] > 0 else data['Time']
-                try:
-                    dt_chunk = [self.stoi_dt[self.round_n(dt, self.dt)] for dt in dt_chunk]
-                except:
-                    # print(f"dt_chunk: {dt_chunk}, interval: {interval}, trial: {trial}")
-                    print(f"error: {[self.round_n(dt, self.dt) for dt in dt_chunk]}, interval: {interval}, trial: {trial}")
-                    raise ValueError
+                dt_chunk = [self.stoi_dt[self.round_n(dt, self.dt)] for dt in dt_chunk]
 
                 if 'EOS' in self.stoi_dt.keys():
                     eos_token = self.stoi_dt['EOS']
@@ -763,13 +785,8 @@ class SpikeTimeVidData2(Dataset):
                     # t['Interval'] = interval_[0].astype(float)
                     # if 'real_interval' in self.data.columns:
                     #     t['real_interval'] = interval_[0].astype(float)
-                    t['Interval'] = interval_[0]
-                    ndims_t = len(self.t.shape)
-                    if ndims_t == 3:
-                        trial_idx = 2
-                    elif ndims_t == 2:
-                        trial_idx = 1
-                    t['Trial'] = interval_[trial_idx].astype(int) if self.dataset != 'visnav' else 0
+                    t['Interval'] = interval_
+                    t['Trial'] = interval_[2].astype(int) if self.dataset != 'visnav' else 0
                     t['Stimulus'] = torch.zeros(1, dtype=torch.long) if self.dataset == 'LRN' else None
 
                 x = collections.defaultdict(list)
@@ -795,14 +812,14 @@ class SpikeTimeVidData2(Dataset):
 
                 y['id'] = torch.tensor(idn[1:], dtype=torch.long)
                 y['dt'] = torch.tensor(dt[1:], dtype=torch.long)
-                x['interval'] = torch.tensor(t['Interval'] - self.window, dtype=torch.float32)
+                x['interval'] = torch.tensor(t['Interval'], dtype=torch.float32)
                 x['trial'] = torch.tensor(t['Trial'], dtype=torch.long)
 
                 ## BEHAVIOR ##
                 if self.behavior_feats is not None:
                     behavior_interval = (prev_id_interval[0], current_id_interval[1])
                     behavior, behavior_dt = self.get_behavior(self.behavior_feats, behavior_interval, 
-                                                              variables=self.behavior_vars)
+                                                              variables=self.behavior_vars, trial=t['Trial'])
                     if self.predict_behavior:
                         # pick only current_state behavior
                         # TODO: implement for more than just 0.05 curr window
@@ -828,7 +845,7 @@ class SpikeTimeVidData2(Dataset):
                     if t['Trial'] <= 20: n_stim = 0
                     elif t['Trial'] <= 40: n_stim = 1
                     elif t['Trial'] <= 60: n_stim = 2
-                elif any([self.dataset == d for d in ['NaturalStim', 'NaturalMovie']]):
+                elif self.dataset == "NaturalStim":
                     n_stim = t['Trial']
 
 
@@ -838,10 +855,12 @@ class SpikeTimeVidData2(Dataset):
                     # t['Interval'] += self.window
                     dt_frames = self.dt_frames if self.dt_frames is not None else 1/20
                     frame_interval = t['Interval'] if 'raw_interval' not in t else t['raw_interval']
+                    frame_interval += self.window
                     frame_idx = get_frame_idx(frame_interval, dt_frames)     # get last 1 second of frames
                     frame_window = self.frame_window
                     n_frames = math.ceil(int(1/dt_frames) * frame_window)
                     frame_idx = frame_idx if frame_idx >= n_frames else n_frames
+                    f_b = n_frames
                     # f_f = n_frames - f_b
                     frame_feats_stim = self.frame_feats[n_stim] if n_stim is not None else self.frame_feats
                     # frame_idx = frame_idx if frame_idx < frame_feats_stim.shape[1] else frame_feats_stim.shape[1]
@@ -853,14 +872,14 @@ class SpikeTimeVidData2(Dataset):
                         x['frames'] = frame_feats_stim[:, frame_idx].type(torch.float32)
                         x['frames'] = x['frames'].repeat(1, 1).transpose(0, 1)
                     elif self.dataset == 'visnav':
-                        offset = 2
-                        f_idx_0 = max(0, frame_idx - n_frames - offset)
-                        f_idx_1 = f_idx_0 + n_frames
+                        offset = 0
+                        f_idx_0 = max(0, frame_idx - f_b - offset)
+                        f_idx_1 = f_idx_0 + f_b
                         x['frames'] = frame_feats_stim[f_idx_0:f_idx_1].type(torch.float32).unsqueeze(0)
                     else:
-                        f_idx_0 = max(0, frame_idx - n_frames)
+                        f_idx_0 = max(0, frame_idx - f_b)
                         # f_idx_1 = min(f_idx_0 + f_b, frame_feats_stim.shape[1])
-                        f_idx_1 = f_idx_0 + n_frames
+                        f_idx_1 = f_idx_0 + f_b
                         assert f_idx_1 - f_idx_0 == n_frames, f"f_idx_1 {f_idx_1} - f_idx_0 {f_idx_0} != n_frames {n_frames}"
                         x['frames'] = frame_feats_stim[f_idx_0:f_idx_1].type(torch.float32).unsqueeze(0)
                     # else:
@@ -871,10 +890,7 @@ class SpikeTimeVidData2(Dataset):
 
                 x['cid'] = torch.tensor(current_id_interval)
                 x['pid'] = torch.tensor(prev_id_interval)
-                x['f_idx'] = torch.tensor([frame_idx - n_frames, frame_idx])
-
-                if hasattr(self, 'labels'):
-                    y['labels'] = torch.tensor([1 if x['trial'] in range(20, 41) else 0], dtype=torch.long)
+                x['f_idx'] = torch.tensor([frame_idx - f_b, frame_idx])
 
                 return x, y
 
@@ -1020,10 +1036,9 @@ total_loss.backward()
 # # df.groupby(['Interval_2', 'Trial']).size().mean()
 
 # var_group = 'Interval_2'
-# groups = df.groupby([var_group, 'Trial']).size()
-# n_unique = len(groups)
-# top_k_groups = groups.nlargest(int(0.2 * n_unique))
-# mean_groups = groups.mean()
+# n_unique = len(df.groupby([var_group, 'Trial']).size())
+# df.groupby([var_group, 'Trial']).size().nlargest(int(0.2 * n_unique))
+# # df.groupby([var_group, 'Trial']).size().mean()
 
 # df.groupby([var_group, 'Trial']).size().nlargest(int(0.2 * n_unique))
 # df.groupby(['Interval_2', 'Trial']).size().mean()
@@ -1056,6 +1071,7 @@ std = [stimulus.std(axis=d) for d in range(len(stimulus.shape))]
 # test_chunks = np.concatenate([c for c in chunks if c.any() not in train_chunks]).flatten()
 
 """
+
 
 
 """
