@@ -283,6 +283,7 @@ class Trainer:
                 return total_losses.item(), scores
 
         best_loss = float('inf')
+        best_f1 = 0
         self.tokens = 0 # counter used for learning rate decay
         for epoch in range(config.max_epochs):
             if self.train_dataset is not None:
@@ -301,5 +302,9 @@ class Trainer:
                 if good_model:
                     best_loss = test_loss
                     self.save_checkpoint(test_loss)
+                F1_score = torch.tensor(scores['F1']).mean()
+                if F1_score > best_f1:
+                    self.save_checkpoint(scores['F1'], epoch=f"F1:{F1_score}_epoch:{epoch}")
+                    best_f1 = F1_score
                 # best_precision = scores['F1']
                 # self.save_checkpoint(epoch, scores['F1'])
