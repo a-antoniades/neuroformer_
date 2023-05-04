@@ -47,6 +47,7 @@ from SpikeVidUtils import trial_df_combo3
 class DataLinks:
     VisNav_VR_Expt = {
         "url": "https://drive.google.com/drive/folders/117S-7NmbgrqjmjZ4QTNgoa-mx8R_yUso?usp=sharing",
+        "DIRECTORY": "data/VisNav_VR_Expt/",
         "RESPONSE_PATH": "./data/VisNav_VR_Expt/experiment_data.mat",
         "STIMULUS_PATH": "./data/VisNav_VR_Expt/stimulus.npy"
     }
