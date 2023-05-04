@@ -174,18 +174,20 @@ dconf = OmegaConf.create(dconf)
 
 # %%
 import mat73
-import scipy
 
 # data_path = DATA_POINTERS['RESPONSE_PATH']
-if DATASET == "first":
-    data_path = "./data/VisNav_VR_Expt/experiment_data.mat"
+if DATASET in ["first", "visnav"]:
+    data_path = "./data/VisNav_VR_Expt"
 elif DATASET == "medial":
-    data_path = "./data/VisNav_VR_Expt/MedialVRDataset/experiment_data.mat"
+    data_path = "./data/VisNav_VR_Expt/MedialVRDataset/"
 elif DATASET == "lateral":
-    data_path = "./data/VisNav_VR_Expt/LateralVRDataset/experiment_data.mat"
+    data_path = "./data/VisNav_VR_Expt/LateralVRDataset"
 
 print(f"Loading data from {data_path}")
-data = mat73.loadmat(data_path)['neuroformer']
+# stimulus = np.load(os.path.join(data_path, "stimulus.npy"), allow_pickle=True)
+# response = np.load(os.path.join(data_path, "response.npy"), allow_pickle=True)
+# trial_data = np.load(os.path.join(data_path, "trial_data.npy"), allow_pickle=True)
+data = mat73.loadmat(os.path.join(data_path, "experiment_data.mat"))['neuroformer']
 
 # data_response_path = "/data5/antonis/neuroformer/data/VisNav_VR_Expt/yiyi/experiment_data_selected.mat"
 # data_response = scipy.io.loadmat(data_response_path)
@@ -425,7 +427,7 @@ model_conf = GPTConfig(train_dataset.population_size, block_size,    # frame_blo
                         n_stimulus_layers=mconf.n_stimulus_layers, self_att_layers=mconf.self_att_layers,
                         n_behavior_layers=mconf.n_behavior_layers, predict_behavior=predict_behavior, n_behavior=n_behavior,
                         n_head=mconf.n_head, n_embd=mconf.n_embd, 
-                        contrastive=mconf.contrastive, clip_emb=mconf.clip_emb, clip_temp=mconf.clip_temp,
+                        contrastive=mconf.contrastive, clip_emb=mconf.clip_emb, clip_temp=mconf.clip_temp, clip_loss=False,
                         conv_layer=conv_layer, kernel_size=kernel_size,
                         temp_emb=mconf.temp_emb, pos_emb=False, wave_emb=True,
                         id_drop=0.35, im_drop=0.35, b_drop=0.45,
