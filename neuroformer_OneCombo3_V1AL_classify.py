@@ -452,7 +452,7 @@ if INFERENCE:
     model_path = glob.glob(os.path.join(base_path, '**.pt'), recursive=True)[0]
 else:
     # model_path = f"""./models/tensorboard/{DATASET}/ablations_small/{title}_2/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{mconf.window}_wp:{mconf.window_prev}/Cont:{mconf.contrastive}_window:{mconf.window}_f_window:{mconf.frame_window}_df:{mconf.dt}_blocksize:{mconf.id_block_size}_conv_{mconf.conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
-    model_path = f"""./models/tensorboard/{DATASET}/pretrain/downstream_exp/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{mconf.window}_wp:{mconf.window_prev}/Cont:{mconf.contrastive}_window:{mconf.window}_f_window:{mconf.frame_window}_df:{mconf.dt}_blocksize:{mconf.id_block_size}_conv_{mconf.conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
+    model_path = f"""./models/tensorboard/{DATASET}/interval_correction/downstream_exp/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{mconf.window}_wp:{mconf.window_prev}/Cont:{mconf.contrastive}_window:{mconf.window}_f_window:{mconf.frame_window}_df:{mconf.dt}_blocksize:{mconf.id_block_size}_conv_{mconf.conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
 
 # %%
 
@@ -827,5 +827,42 @@ total_scores['pred'] = pred_scores
 # x, y = next(iterable)
 # preds, features, loss = model(x, y
 
+
+"""
+
+from utils import all_device
+from tqdm import tqdm
+
+def collect_preds(model, loader, n_iter, device="cpu"):
+    preds = []
+    features = []
+    pbar = tqdm(enumerate(loader), total=n_iter)
+    for i, (x, y) in pbar:
+        if i > n_iter:
+            break
+        x = all_device(x, device)
+        y = all_device(y, device)
+        with torch.no_grad():
+            pred, feature, loss = model(x, y)
+            preds.append(pred['probs_id'])
+            features.append(feature)
+    preds = torch.cat(preds, dim=0)
+    return preds
+
+preds = collect_preds(model, loader, n_iter=100, device="cpu")
+
+preds_mean = preds.mean(dim=0)
+preds_std = preds.std(dim=0)
+
+# plot the mean and std of the predictions
+plt.plot(preds_mean)
+plt.fill_between(np.arange(preds_mean.shape[0]), preds_mean - preds_std, preds_mean + preds_std, alpha=0.5)
+plt.grid()
+plt.scatter(389, 0.0025)
+
+plt.savefig(os.path.join(base_path, 'preds_mean_std.png'))
+np.save(os.path.join(base_path, 'preds_mean.npy'), preds_mean)
+
+"""
 
 

@@ -1013,6 +1013,7 @@ class GPT(nn.Module):
         precision = []
         recall = []
         F1 = []
+        probs_id = []
         torch.cuda.empty_cache()
         if targets is not None:
             loss = collections.defaultdict(float)
@@ -1076,6 +1077,7 @@ class GPT(nn.Module):
                     recall_score = torchmetrics.functional.recall(true_neurons, pred_neurons, task='multiclass', num_classes=self.config.vocab_size).to(self.device)
                     F1_score = torchmetrics.functional.f1_score(true_neurons, pred_neurons, task='multiclass', num_classes=self.config.vocab_size).to(self.device)
                     
+                    probs_id.append(probs_neurons)
                     if (precision, recall, F1) is not None:
                         precision.append(precision_score)
                         recall.append(recall_score)
@@ -1097,6 +1099,7 @@ class GPT(nn.Module):
         preds['precision'] = torch.stack(precision).mean()
         preds['recall'] = torch.stack(recall).mean()
         preds['F1'] = torch.stack(F1).mean()
+        preds['probs_id'] = torch.cat(probs_id)
 
         features['last_layer'] = x
         preds['id'] = id_logits    # [:, tf:]    # only id logits
