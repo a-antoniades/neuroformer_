@@ -1081,12 +1081,14 @@ class GPT(nn.Module):
                     if (precision, recall, F1) is not None:
                         precision.append(precision_score)
                         recall.append(recall_score)
-                        F1.append(F1_score)
+                        F1.append(F1_score)            
+            preds['probs_id'] = torch.cat(probs_id)
         else:
             zero_tensor = torch.zeros(1).to(self.device)
             precision.append(zero_tensor)
             recall.append(zero_tensor)
             F1.append(zero_tensor) 
+
 
 
             # # calculate precision, recall, F1
@@ -1099,10 +1101,9 @@ class GPT(nn.Module):
         preds['precision'] = torch.stack(precision).mean()
         preds['recall'] = torch.stack(recall).mean()
         preds['F1'] = torch.stack(F1).mean()
-        preds['probs_id'] = torch.cat(probs_id)
-
-        features['last_layer'] = x
         preds['id'] = id_logits    # [:, tf:]    # only id logits
         preds['dt'] = dt_logits
+
+        features['last_layer'] = x
 
         return preds, features, loss

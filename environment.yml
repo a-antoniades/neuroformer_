@@ -224,6 +224,7 @@ dependencies:
     - locket==0.2.1
     - markdown==3.3.6
     - markdown2==2.4.0
+    - mat73==0.60
     - matplotlib==3.6.2
     - matplotlib-inline==0.1.2
     - mistune==2.0.4
@@ -332,3 +333,4 @@ dependencies:
     - yacs==0.1.8
     - yarl==1.6.3
     - zipp==3.7.0
+prefix: /local/home/antonis/.conda/envs/neuroformer
