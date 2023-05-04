@@ -855,6 +855,7 @@ class SpikeTimeVidData2(Dataset):
                     # t['Interval'] += self.window
                     dt_frames = self.dt_frames if self.dt_frames is not None else 1/20
                     frame_interval = t['Interval'] if 'raw_interval' not in t else t['raw_interval']
+                    # add 0.5 so we start at end of interval and then go backwards
                     frame_interval += self.window
                     frame_idx = get_frame_idx(frame_interval, dt_frames)     # get last 1 second of frames
                     frame_window = self.frame_window
@@ -863,6 +864,7 @@ class SpikeTimeVidData2(Dataset):
                     f_b = n_frames
                     # f_f = n_frames - f_b
                     frame_feats_stim = self.frame_feats[n_stim] if n_stim is not None else self.frame_feats
+                    frame_idx = min(frame_idx, frame_feats_stim.shape[0])
                     # frame_idx = frame_idx if frame_idx < frame_feats_stim.shape[1] else frame_feats_stim.shape[1]
                     f_diff = frame_idx - n_frames
                     if f_diff < 0:
