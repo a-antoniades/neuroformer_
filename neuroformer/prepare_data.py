@@ -47,20 +47,20 @@ from SpikeVidUtils import trial_df_combo3
 class DataLinks:
     VisNav_VR_Expt = {
         "url": "https://drive.google.com/drive/folders/117S-7NmbgrqjmjZ4QTNgoa-mx8R_yUso?usp=sharing",
-        "DIRECTORY": "data/VisNav_VR_Expt/",
+        "DIRECTORY": "data/",
         "RESPONSE_PATH": "./data/VisNav_VR_Expt/experiment_data.mat",
         "STIMULUS_PATH": "./data/VisNav_VR_Expt/stimulus.npy"
     }
     LateralVRDataset = {
         "url": "https://drive.google.com/drive/folders/1F8n1qhqnxm-SIi4Vq9_C8mb82gc09P17?usp=share_link",
-        "DIRECTORY": "data/VisNav_VR_Expt/",
+        "DIRECTORY": "data/",
         "RESPONSE_PATH": "./data/VisNav_VR_Expt/LateralVRDataset/experiment_data.mat",
         "STIMULUS_PATH": "data/VisNav_VR_Expt/LatervalVRDataset/stimulus.npy"
     }
     MedialVRDataset = {
         "url": "https://drive.google.com/drive/folders/1XJmKvlXNMMBHj_1JsiblfwDMhnk2VJ2C?usp=sharing",
         "RESPONSE_PATH": "./data/VisNav_VR_Expt/MedialVRDataset/experiment_data.mat",
-        "DIRECTORY": "data/VisNav_VR_Expt/",
+        "DIRECTORY": "data/",
         "STIMULUS_PATH": "./data/VisNav_VR_Expt/MedialVRDataset/stimulus.npy"
     }
     Combo3_V1AL = {

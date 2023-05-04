@@ -304,7 +304,7 @@ class MultiheadfAttention(nn.Module):
         return att
 
     def forward(self, q, k=None, v=None, tgt_mask=None, pad=None, dtx=None, sparse_topk=None):
-        assert torch.equal(k, v) is True, "Keys and Values must be the same"
+        assert torch.equal(k, v) is True, f"Keys {k.shape} and Values must be the same {v.shape}"
         if None not in (k, v):
             assert k.size() == v.size(), "Keys and Values must be of same size"
             # assert q.size(-1) == k.size(-1) == v.size(-1), "Embedding dims must be of same size"

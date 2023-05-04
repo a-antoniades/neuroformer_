@@ -90,7 +90,7 @@ try:
     RESUME = None# "./models/tensorboard/visnav/behavior_pred_exp/classification/window:0.05_prev:0.25/sparse_f:None_id:None/w:0.05_wp:0.25/6_Cont:False_window:0.05_f_window:0.2_df:0.005_blocksize:100_conv_True_shuffle:True_batch:224_sparse_(None_None)_blocksz446_pos_emb:False_temp_emb:True_drop:0.35_dt:True_2.0_52_max0.005_(8, 8, 8)_8_256.pt"
     RAND_PERM = False
     # MCONF = "./models/tensorboard/visnav/behavior_pred_exp/classification/window:0.05_prev:0.25/sparse_f:None_id:None/w:0.05_wp:0.25/mconf.yaml"
-    MCONF = "./models/tensorboard/visnav/behavior_pred_exp/classification/window:0.05_prev:0.25/sparse_f:None_id:None/w:0.05_wp:0.25/mconf.yaml"
+    MCONF = "./configs/Combo3_V1AL/mconf.yaml"
     FREEZE_MODEL = False
     TITLE = None
     SEED = 25
@@ -142,7 +142,7 @@ from neuroformer.prepare_data import DataLinks
 ds = "LateralVRDataset"
 ds = "MedialVRDataset"
 ds = "VisNav_VR_Expt"
-data_dir = f"data/VisNav_VR_Expt/{ds}"
+data_dir = f"data/VisNav_VR_Expt/"
 DATA_POINTERS = getattr(DataLinks, ds)
 
 if not os.path.exists(data_dir):
@@ -269,11 +269,11 @@ if behavior or predict_behavior is True:
         itos_speed = None
         assert predict_behavior is False
 
-    assert (window_behavior) % dt_vars < 1e-5, "window + window_prev must be divisible by dt_vars"
+    # assert (window_behavior) % dt_vars < 1e-5, "window + window_prev must be divisible by dt_vars"
     samples_per_behavior = int((window + window_prev) // dt_vars)
     behavior_block_size = int((window + window_prev) // dt_vars) * (len(df_behavior.columns) - 1)
 else:
-    behavior = False
+    behavior = False 
     df_behavior = None
     behavior_vars = None
     behavior_block_size = 0
@@ -332,8 +332,8 @@ frame_block_size = ((n_frames // kernel_size[0] * 30 * 100) // (n_embd_frames))
 frame_feats = torch.tensor(stimulus, dtype=torch.float32)
 conv_layer = True
 
-prev_id_block_size = 350
-id_block_size = 125   #
+prev_id_block_size = 300
+id_block_size = 100   #
 block_size = frame_block_size + id_block_size + prev_id_block_size
 frame_memory = frame_window // dt_frames
 window = window
@@ -379,7 +379,7 @@ train_dataset = SpikeTimeVidData2(train_data, None, block_size, id_block_size, f
 
 update_object(train_dataset, dconf)
 train_dataset = train_dataset.copy(train_data)
-# test_dataset = train_dataset.copy(test_data)
+test_dataset = train_dataset.copy(test_data)
 
 test_dataset = SpikeTimeVidData2(test_data, None, block_size, id_block_size, frame_block_size, prev_id_block_size, 
                                   window, dt, frame_memory, stoi, itos, neurons, stoi_dt, itos_dt, frame_feats,
@@ -486,6 +486,9 @@ model_path = f"""./models/tensorboard/visnav_{DATASET}/behavior_pred_exp/classif
 # preds, features, loss = model(x, y)
 # for key in loss.keys():
 #     print(key, loss[key])
+
+
+preds, features, loss = model(x, y)
 
 # %%
 
