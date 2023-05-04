@@ -59,6 +59,7 @@ class DataLinks:
     MedialVRDataset = {
         "url": "https://drive.google.com/drive/folders/1XJmKvlXNMMBHj_1JsiblfwDMhnk2VJ2C?usp=sharing",
         "RESPONSE_PATH": "./data/VisNav_VR_Expt/MedialVRDataset/experiment_data.mat",
+        "DIRECTORY": "data/VisNav_VR_Expt/",
         "STIMULUS_PATH": "./data/VisNav_VR_Expt/MedialVRDataset/stimulus.npy"
     }
     Combo3_V1AL = {

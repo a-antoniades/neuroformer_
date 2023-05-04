@@ -137,17 +137,18 @@ logging.basicConfig(
 
 
 # %%
-# from neuroformer.prepare_data import DataLinks
+from neuroformer.prepare_data import DataLinks
 
-# DATASET = "LateralVRDataset"
-# data_dir = f"data/VisNav_VR_Expt/{DATASET}"
-# DATA_POINTERS = getattr(DataLinks, DATASET)
+ds = "LateralVRDataset"
+ds = "MedialVRDataset"
+data_dir = f"data/VisNav_VR_Expt/{ds}"
+DATA_POINTERS = getattr(DataLinks, ds)
 
-# if not os.path.exists(data_dir):
-#     print("Downloading data...")
-#     import gdown
-#     url = DATA_POINTERS['url']
-#     gdown.download_folder(id=url, quiet=False, use_cookies=False, output=DATA_POINTERS['DIRECTORY'])
+if not os.path.exists(data_dir):
+    print("Downloading data...")
+    import gdown
+    url = DATA_POINTERS['url']
+    gdown.download_folder(id=url, quiet=False, use_cookies=False, output=DATA_POINTERS['DIRECTORY'])
 
 
 # %%
