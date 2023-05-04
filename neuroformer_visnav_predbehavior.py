@@ -4,6 +4,7 @@ import glob
 import os
 import collections
 import json
+from omegaconf import OmegaConf
 
 import pickle
 import sys
@@ -47,13 +48,13 @@ import skvideo.io
 from scipy.ndimage import gaussian_filter, uniform_filter
 
 parent_path = os.path.dirname(os.path.dirname(os.getcwd())) + "/"
-
 import argparse
 
 def parse_args():
     parser = argparse.ArgumentParser()
     # parser.add_argument("--infer", action="store_true", help="Inference mode")
     parser.add_argument("--train", action="store_true", default=False, help="Train mode")
+    parser.add_argument("--dataset", type=str, default="first", help="Dataset")
     parser.add_argument("--dist", action="store_true", default=False, help="Distrinuted training")
     parser.add_argument("--resume", type=str, default=None, help="Resume from checkpoint")
     parser.add_argument("--rand_perm", action="store_true", default=False, help="Randomly permute the ID column")
@@ -82,18 +83,20 @@ def parse_args():
 try:
     shell = get_ipython().__class__.__name__
     print("Running in Jupyter notebook")
-    INFERENCE = False
+    INFERENCE = True
+    DATASET = "first"
     DIST = False
     DOWNSTREAM = False
-    RESUME = "./models/tensorboard/visnav/behavior_pred_exp/classification/window:0.05_prev:0.25/sparse_f:None_id:None/w:0.05_wp:0.25/6_Cont:False_window:0.05_f_window:0.2_df:0.005_blocksize:100_conv_True_shuffle:True_batch:224_sparse_(None_None)_blocksz446_pos_emb:False_temp_emb:True_drop:0.35_dt:True_2.0_52_max0.005_(8, 8, 8)_8_256.pt"
+    RESUME = None# "./models/tensorboard/visnav/behavior_pred_exp/classification/window:0.05_prev:0.25/sparse_f:None_id:None/w:0.05_wp:0.25/6_Cont:False_window:0.05_f_window:0.2_df:0.005_blocksize:100_conv_True_shuffle:True_batch:224_sparse_(None_None)_blocksz446_pos_emb:False_temp_emb:True_drop:0.35_dt:True_2.0_52_max0.005_(8, 8, 8)_8_256.pt"
     RAND_PERM = False
+    # MCONF = "./models/tensorboard/visnav/behavior_pred_exp/classification/window:0.05_prev:0.25/sparse_f:None_id:None/w:0.05_wp:0.25/mconf.yaml"
     MCONF = "./models/tensorboard/visnav/behavior_pred_exp/classification/window:0.05_prev:0.25/sparse_f:None_id:None/w:0.05_wp:0.25/mconf.yaml"
     FREEZE_MODEL = False
     TITLE = None
     SEED = 25
     BEHAVIOR = True
     PREDICT_BEHAVIOR = True
-    BEHAVIOR_VARS = None
+    BEHAVIOR_VARS = ['speed']
     PAST_STATE = True
     VISUAL = True
     CONTRASTIVE = True
@@ -101,6 +104,7 @@ except:
     print("Running in terminal")
     args = parse_args()
     INFERENCE = not args.train
+    DATASET = args.dataset
     DIST = args.dist
     DOWNSTREAM = args.downstream
     RESUME = args.resume
@@ -133,17 +137,17 @@ logging.basicConfig(
 
 
 # %%
-from neuroformer.prepare_data import DataLinks
+# from neuroformer.prepare_data import DataLinks
 
-DATASET = "LateralVRDataset"
-data_dir = f"data/VisNav_VR_Expt/{DATASET}"
-DATA_POINTERS = getattr(DataLinks, DATASET)
+# DATASET = "LateralVRDataset"
+# data_dir = f"data/VisNav_VR_Expt/{DATASET}"
+# DATA_POINTERS = getattr(DataLinks, DATASET)
 
-if not os.path.exists(data_dir):
-    print("Downloading data...")
-    import gdown
-    url = DATA_POINTERS['url']
-    gdown.download_folder(id=url, quiet=False, use_cookies=False, output=DATA_POINTERS['DIRECTORY'])
+# if not os.path.exists(data_dir):
+#     print("Downloading data...")
+#     import gdown
+#     url = DATA_POINTERS['url']
+#     gdown.download_folder(id=url, quiet=False, use_cookies=False, output=DATA_POINTERS['DIRECTORY'])
 
 
 # %%
@@ -162,9 +166,6 @@ with open(os.path.join(base_path, 'tconf.yaml'), 'r') as stream:
 with open(os.path.join(base_path, 'dconf.yaml'), 'r') as stream:
     dconf = yaml.full_load(stream)
 
-import omegaconf
-from omegaconf import OmegaConf
-
 # open yaml as omegacong
 mconf = OmegaConf.create(mconf)
 tconf = OmegaConf.create(tconf)
@@ -176,9 +177,13 @@ import mat73
 import scipy
 
 # data_path = DATA_POINTERS['RESPONSE_PATH']
-# data_path = "./data/VisNav_VR_Expt/LateralVRDataset/experiment_data.mat"
-# data_path = "./data/VisNav_VR_Expt/MedialVRDataset/experiment_data.mat" 
-data_path = "./data/VisNav_VR_Expt/experiment_data.mat"
+if DATASET == "first":
+    data_path = "./data/VisNav_VR_Expt/experiment_data.mat"
+elif DATASET == "medial":
+    data_path = "./data/VisNav_VR_Expt/MedialVRDataset/experiment_data.mat"
+elif DATASET == "lateral":
+    data_path = "./data/VisNav_VR_Expt/LateralVRDataset/experiment_data.mat"
+
 print(f"Loading data from {data_path}")
 data = mat73.loadmat(data_path)['neuroformer']
 
@@ -222,9 +227,11 @@ predict_behavior = PREDICT_BEHAVIOR
 # stimulus
 visual_stim = VISUAL
 
+print(f" // using behavior vars: {BEHAVIOR_VARS} //")
+
 
 # %%
-from neuroformer.SpikeVidUtils import trial_df, get_df_visnav, make_intervals
+from neuroformer.SpikeVidUtils import trial_df, get_df_visnav, make_intervals, set_trials
 
 stimulus = data['vid_sm']
 response = data['spiketimes']['spks']
@@ -240,6 +247,7 @@ if behavior or predict_behavior is True:
     df_behavior = pd.DataFrame({k: data[k] for k in behavior_vars + ['t']})
     # rename t to time
     df_behavior = df_behavior.rename(columns={'t': 'Time'}) if df_behavior is not None else None
+    df_behavior = set_trials(df_behavior, trial_data) 
     df_behavior['Interval'] = make_intervals(df_behavior, window)
     df_behavior['Interval_2'] = make_intervals(df_behavior, window_prev)
 
@@ -282,8 +290,6 @@ df = df.reset_index(drop=True)
 max_window = max(window, window_prev)
 dt_range = math.ceil(max_window / dt) + 1  # add first / last interval for SOS / EOS'
 n_dt = [round(dt * n, 2) for n in range(dt_range)] + ['EOS'] + ['PAD']
-
-
 
 # %%
 var_group = 'Interval'
@@ -438,7 +444,7 @@ if not INFERENCE:
     if BEHAVIOR and not PREDICT_BEHAVIOR:
         model_conf.contrastive_vars += ['behavior_mean']
         
-    if PREDICT_BEHAVIOR is False:
+    if PREDICT_BEHAVIOR is True:
         print(f"// Predict behavior: n_behavior_layers = 0 //")
         model_conf.n_behavior_layers = 0
 
@@ -467,9 +473,9 @@ if RESUME:
     print(f"// -- Resuming model -- //")
     model.load_state_dict(torch.load(RESUME), strict=True)
 
-title =  f'fourth/RESUME{RESUME != None}_paststate{PAST_STATE}_method_behavior_{behavior}_{behavior_vars}_predictbehavior{PREDICT_BEHAVIOR}_visual{VISUAL}_contrastive{model_conf.contrastive}_{model_conf.contrastive_vars}'
+title =  f'seventh2/RESUME{RESUME != None}_paststate{PAST_STATE}_method_behavior_{behavior}_{behavior_vars}_predictbehavior{PREDICT_BEHAVIOR}_visual{VISUAL}_contrastive{model_conf.contrastive}_{model_conf.contrastive_vars}'
 # model_path = f"""./models/tensorboard/visnav_medial/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{window}_wp:{window_prev}/{6}_Cont:{mconf.contrastive}_window:{window}_f_window:{frame_window}_df:{dt}_blocksize:{id_block_size}_conv_{conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt""""
-model_path = f"""./models/tensorboard/visnav/behavior_pred_exp/no_classification/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{window}_wp:{window_prev}/{6}_Cont:{mconf.contrastive}_window:{window}_f_window:{frame_window}_df:{dt}_blocksize:{id_block_size}_conv_{conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
+model_path = f"""./models/tensorboard/visnav_{DATASET}/behavior_pred_exp/classification/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{window}_wp:{window_prev}/{6}_Cont:{mconf.contrastive}_window:{window}_f_window:{frame_window}_df:{dt}_blocksize:{id_block_size}_conv_{conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
 
 # # %%
 # model.cpu()
@@ -480,7 +486,7 @@ model_path = f"""./models/tensorboard/visnav/behavior_pred_exp/no_classification
 # %%
 
 print(F"DIST: {DIST}")
-tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rate=1e-4, 
+tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rate=2e-4, 
                     num_workers=4, lr_decay=True, patience=3, warmup_tokens=8e7, 
                     decay_weights=True, weight_decay=1.0, shuffle=shuffle,
                     final_tokens=len(train_dataset)*(id_block_size) * (max_epochs),
@@ -652,38 +658,51 @@ print(f"model: {title}")
 
 
 
+# %%
+iterable = iter(test_dataset)
 
 # %%
-# x, y = next(iterable)
+# while x['trial'] < 4:
 
-# T = len(x['id'])
-# P = x['pad'] - 1
-# T_prev = len(x['id_prev'])
-# P_prev = x['pad_prev'] - 4 P
+x, y = next(iterable)
 
-# iv = float(x['interval'])
+T = len(x['id'])
+P = x['pad'] - 1
+T_prev = len(x['id_prev'])
+P_prev = x['pad_prev'] - 4
 
-# xid = x['id'][: T - P]
-# xid = [itos[int(i)] for i in xid]
+iv = float(x['interval'])
 
-# xid_prev = x['id_prev'][: T_prev - P_prev]
-# xid_prev = [itos[int(i)] for i in xid_prev]
+xid = x['id'][: T - P]
+xid = [itos[int(i)] for i in xid]
 
-# print(f"iv: {iv}, ix+window: {iv + window} pid: {x['pid']} cid: {x['cid']}")
-# print(f"x: {xid}")
+xid_prev = x['id_prev'][: T_prev - P_prev]
+xid_prev = [itos[int(i)] for i in xid_prev]
 
-# print(f"xid_prev: {xid_prev}")
+print(f"iv: {iv}, ix+window: {iv + window} pid: {x['pid']} cid: {x['cid']}")
+print(f"x: {xid}")
+print(f"xid_prev: {xid_prev}")
 
-# tdiff = 0
-# t_var = 'Time' # 'Interval'
-# int_var = 'cid'
-# # df[(df[t_var] >= iv - tdiff) & (df[t_var] <= iv + (window + tdiff)) & (df['Trial'] == int(x['trial']))]
-# # df[(df[t_var] >= float(x[int_var][0]) - tdiff) & (df[t_var] <= float(x[int_var][1] + tdiff)) & (df['Trial'] == int(x['trial']))]
-# df[(df[t_var] > float(x[int_var][0]) - tdiff) & (df[t_var] <= float(x['cid'][1] + tdiff)) & (df['Trial'] == int(x['trial']))]
+if 'behavior' in y:
+    t_var = 'Interval' # 'Interval'
+    tdiff = 0
+    int_var = 'cid'
+    y_behavior = y['behavior']
+    y_behavior = [itos_speed[int(i)] for i in y_behavior]
+    print(f"y_behavior: {y_behavior}")
+    true_behavior = print(df_behavior[(df_behavior[t_var] > round(float(x[int_var][0]), 2) - tdiff) & (df_behavior[t_var] <= round(float(x[int_var][1]), 2)) & (df_behavior['Trial'] == int(x['trial']))])
+    print(f"true_behavior: {true_behavior}")
 
-# t_var = 'Time' # 'Interval'
-# int_var = 'pid'
-# df[(df[t_var] > round(float(x[int_var][0]), 2) - tdiff) & (df[t_var] <= round(float(x[int_var][1]), 2)) & (df['Trial'] == int(x['trial']))]
+tdiff = 0
+t_var = 'Time' # 'Interval'
+int_var = 'cid'
+# df[(df[t_var] >= iv - tdiff) & (df[t_var] <= iv + (window + tdiff)) & (df['Trial'] == int(x['trial']))]
+# df[(df[t_var] >= float(x[int_var][0]) - tdiff) & (df[t_var] <= float(x[int_var][1] + tdiff)) & (df['Trial'] == int(x['trial']))]
+df[(df[t_var] > float(x[int_var][0]) - tdiff) & (df[t_var] <= float(x['cid'][1] + tdiff)) & (df['Trial'] == int(x['trial']))]
+
+t_var = 'Time' # 'Interval'
+int_var = 'cid'
+df[(df[t_var] > round(float(x[int_var][0]), 2) - tdiff) & (df[t_var] <= round(float(x[int_var][1]), 2)) & (df['Trial'] == int(x['trial']))]
 
 
 

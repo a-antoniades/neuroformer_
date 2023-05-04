@@ -1064,8 +1064,8 @@ class GPT(nn.Module):
                 loss['behavior'] = ((1 / 4) * loss_behavior) * (1 - 1 / n)
                 preds['behavior'] = behavior_logits
             for B, P in enumerate(pad):                
-                id_targets = targets['id'][B, :t - P]
-                id_logits_ = id_logits[B, :t - P]         
+                id_targets = targets['id'][B, :t - P - 1] # don't include EOS.
+                id_logits_ = id_logits[B, :t - P - 1]         
                 if len(id_targets) > 0:
                     ## score metrics
                     probs_neurons = F.softmax(id_logits_, dim=-1)
