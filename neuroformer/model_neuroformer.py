@@ -1048,7 +1048,7 @@ class GPT(nn.Module):
                 if hasattr(self.config, 'contrastive_vars'):
                     for variable in self.config.contrastive_vars:
                         if variable == 'id':
-                            feats_clip['id'] = clip_id_feats
+                            feats_clip['id'] = feat_contra_id
                         elif variable == 'frames':
                             feats_clip['frames'] = feat_contra_frames
                         else:

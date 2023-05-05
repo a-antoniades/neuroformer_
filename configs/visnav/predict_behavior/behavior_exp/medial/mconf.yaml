@@ -10,22 +10,15 @@ conv_layer: true
 dt: 0.005
 embd_pdrop: 0.2
 epoch: 757
-frame_block_size: 46
 frame_window: 0.2
 freeze_weights: null
 id_block_size: 100
 id_drop: 0.35
-id_vocab_size: 2204
-ignore_index_dt: 52
-ignore_index_id: 2203
 im_drop: 0.35
 kernel_size: !!python/tuple
 - 4
 - 5
 - 5
-n_behavior: 25
-n_behavior_layers: 0
-n_dt: 53
 n_embd: 256
 n_embd_frames: 64
 n_head: 8
@@ -36,7 +29,6 @@ n_behavior_layers: 0
 p_sparse: null
 pos_emb: false
 pos_pdrop: 0.2
-predict_behavior: true
 pretrain: false
 prev_id_block_size: 300
 resid_pdrop: 0.2
@@ -51,6 +43,5 @@ start_prune: 30
 temp_emb: true
 temp_pdrop: 0.2
 vit_encoder: true
-vocab_size: 2204
 window: 0.05
 window_prev: 0.25
