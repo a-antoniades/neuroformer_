@@ -71,7 +71,7 @@ def parse_args():
     parser.add_argument("--visual", action="store_true", default=False, help="Visualize")
     parser.add_argument("--contrastive", action="store_true", default=False, help="Contrastive")
     parser.add_argument("--local_rank", type=int, default=0)
-    parser.add_argument("--fuse_stim_bevavior", action="store_true", default=False, help="Fuse stimulus and behavior")
+    parser.add_argument("--fuse_stim_behavior", action="store_true", default=False, help="Fuse stimulus and behavior")
     return parser.parse_args()
 
 # if __name__ == "__main__":
@@ -121,7 +121,7 @@ except:
     PAST_STATE = args.past_state
     VISUAL = args.visual
     CONTRASTIVE = args.contrastive
-    FUSE_STIM_BEHAVIOR = args.fuse_stim_bevavior
+    FUSE_STIM_BEHAVIOR = args.fuse_stim_behavior
 
 set_seed(25)
 

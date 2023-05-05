@@ -757,8 +757,10 @@ class MultimodalTransformer(nn.Module):
                         x = mod(x, behavior, behavior)
         else:
             for mod in self.neural_state_stimulus_blocks:
-                stimulus = mod(stimulus, behavior, behavior)
-                x = mod(x, stimulus, stimulus)
+                if 'behavior' in features:
+                    behavior = features['behavior']
+                    stimulus = mod(stimulus, behavior, behavior)
+                    x = mod(x, stimulus, stimulus)
         for mod in self.neural_state_blocks:
             x = mod(x, x, x, mask)
         # x = self.output_att[0](x, x, x, mask)
