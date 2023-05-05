@@ -747,13 +747,18 @@ class MultimodalTransformer(nn.Module):
             x = mod(x, neural_history, neural_history)
         for mod in self.neural_state_history_self_attention:
             x = mod(x, x, x, mask)
-        for mod in self.neural_state_stimulus_blocks:
-            x = mod(x, stimulus, stimulus)
-        if hasattr(self.config, 'n_behavior_layers') and self.config.n_behavior_layers > 0:
-            if 'behavior' in features:
-                behavior = features['behavior']
-                for mod in self.neural_state_behavior_blocks:
-                    x = mod(x, behavior, behavior)
+        if not self.config.fuse_stim_bevavior:
+            for mod in self.neural_state_stimulus_blocks:
+                x = mod(x, stimulus, stimulus)
+            if hasattr(self.config, 'n_behavior_layers') and self.config.n_behavior_layers > 0:
+                if 'behavior' in features:
+                    behavior = features['behavior']
+                    for mod in self.neural_state_behavior_blocks:
+                        x = mod(x, behavior, behavior)
+        else:
+            for mod in self.neural_state_stimulus_blocks:
+                stimulus = mod(stimulus, behavior, behavior)
+                x = mod(x, stimulus, stimulus)
         for mod in self.neural_state_blocks:
             x = mod(x, x, x, mask)
         # x = self.output_att[0](x, x, x, mask)
@@ -1037,7 +1042,7 @@ class GPT(nn.Module):
                 for B, P in enumerate(pad):
                     clip_id_feats.append(features['id'][B, t - P])
                 clip_id_feats = torch.stack(clip_id_feats)
-                n = 2
+                # n = 2
                 # loss['clip'] = self.clip(features['frames'][:, 0], features['id'][:, -1]) * (1 / n) 
                 # loss['clip'] = self.clip(features['frames'][:, 0], clip_id_feats) * (1 / n)
                 feats_clip = dict()
@@ -1057,7 +1062,7 @@ class GPT(nn.Module):
                     feats_clip['id'] = feat_contra_id
                     feats_clip['frames'] = feat_contra_frames
                 assert len(feats_clip.keys()) >= 2, "Need at least 2 variables for contrastive loss"
-                loss['clip'] = self.contrastive_loss(feats_clip, temp=self.config.clip_temp) * (1 / n)
+                loss['clip'] = self.contrastive_loss(feats_clip, temp=self.config.clip_temp) * (1 / 4)
             
             loss['id'] = ((2 / 4) * loss_id) * (1 - 1 / n)   # sum(loss_id) / (b * 2)   # / len(loss_id)
             loss['time'] = ((1 / 4) * loss_time) * (1 - 1 / n)

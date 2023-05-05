@@ -71,6 +71,7 @@ def parse_args():
     parser.add_argument("--visual", action="store_true", default=False, help="Visualize")
     parser.add_argument("--contrastive", action="store_true", default=False, help="Contrastive")
     parser.add_argument("--local_rank", type=int, default=0)
+    parser.add_argument("--fuse_stim_bevavior", action="store_true", default=False, help="Fuse stimulus and behavior")
     return parser.parse_args()
 
 # if __name__ == "__main__":
@@ -100,6 +101,7 @@ try:
     PAST_STATE = True
     VISUAL = True
     CONTRASTIVE = True
+    FUSE_STIM_BEHAVIOR = False
 except:
     print("Running in terminal")
     args = parse_args()
@@ -119,6 +121,7 @@ except:
     PAST_STATE = args.past_state
     VISUAL = args.visual
     CONTRASTIVE = args.contrastive
+    FUSE_STIM_BEHAVIOR = args.fuse_stim_bevavior
 
 set_seed(25)
 
@@ -435,7 +438,8 @@ model_conf = GPTConfig(train_dataset.population_size, block_size,    # frame_blo
                         id_drop=0.35, im_drop=0.35, b_drop=0.45,
                         window=window, window_prev=window_prev, frame_window=frame_window, dt=dt,
                         neurons=neurons, stoi_dt=stoi_dt, itos_dt=itos_dt, n_embd_frames=n_embd_frames,
-                        ignore_index_id=stoi['PAD'], ignore_index_dt=stoi_dt['PAD'])  # 0.35
+                        ignore_index_id=stoi['PAD'], ignore_index_dt=stoi_dt['PAD'],
+                        fuse_stim_behavior=FUSE_STIM_BEHAVIOR)  # 0.35
 
 # update_object(model_conf, mconf)
 model_conf.contrastive_vars = ['id', 'frames']
