@@ -747,7 +747,7 @@ class MultimodalTransformer(nn.Module):
             x = mod(x, neural_history, neural_history)
         for mod in self.neural_state_history_self_attention:
             x = mod(x, x, x, mask)
-        if not self.config.fuse_stim_bevavior:
+        if not self.config.fuse_stim_behavior:
             for mod in self.neural_state_stimulus_blocks:
                 x = mod(x, stimulus, stimulus)
             if hasattr(self.config, 'n_behavior_layers') and self.config.n_behavior_layers > 0:
