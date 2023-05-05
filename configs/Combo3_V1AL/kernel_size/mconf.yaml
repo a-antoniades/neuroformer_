@@ -22,8 +22,8 @@ ignore_index_dt: 27
 ignore_index_id: 388
 im_drop: 0.35
 # kernel_size: [1, 8, 8]
-kernel_size: [10, 16, 16]
-stride_size: [10, 8, 8]
+kernel_size: [5, 16, 16]
+stride_size: [5, 8, 8]
 padding_size: [0, 0, 0]
 n_behavior: null
 n_behavior_layers: 0
