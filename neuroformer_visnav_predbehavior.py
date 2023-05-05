@@ -552,10 +552,10 @@ results_dict = dict()
 df_pred = None if df_pred_path is None else pd.read_csv(df_pred_path)
 df_true = None
 
-top_p = 0.75
-top_p_t = 0.75
-temp = 1.25
-temp_t = 1.25
+top_p = 0.9
+top_p_t = 0.9
+temp = 1.
+temp_t = 1.
 
 test_trials = test_data['Trial'].unique()
 # pick 8 trials at random from test
