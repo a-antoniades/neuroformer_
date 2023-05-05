@@ -447,7 +447,7 @@ if RESUME is not None:
 
 # epoch250_rand{RAND_PERM}_downstream:{DOWNSTREAM}
 # title =  f'3/4prop_{CLASS_WEIGHTS}/past_state_{PAST_STATE}_visual{VISUAL}_contrastive_{CONTRASTIVE}_clip_loss{CLIP_LOSS}t{mconf.clip_temp}_freeze_{FREEZE_MODEL}_class_weights{CLASS_WEIGHTS}/randperm_{RAND_PERM}/Big_fixed_noself-att'
-title = f"epoch{max_epochs}_seed{SEED}rand{RAND_PERM}_/downstream:{DOWNSTREAM}"
+title = f'second/RESUME{RESUME != None}_paststate{PAST_STATE}_visual{VISUAL}_contrastive{model_conf.contrastive}'
 if INFERENCE:
     model_path = glob.glob(os.path.join(base_path, '**.pt'), recursive=True)[0]
 else:
