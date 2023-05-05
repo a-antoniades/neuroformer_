@@ -24,7 +24,7 @@ kernel_size: !!python/tuple
 - 5
 - 5
 n_behavior: null
-n_behavior_layers: 8
+n_behavior_layers: 2
 n_dt: 53
 n_embd: 256
 n_embd_frames: 64
