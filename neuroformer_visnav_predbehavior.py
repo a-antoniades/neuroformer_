@@ -475,7 +475,7 @@ model = GPT(model_conf)
 
 if RESUME:
     print(f"// -- Resuming model -- //")
-    model.load_state_dict(torch.load(RESUME), strict=True)
+    model.load_state_dict(torch.load(RESUME, map_location='cpu'), strict=True)
 
 n = 1
 title =  f'{n}/RESUME{RESUME != None}_paststate{PAST_STATE}_method_behavior_{behavior}_{behavior_vars}_predictbehavior{PREDICT_BEHAVIOR}_visual{VISUAL}_contrastive{model_conf.contrastive}_{model_conf.contrastive_vars}'
@@ -527,9 +527,12 @@ if not INFERENCE:
     trainer = Trainer(train_model, train_dataset, test_dataset, tconf, model_conf)
     trainer.train()
 else:
-    model_path = glob.glob(os.path.join(base_path, '**.pt'), recursive=True)[0]
+    if RESUME is not None:
+        model_path = RESUME
+    else:
+        model_path = glob.glob(os.path.join(base_path, '**.pt'), recursive=True)[0]
     print(f"Loading model from {model_path}")
-    model.load_state_dict(torch.load(model_path), strict=True)
+    model.load_state_dict(torch.load(model_path, map_location='cpu'), strict=True)
 
 # loader = DataLoader(train_dataset, batch_size=2, shuffle=False, num_workers=4, pin_memory=True)
 # iterable = iter(loader)
