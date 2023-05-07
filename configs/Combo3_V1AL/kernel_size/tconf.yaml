@@ -2,16 +2,15 @@ batch_size: 128
 betas: !!python/tuple
 - 0.9
 - 0.95
-block_size: 446
-ckpt_path: ./models/tensorboard/V1_AL/downstream/normal_loss/sparse_f:None_id:None/w:0.05_wp:0.25/6_Cont:True_window:0.05_f_window:0.05_df:0.01_blocksize:100_conv_True_shuffle:True_batch:128_sparse_(None_None)_blocksz446_pos_emb:False_temp_emb:True_drop:0.35_dt:True_2.0_27_max0.01_(8,
-  8, 8)_8_256.pt
 clip_norm: 1.0
 dataset: higher_order
 decay_weights: true
 dist: false
 final_tokens: 512075000
 grad_norm_clip: 1.0
-id_block_size: 100
+id_block_size: 55
+id_population_size: 389
+id_prev_block_size: 100
 learning_rate: 0.0001
 loss_bprop: null
 lr_decay: true

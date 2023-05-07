@@ -196,7 +196,7 @@ dconf = OmegaConf.create(dconf)
 
 # %%
 
-if INFERENCE:
+if INFERENCE or mconf:
     frame_window = mconf.frame_window
     window = mconf.window
     window_prev = mconf.window_prev
@@ -377,9 +377,7 @@ train_dataset = SpikeTimeVidData2(train_data, None, block_size, id_block_size, f
                                   window_behavior=window_behavior, predict_behavior=predict_behavior,
                                   stoi_speed=stoi_speed, itos_speed=itos_speed, dt_speed=dt_speed, labels=True)
 
-if INFERENCE:
-    update_object(train_dataset, dconf)
-
+update_object(train_dataset, dconf)
 train_dataset = train_dataset.copy(train_data)
 test_dataset = train_dataset.copy(test_data)
 finetune_dataset = train_dataset.copy(finetune_data)
@@ -389,7 +387,7 @@ print(f'train: {len(train_dataset)}, test: {len(test_dataset)}')
 # %%
 
 layers = (mconf.n_state_layers, mconf.n_state_history_layers, mconf.n_stimulus_layers)   
-max_epochs = 200
+max_epochs = 400
 batch_size = round((32 * 2))
 shuffle = True
 
@@ -437,11 +435,24 @@ if not INFERENCE:
 
 model = GPT(model_conf)
 
+# %%
+loader = DataLoader(train_dataset, batch_size=1, shuffle=False, num_workers=4, pin_memory=True)
+iterable = iter(loader)
+
+
+# %%
+x, y = next(iterable)
+# print(x['behavior'].shape, x['behavior_dt'].shape)
+for k in x.keys():
+    print(k, x[k].shape)
+for k in y.keys():
+    print(f"y: {k}, {y[k].shape}")
+
 
 
 # epoch250_rand{RAND_PERM}_downstream:{DOWNSTREAM}
 # title =  f'3/4prop_{CLASS_WEIGHTS}/past_state_{PAST_STATE}_visual{VISUAL}_contrastive_{CONTRASTIVE}_clip_loss{CLIP_LOSS}t{mconf.clip_temp}_freeze_{FREEZE_MODEL}_class_weights{CLASS_WEIGHTS}/randperm_{RAND_PERM}/Big_fixed_noself-att'
-title = f'third/RESUME{RESUME != None}_paststate{PAST_STATE}_visual{VISUAL}_contrastive{model_conf.contrastive}'
+title = f'fourth/RESUME{RESUME != None}_paststate{PAST_STATE}_visual{VISUAL}_contrastive{model_conf.contrastive}'
 # model_path = f"""./models/tensorboard/{DATASET}/ablations_small/{title}_2/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{mconf.window}_wp:{mconf.window_prev}/Cont:{mconf.contrastive}_window:{mconf.window}_f_window:{mconf.frame_window}_df:{mconf.dt}_blocksize:{mconf.id_block_size}_conv_{mconf.conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
 model_path = f"""./models/tensorboard/{DATASET}/interval_correction/downstream_exp/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{mconf.window}_wp:{mconf.window_prev}/Cont:{mconf.contrastive}_window:{mconf.window}_f_window:{mconf.frame_window}_df:{mconf.dt}_blocksize:{mconf.id_block_size}_conv_{mconf.conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
 
@@ -526,11 +537,7 @@ else:
         model_path = glob.glob(os.path.join(base_path, '**.pt'), recursive=True)[0]
     print(f"Loading model from {model_path}")
     model.load_state_dict(torch.load(model_path, map_location='cpu'), strict=False)
-    
 
-# %%
-loader = DataLoader(train_dataset, batch_size=1, shuffle=False, num_workers=4, pin_memory=True)
-iterable = iter(loader)
 
 
 # %%
