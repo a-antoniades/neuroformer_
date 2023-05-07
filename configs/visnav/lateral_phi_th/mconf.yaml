@@ -4,7 +4,7 @@ behavior_block_size: 20
 block_size: 446
 class_weights: null
 clip_emb: 1024
-clip_temp: 0.5
+clip_temp: 0.25
 contrastive: false
 conv_layer: true
 dt: 0.005

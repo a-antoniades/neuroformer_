@@ -302,9 +302,9 @@ class Trainer:
                 if good_model:
                     best_loss = test_loss
                     self.save_checkpoint(test_loss)
-                F1_score = torch.tensor(scores['F1']).mean()
-                if F1_score > best_f1:
-                    self.save_checkpoint(scores['F1'], epoch=f"F1:{F1_score}_epoch:{epoch}")
-                    best_f1 = F1_score
+                # F1_score = torch.tensor(scores['F1']).mean()
+                # if F1_score > best_f1:
+                #     self.save_checkpoint(scores['F1'], epoch=f"F1:{F1_score}_epoch:{epoch}")
+                #     best_f1 = F1_score
                 # best_precision = scores['F1']
                 # self.save_checkpoint(epoch, scores['F1'])

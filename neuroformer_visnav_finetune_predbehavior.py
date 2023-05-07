@@ -274,7 +274,7 @@ def main(args):
                                     window_behavior=window_behavior, predict_behavior=predict_behavior,
                                     stoi_speed=stoi_speed, itos_speed=itos_speed, dt_speed=dt_speed)
 
-    test_dataset = SpikeTimeVidData2(train_data, None, block_size, id_block_size, frame_block_size, prev_id_block_size, 
+    test_dataset = SpikeTimeVidData2(test_data, None, block_size, id_block_size, frame_block_size, prev_id_block_size, 
                                     window, dt, frame_memory, stoi, itos, neurons, stoi_dt, itos_dt, frame_feats,
                                     pred=False, window_prev=window_prev, frame_window=frame_window,
                                     dt_frames=dt_frames, intervals=None, dataset='visnav',

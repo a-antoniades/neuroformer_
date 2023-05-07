@@ -67,6 +67,7 @@ def parse_args():
     parser.add_argument("--predict_behavior", action="store_true", default=False, help="Predict behavior")
     # parser.add_argument("--behavior_vars", type=str, default=None, help="Behavior variables")
     parser.add_argument("--behavior_vars", nargs='+', default=None, help="Behavior variables")
+    parser.add_argument("--round_vars", action="store_true", default=False, help="Round variables")
     parser.add_argument("--past_state", action="store_true", default=False, help="Input past state")
     parser.add_argument("--visual", action="store_true", default=False, help="Visualize")
     parser.add_argument("--contrastive", action="store_true", default=False, help="Contrastive")
@@ -81,23 +82,24 @@ def parse_args():
 #     INFERENCE = True
 
 # check if jupyter notebook
+
 try:
     shell = get_ipython().__class__.__name__
     print("Running in Jupyter notebook")
     INFERENCE = True
-    DATASET = "first"
+    DATASET = "lateral"
     DIST = False
     DOWNSTREAM = False
     RESUME = None# "./models/tensorboard/visnav/behavior_pred_exp/classification/window:0.05_prev:0.25/sparse_f:None_id:None/w:0.05_wp:0.25/6_Cont:False_window:0.05_f_window:0.2_df:0.005_blocksize:100_conv_True_shuffle:True_batch:224_sparse_(None_None)_blocksz446_pos_emb:False_temp_emb:True_drop:0.35_dt:True_2.0_52_max0.005_(8, 8, 8)_8_256.pt"
     RAND_PERM = False
-    # MCONF = "./models/tensorboard/visnav/behavior_pred_exp/classification/window:0.05_prev:0.25/sparse_f:None_id:None/w:0.05_wp:0.25/mconf.yaml"
-    MCONF = "./configs/Combo3_V1AL/mconf.yaml"
+    MCONF = "./configs/visnav/lateral_phi_th/mconf.yaml"
     FREEZE_MODEL = False
     TITLE = None
     SEED = 25
     BEHAVIOR = True
-    PREDICT_BEHAVIOR = True
-    BEHAVIOR_VARS = ['speed']
+    PREDICT_BEHAVIOR = False
+    BEHAVIOR_VARS = ['th', 'phi']
+    ROUND_VARS = True
     PAST_STATE = True
     VISUAL = True
     CONTRASTIVE = True
@@ -118,6 +120,7 @@ except:
     BEHAVIOR = args.behavior
     PREDICT_BEHAVIOR = args.predict_behavior
     BEHAVIOR_VARS = args.behavior_vars
+    ROUND_VARS = args.round_vars
     PAST_STATE = args.past_state
     VISUAL = args.visual
     CONTRASTIVE = args.contrastive
@@ -130,6 +133,8 @@ print(f" // VISUAL: {VISUAL} //")
 print(f" // PAST_STATE: {PAST_STATE} //")
 print(f" // PREDICT_BEHAVIOR: {PREDICT_BEHAVIOR} //")
 print(f" // BEHAVIOR: {BEHAVIOR} //")
+print(f" // FUSE_STIM_BEHAVIOR: {FUSE_STIM_BEHAVIOR} //")
+
 # set up logging
 import logging
 logging.basicConfig(
@@ -137,6 +142,7 @@ logging.basicConfig(
         datefmt="%m/%d/%Y %H:%M:%S",
         level=logging.INFO,
 )
+
 
 
 # %%
@@ -153,6 +159,7 @@ if not os.path.exists(data_dir):
     import gdown
     url = DATA_POINTERS['url']
     gdown.download_folder(id=url, quiet=False, use_cookies=False, output=DATA_POINTERS['DIRECTORY'])
+
 
 
 # %%
@@ -175,6 +182,7 @@ with open(os.path.join(base_path, 'dconf.yaml'), 'r') as stream:
 mconf = OmegaConf.create(mconf)
 tconf = OmegaConf.create(tconf)
 dconf = OmegaConf.create(dconf)
+
 
 
 # %%
@@ -222,6 +230,7 @@ else:
     dt_speed = 0.2
     intervals = None
 
+
 # %%
 ## choose modalities ##
 
@@ -235,7 +244,6 @@ predict_behavior = PREDICT_BEHAVIOR
 visual_stim = VISUAL
 
 print(f" // using behavior vars: {BEHAVIOR_VARS} //")
-
 
 # %%
 from neuroformer.SpikeVidUtils import trial_df, get_df_visnav, make_intervals, set_trials
@@ -271,6 +279,28 @@ if behavior or predict_behavior is True:
         stoi_speed = None
         itos_speed = None
         assert predict_behavior is False
+    
+    if ROUND_VARS:
+        print(f" // ROUNDING behavior vars to {dt} //")
+        dt_phi = 0.2
+        dt_th = 0.2
+        df_behavior['phi'] = df_behavior['phi'].apply(lambda x: round_n(x, dt_phi))
+        df_behavior['th'] = df_behavior['th'].apply(lambda x: round_n(x, dt_th))
+
+        # # prepare phi variables
+        # dt_range_phi = df_behavior['phi_rounded'].min(), df_behavior['phi_rounded'].max()
+        # dt_range_phi = np.arange(dt_range_phi[0], dt_range_phi[1] + dt_phi, dt_phi)
+        # stoi_phi = { round_n(ch, dt_phi):i for i,ch in enumerate(dt_range_phi) }
+        # itos_phi = { i:round_n(ch, dt_phi) for i,ch in enumerate(dt_range_phi) }
+
+        # # prepare th variables
+        # dt_range_th = df_behavior['th_rounded'].min(), df_behavior['th_rounded'].max()
+        # dt_range_th = np.arange(dt_range_th[0], dt_range_th[1] + dt_th, dt_th)
+        # stoi_th = { round_n(ch, dt_th):i for i,ch in enumerate(dt_range_th) }
+        # itos_th = { i:round_n(ch, dt_th) for i,ch in enumerate(dt_range_th) }
+
+        # df_behavior['phi'] = df_behavior['phi_rounded']
+        # df_behavior['th'] = df_behavior['th_rounded']
 
     # assert (window_behavior) % dt_vars < 1e-5, "window + window_prev must be divisible by dt_vars"
     samples_per_behavior = int((window + window_prev) // dt_vars)
@@ -322,6 +352,7 @@ print(f"Unique groups: {n_unique}")
 print(f"Top {top_p} groups: {top_k_groups}")
 print(f"Mean groups: {mean_groups}")
 
+
 # %%
 from neuroformer.SpikeVidUtils import SpikeTimeVidData2
 
@@ -353,9 +384,6 @@ itos = { i:ch for i,ch in enumerate(feat_encodings) }
 stoi_dt = { ch:i for i,ch in enumerate(n_dt) }
 itos_dt = { i:ch for i,ch in enumerate(n_dt) }
 
-
-
-
 # %%
 import random
 
@@ -365,6 +393,7 @@ train_trials = random.sample(all_trials, int(len(all_trials) * r_split))
 
 train_data = df[df['Trial'].isin(train_trials)]
 test_data = df[~df['Trial'].isin(train_trials)]
+
 
 
 # %%
@@ -398,9 +427,11 @@ test_dataset = test_dataset.copy(test_data)
 print(f'train: {len(train_dataset)}, test: {len(test_dataset)}')
 
 
+
 # %%
 loader = DataLoader(train_dataset, batch_size=2, shuffle=False, num_workers=4, pin_memory=True)
 iterable = iter(loader)
+
 
 
 # %%
@@ -411,9 +442,10 @@ for k in x.keys():
 for k in y.keys():
     print(f"y: {k}, {y[k].shape}")
 
+
 # %%
 layers = (mconf.n_state_layers, mconf.n_state_history_layers, mconf.n_stimulus_layers)   
-max_epochs = 2500
+max_epochs = 750
 batch_size = round((32 * 7))
 shuffle = True
 
@@ -442,12 +474,15 @@ model_conf = GPTConfig(train_dataset.population_size, block_size,    # frame_blo
                         fuse_stim_behavior=FUSE_STIM_BEHAVIOR)  # 0.35
 
 # update_object(model_conf, mconf)
-model_conf.contrastive_vars = ['id', 'frames']
+model_conf.contrastive_vars = ['id', 'frames', 'behavior_mean']
 
 if INFERENCE or MCONF is not None:
     update_object(model_conf, mconf)
 
 if not INFERENCE:
+    if MCONF is not None:
+        print(f"// -- updating model conf -- //")
+        update_object(model_conf, mconf)
 
     if BEHAVIOR and not PREDICT_BEHAVIOR:
         model_conf.contrastive_vars += ['behavior_mean']
@@ -471,9 +506,6 @@ if not INFERENCE:
         print(f"// -- No visual, layers=0 -- //")
         model_conf.n_stimulus_layers = 0
 
-    if MCONF is not None:
-        print(f"// -- updating model conf -- //")
-        update_object(model_conf, mconf)
 
 model = GPT(model_conf)
 
@@ -482,7 +514,7 @@ if RESUME:
     model.load_state_dict(torch.load(RESUME, map_location='cpu'), strict=True)
 
 n = 1
-title =  f'{n}/RESUME{RESUME != None}_paststate{PAST_STATE}_method_behavior_{behavior}_{behavior_vars}_predictbehavior{PREDICT_BEHAVIOR}_visual{VISUAL}_contrastive{model_conf.contrastive}_{model_conf.contrastive_vars}'
+title =  f'{n}/behavior_before_stim_RESUME{RESUME != None}_paststate{PAST_STATE}_method_behavior_{behavior}_{behavior_vars}_predictbehavior{PREDICT_BEHAVIOR}_rounded{ROUND_VARS}visual{VISUAL}_contrastive{model_conf.contrastive}_{model_conf.contrastive_vars}'
 # count number of files at the same level as this one
 if not INFERENCE:
     while os.path.exists(f'./models/tensorboard/visnav_medial/{title}'):
@@ -502,7 +534,6 @@ model_path = f"""./models/tensorboard/visnav_{DATASET}/behavior_pred_exp/classif
 preds, features, loss = model(x, y)
 
 # %%
-
 print(F"DIST: {DIST}")
 tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rate=2e-4, 
                     num_workers=4, lr_decay=True, patience=3, warmup_tokens=8e7, 
@@ -541,6 +572,7 @@ else:
 # loader = DataLoader(train_dataset, batch_size=2, shuffle=False, num_workers=4, pin_memory=True)
 # iterable = iter(loader)
 # x, y = next(iterable)
+
 
 # %%
 from neuroformer.utils import predict_raster_recursive_time_auto, process_predictions
@@ -608,6 +640,7 @@ dir_name = os.path.dirname(model_path)
 model_name = os.path.basename(model_path)
 df_pred.to_csv(os.path.join(dir_name, F'df_pred_.csv'))
 
+
 # %%
 from analysis import get_rates_trial, calc_corr_psth
 
@@ -627,6 +660,7 @@ rates_pred = get_rates_trial(df_pred_full, labels)
 rates_1 = get_rates_trial(df_1, labels)
 
 top_corr_pred = calc_corr_psth(rates_pred, rates_1)
+
 
 # %%
 """
@@ -679,8 +713,10 @@ print(f"model: {title}")
 
 
 
+
 # %%
 iterable = iter(test_dataset)
+
 
 # %%
 # while x['trial'] < 4:
@@ -724,6 +760,9 @@ df[(df[t_var] > float(x[int_var][0]) - tdiff) & (df[t_var] <= float(x['cid'][1] 
 t_var = 'Time' # 'Interval'
 int_var = 'cid'
 df[(df[t_var] > round(float(x[int_var][0]), 2) - tdiff) & (df[t_var] <= round(float(x[int_var][1]), 2)) & (df['Trial'] == int(x['trial']))]
+
+
+
 
 
 
