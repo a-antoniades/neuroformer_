@@ -4,7 +4,7 @@ behavior_block_size: 15
 block_size: 446
 class_weights: null
 clip_emb: 1024
-clip_temp: 0.5
+clip_temp: 0.25
 contrastive: false
 conv_layer: true
 dt: 0.005
@@ -25,7 +25,7 @@ n_head: 8
 n_state_history_layers: 8
 n_state_layers: 8
 n_stimulus_layers: 8
-n_behavior_layers: 0
+n_behavior_layers: 2
 p_sparse: null
 pos_emb: false
 pos_pdrop: 0.2
