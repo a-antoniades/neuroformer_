@@ -1,5 +1,6 @@
 # %%
 
+import pathlib
 import glob
 import os
 import collections
@@ -578,11 +579,10 @@ else:
 from neuroformer.utils import predict_raster_recursive_time_auto, process_predictions
 
 PARALLEL = True
-df_pred_path = None
-
+df_pred_paths = list(pathlib.Path(base_path).glob('*.csv'))
+# df_pred = pd.read_csv(df_pred_paths[0]) if len(df_pred_paths) > 0 else None 
+df_pred = None
 results_dict = dict()
-df_pred = None if df_pred_path is None else pd.read_csv(df_pred_path)
-df_true = None
 
 top_p = 0.9
 top_p_t = 0.9
@@ -593,7 +593,7 @@ test_trials = test_data['Trial'].unique()
 # pick 8 trials at random from test
 trials = np.random.choice(test_trials, 8, replace=False)
 
-if df_pred_path is None:
+if df_pred is None:
     from joblib import Parallel, delayed
     # Define a function to process each trial
     def process_trial(model, train_dataset, df, stoi, itos_dt, itos, window, window_prev, top_p, top_p_t, temp, temp_t, trial):
@@ -630,16 +630,6 @@ if df_pred_path is None:
             df_true = pd.concat([df_true, df_trial_true])
 
 
-from neuroformer.analysis import compute_scores
-df_true = df[df['Trial'].isin(trials)]
-scores = compute_scores(df_true, df_pred)
-print(scores)
-print(f"len predL: {len(df_pred)}, len true: {len(df_true)}")
-
-dir_name = os.path.dirname(model_path)
-model_name = os.path.basename(model_path)
-df_pred.to_csv(os.path.join(dir_name, F'df_pred_.csv'))
-
 
 # %%
 from analysis import get_rates_trial, calc_corr_psth
@@ -652,7 +642,18 @@ window_pred = window if window_pred is None else window_pred
 df_pred_full = set_intervals(df_pred_full, window, window_prev, window_pred)
 df_1 = set_intervals(df_1, window, window_prev, window_pred)
 
-intervals = np.array(sorted(set(df['Interval'].unique()) & set(df['Interval'].unique())))
+from neuroformer.analysis import compute_scores, compute_scores_scikit
+df_true = df[df['Trial'].isin(trials)]
+scores = compute_scores(df_1, df_pred)
+scores_scikit = compute_scores_scikit(df_1, df_pred)
+print(scores)
+print(f"len predL: {len(df_pred)}, len true: {len(df_true)}")
+
+dir_name = os.path.dirname(model_path)
+model_name = os.path.basename(model_path)
+df_pred.to_csv(os.path.join(dir_name, F'df_pred_.csv'))
+
+intervals = np.array(sorted(set(df_pred_full['Interval'].unique()) & set(df_pred_full['Interval'].unique())))
 labels = np.array([round(window_pred + window_pred*n, 2) for n in range(0, int(max(df_pred_full['Interval']) / window_pred))])
 ids = sorted(set(df['ID'].unique()) & set(df['ID'].unique()))
 
@@ -695,7 +696,7 @@ dir_name = os.path.dirname(model_path)
 model_name = os.path.basename(model_path)
 
 top_p = 0
-save_title = f'_top_p{top_p}'
+save_title = f'_top_p{str(top_p).replace(".", "")}'
 plt.savefig(os.path.join(dir_name, F'psth_corr_{save_title}_.svg'))
 df_pred.to_csv(os.path.join(dir_name, F'df_pred_{save_title}_.csv'))
 
@@ -704,6 +705,9 @@ plot_distribution(df_1, df_pred, save_path=os.path.join(dir_name, F'psth_dist_.s
 with open(os.path.join(dir_name, F'scores_{save_title}_.json'), 'w') as fp:
     json.dump(pred_scores, fp)
 
+# save scikit scores to json
+with open(os.path.join(dir_name, F'scores_scikit_{save_title}_.json'), 'w') as fp:
+    json.dump(scores_scikit, fp)
 
 total_scores = dict()
 total_scores['pred'] = pred_scores

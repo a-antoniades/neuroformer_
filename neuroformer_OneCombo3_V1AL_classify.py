@@ -1,4 +1,5 @@
 # %%
+import pathlib
 import glob
 import os
 import json
@@ -569,20 +570,20 @@ for k in x.keys():
 from neuroformer.utils import predict_raster_recursive_time_auto, process_predictions
 
 PARALLEL = True
-df_pred_path = None
-
+df_pred_paths = list(pathlib.Path(base_path).glob('*.csv'))
+# df_pred = pd.read_csv(df_pred_paths[0]) if len(df_pred_paths) > 0 else None
+df_pred = None
 results_dict = dict()
-df_pred = None if df_pred_path is None else pd.read_csv(df_pred_path)
-df_true = None
 
-top_p = 0.75
+top_p = 0.9
 top_p_t = 0.9
-temp = 1.3
+temp = 1.
 temp_t = 1.
+
 
 trials = sorted(train_data['Trial'].unique())[::4]
 
-if df_pred_path is None:
+if df_pred is None:
     from joblib import Parallel, delayed
     # Define a function to process each trial
     def process_trial(model, train_dataset, df, stoi, itos_dt, itos, window, window_prev, top_p, top_p_t, temp, temp_t, trial):
@@ -669,7 +670,7 @@ df_2 = create_full_trial(df, n_1)
 df_3 = create_full_trial(df, n_2)
 
 # sort by interval, trial
-window_pred = 0.5
+window_pred = 1
 min_window = window_prev + window
 df_pred_full = set_intervals(df_pred_full, window, window_prev, window_pred)
 df_1 = set_intervals(df_1, window, window_prev, window_pred)
@@ -703,7 +704,7 @@ Evaluate results
 
 
 from neuroformer.visualize import set_plot_white, plot_distribution
-
+from neuroformer.analysis import compute_scores_scikit
 # df_2['Trial'] -= 2
 id_pred, id_true_1, id_true_2 = len(df_pred_full['ID'].unique()), len(df_1['ID'].unique()), len(df_2['ID'].unique())
 print(f"id_pred: {id_pred}, id_true_1: {id_true_1}, id_true_2: {id_true_2}")
@@ -715,14 +716,20 @@ accuracy = get_accuracy(df_pred, df_2)
 
 scores = compute_scores(df_1, df_2)
 pred_scores = compute_scores(df_1, df_pred_full)
+scores_scikit = compute_scores_scikit(df_1, df_2)
+pred_scores_scikit = compute_scores_scikit(df_1, df_pred_full)
+
 print(f"real: {scores}")
 print(f"pred: {pred_scores}")
 # save scores to json
 
 score_dict = {'true': scores, 'pred': pred_scores}
+score_dict_scikit = {'true': scores_scikit, 'pred': pred_scores_scikit}
 n_score_paths = len(glob.glob(os.path.join(dir_name, F'scores*.json')))
 with open(os.path.join(dir_name, F'scores_{n}_top:{top_p}_{temp}_{top_p_t}_{temp_t}.json'), 'w') as f:
     json.dump(score_dict, f)
+with open(os.path.join(dir_name, F'scores_scikit_{n}_top:{top_p}_{temp}_{top_p_t}_{temp_t}.json'), 'w') as f:
+    json.dump(score_dict_scikit, f)
 
 # dir_name = os.path.dirname(model_path)
 save_dir = os.path.dirname(model_path)

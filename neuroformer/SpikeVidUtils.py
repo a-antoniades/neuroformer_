@@ -652,11 +652,13 @@ class SpikeTimeVidData2(Dataset):
                     self.t[self.t['Trial'] == self.min_trial] = self.t[self.t['Trial'] == self.min_trial][self.t[self.t['Trial'] == self.min_trial]['Interval'] >= self.min_interval]
                     self.t = self.t.dropna().reset_index(drop=True)
 
-        def copy(self, data):
+        def copy(self, data, t=None):
             """return new class with everything the same except data,
             and the recalculation of self.t and self.size"""
             new = copy.deepcopy(self)
             new.data = data
+            if t is not None:
+                new.intervals = t
             new.set_intervals(data)
             return new
 

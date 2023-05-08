@@ -142,6 +142,38 @@ def compute_scores(true, pred):
 
     return scores
 
+from sklearn.metrics import precision_recall_fscore_support
+
+def compute_scores_scikit(true, pred):
+    scores = collections.defaultdict(list)
+    intervals = pred[['Interval', 'Trial']].drop_duplicates().reset_index(drop=True)
+    
+    for idx in range(len(intervals)):
+        interval = intervals.iloc[idx][0]
+        trial = intervals.iloc[idx][1]
+        true_int = true[(true['Interval'] == interval) & (true['Trial'] == trial)]
+        pred_int = pred[(pred['Interval'] == interval) & (pred['Trial'] == trial)]
+        
+        # Get the set of all possible IDs in the interval
+        all_ids = set(np.union1d(true_int['ID'], pred_int['ID']))
+        
+        # Create binary arrays representing the presence or absence of each ID in the true and predicted spikes
+        true_ids = np.array([id in true_int['ID'].values for id in all_ids])
+        pred_ids = np.array([id in pred_int['ID'].values for id in all_ids])
+
+        # Compute precision, recall, and F1 scores
+        precision, recall, f1, _ = precision_recall_fscore_support(true_ids, pred_ids, average='weighted', zero_division=0)
+
+        # scores[interval] {'precision': precision, 'recall': recall, 'f1': f1}
+        scores['precision'].append(precision)
+        scores['recall'].append(recall)
+        scores['F1'].append(f1)
+
+    for score in scores.keys():
+        scores[score] = sum(scores[score]) / len(scores[score])
+
+    return scores
+
 
 def compute_score(width, t_k, tt_k):
     

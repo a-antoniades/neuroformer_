@@ -160,4 +160,5 @@ training/*.ipynb
 **/paper_plots/
 **/a_yiyi
 **/image_detectors
+**/datasets
 
