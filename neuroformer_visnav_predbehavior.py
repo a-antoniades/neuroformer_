@@ -580,12 +580,13 @@ from neuroformer.utils import predict_raster_recursive_time_auto, process_predic
 
 PARALLEL = True
 df_pred_paths = list(pathlib.Path(base_path).glob('*.csv'))
-df_pred = pd.read_csv(df_pred_paths[0]) if len(df_pred_paths) > 0 else None
+# df_pred = pd.read_csv(df_pred_paths[0]) if len(df_pred_paths) > 0 else None 
+df_pred = None
 results_dict = dict()
 
 top_p = 0.9
 top_p_t = 0.9
-temp = 1.3
+temp = 1.
 temp_t = 1.
 
 test_trials = test_data['Trial'].unique()
@@ -637,7 +638,7 @@ df_1 = df[df['Trial'].isin(trials)]
 df_pred_full = df_pred
 
 
-window_pred = 1
+window_pred = 2.5
 window_pred = window if window_pred is None else window_pred
 df_pred_full = set_intervals(df_pred_full, window, window_prev, window_pred)
 df_1 = set_intervals(df_1, window, window_prev, window_pred)
