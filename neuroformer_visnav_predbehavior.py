@@ -514,7 +514,7 @@ if RESUME:
     model.load_state_dict(torch.load(RESUME, map_location='cpu'), strict=True)
 
 n = 1
-title =  f'{n}/behavior_before_stim_RESUME{RESUME != None}_paststate{PAST_STATE}_method_behavior_{behavior}_{behavior_vars}_predictbehavior{PREDICT_BEHAVIOR}_rounded{ROUND_VARS}visual{VISUAL}_contrastive{model_conf.contrastive}_{model_conf.contrastive_vars}'
+title =  f'ablations_{n}/behavior_before_stim_RESUME{RESUME != None}_paststate{PAST_STATE}_method_behavior_{behavior}_{behavior_vars}_predictbehavior{PREDICT_BEHAVIOR}_rounded{ROUND_VARS}visual{VISUAL}_contrastive{model_conf.contrastive}_{model_conf.contrastive_vars}'
 # count number of files at the same level as this one
 if not INFERENCE:
     while os.path.exists(f'./models/tensorboard/visnav_medial/{title}'):
@@ -647,7 +647,7 @@ from analysis import get_rates_trial, calc_corr_psth
 df_1 = df[df['Trial'].isin(trials)]
 df_pred_full = df_pred
 
-window_pred = 1
+window_pred = 2.5
 window_pred = window if window_pred is None else window_pred
 df_pred_full = set_intervals(df_pred_full, window, window_prev, window_pred)
 df_1 = set_intervals(df_1, window, window_prev, window_pred)
