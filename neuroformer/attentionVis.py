@@ -523,7 +523,8 @@ class AttentionVis:
         map_object = LinearSegmentedColormap.from_list(name='rainbow_alpha',colors=color_array)
 
         # register this new colormap with matplotlib
-        # plt.register_cmap(cmap=map_object)
+        if 'rainbow_alpha' not in plt.colormaps():
+            plt.register_cmap(cmap=map_object)
         if blur > 0:
             arr = gaussian_filter(arr, blur)
         if ax:
