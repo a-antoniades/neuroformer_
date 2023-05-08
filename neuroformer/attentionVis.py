@@ -523,7 +523,7 @@ class AttentionVis:
         map_object = LinearSegmentedColormap.from_list(name='rainbow_alpha',colors=color_array)
 
         # register this new colormap with matplotlib
-        plt.register_cmap(cmap=map_object)
+        # plt.register_cmap(cmap=map_object)
         if blur > 0:
             arr = gaussian_filter(arr, blur)
         if ax:
@@ -879,7 +879,7 @@ class AttentionVis:
         # plt.savefig(f"SimNeu3D_Combo4, Interval {int(t['Interval'])} Trial {int(t['Trial'])}.png")
 
     
-    def plot_stim_att_layer_head(self, x, mconf, attention_scores, t_frame=1, h=8, w=14, ix_step=None, save_path=None):
+    def plot_stim_att_layer_head(self, x, mconf, attention_scores, t_frame=1, h=8, w=14, ix_step=None, save_path=None, layer_no=None):
         """
         In: (I, Layer, Head, ID, Frame)
         Out: Attention heatmaps for neurons
@@ -893,14 +893,14 @@ class AttentionVis:
 
 
         ncol = mconf.n_head
-        nrow = mconf.n_stimulus_layers
+        nrow = mconf.n_stimulus_layers if layer_no is None else 1
 
         H, W = x['frames'].shape[-2], x['frames'].shape[-1]
 
         # sorted_att_std = np.unravel_index(np.argsort(-att_trials_id_std.ravel()), att_trials_id_std.shape)
         # step, layer, head, row = sorted_att_std # layer, head, 
         # step = ix_step   # 5, 3   # layer, head
-
+        images, attentions = [], []
         for step in ix_step:
             xy_res = int(n_embd ** (1/2))
 
@@ -911,14 +911,17 @@ class AttentionVis:
             x_pad = int(x['pad'].flatten())
             neuron_idx = x_id[: len(x_id) - x_pad]
 
-            fig, ax = plt.subplots(figsize=(15, 4 * nrow), nrows=nrow, ncols=ncol)
-
+            fig, ax = plt.subplots(figsize=(100, 4 * nrow), nrows=nrow, ncols=ncol, squeeze=False)
             for n, idx in enumerate([ix_step]):
                 print(idx)
                 xid_n = np.random.choice(range(len(neuron_idx)), 1)
                 # att_n = attention_scores[int(idx), :, :, int(xid_n)]
                 att_n = attention_scores[:, :, int(xid_n)]
+                n_plot = 0
                 for layer in range(att_n.shape[0]):
+                    if layer_no is not None:
+                            if layer != layer_no:
+                                continue
                     for head in range(att_n.shape[1]):
                         att_l_h = att_n[layer, head]
                         att_l_h = att_l_h / att_l_h.max()
@@ -929,17 +932,21 @@ class AttentionVis:
                         im_interval = x['frames'][0][0]
                         # att_grid =  softmax(att_top_std_im)
                         att_grid = F.interpolate(torch.as_tensor(att_im[None, ...]), size=(H, W), mode='bilinear', align_corners=True).numpy()[0]
-                        axis = ax if nrow and ncol == 1 else ax[layer][head]
+                        axis = ax if nrow and ncol == 1 else ax[n_plot][head]
                         # plt.subplot(nrow, ncol, n + layer + head + 1)
                         f_idx = t_frame // 2
                         axis.imshow(im_interval[f_idx], cmap='gray')
                         self.heatmap2d(att_grid[f_idx, :, :], ax=axis, alpha=0.6, blur=0, clim=None)
                         axis.axis('off')
                         axis.set_title(f'Layer {layer}, Head {head}', fontsize=15)
+                        images.append(im_interval[f_idx])
+                        attentions.append(att_grid[f_idx, :, :])
+                    n_plot += 1
                 plt.suptitle(f"Interval {float(x['interval'])}, Neuron {neuron_idx[int(xid_n)]}", y=0.97, fontsize=30)
         if save_path is not None:
                 plt.savefig(f"{save_path}/svg/SimNeu_att_layer_head_{neuron_idx[int(xid_n)]}_interval.svg")
                 plt.savefig(f"{save_path}/png/SimNeu_att_layer_head_{neuron_idx[int(xid_n)]}_interval.png")
+        return images, attentions
     
     def export_att_frames(self, model, module, mconf, loader, video_stack, xy_res, path):
         """
