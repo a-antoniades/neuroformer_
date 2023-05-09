@@ -515,7 +515,7 @@ if RESUME:
     model.load_state_dict(torch.load(RESUME, map_location='cpu'), strict=True)
 
 n = 1
-title =  f'ablations_{n}/behavior_before_stim_RESUME{RESUME != None}_paststate{PAST_STATE}_method_behavior_{behavior}_{behavior_vars}_predictbehavior{PREDICT_BEHAVIOR}_rounded{ROUND_VARS}visual{VISUAL}_contrastive{model_conf.contrastive}_{model_conf.contrastive_vars}'
+title =  f'ablations2_{n}/behavior_before_stim_RESUME{RESUME != None}_paststate{PAST_STATE}_method_behavior_{behavior}_{behavior_vars}_predictbehavior{PREDICT_BEHAVIOR}_rounded{ROUND_VARS}visual{VISUAL}_contrastive{model_conf.contrastive}_{model_conf.contrastive_vars}'
 # count number of files at the same level as this one
 if not INFERENCE:
     while os.path.exists(f'./models/tensorboard/visnav_medial/{title}'):

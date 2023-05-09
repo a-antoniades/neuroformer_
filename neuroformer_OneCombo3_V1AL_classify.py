@@ -28,7 +28,7 @@ import math
 
 from neuroformer.model_neuroformer import GPT, GPTConfig
 from neuroformer.trainer import Trainer, TrainerConfig
-from neuroformer.utils import set_seed, update_object
+from neuroformer.utils import set_seed, update_object, check_common_attrs
 from neuroformer.visualize import set_plot_params
 from neuroformer.SpikeVidUtils import round_n
 import gdown
@@ -194,6 +194,10 @@ from omegaconf import OmegaConf
 mconf = OmegaConf.create(mconf)
 tconf = OmegaConf.create(tconf)
 dconf = OmegaConf.create(dconf)
+
+# set attrs that are not equal
+common_attrs = check_common_attrs(mconf, tconf, dconf)
+print(f"Common attributes: {common_attrs}")
 
 # %%
 
@@ -388,8 +392,8 @@ print(f'train: {len(train_dataset)}, test: {len(test_dataset)}')
 # %%
 
 layers = (mconf.n_state_layers, mconf.n_state_history_layers, mconf.n_stimulus_layers)   
-max_epochs = 400
-batch_size = round((32 * 2))
+max_epochs = 250
+batch_size = round((32 * 4))
 shuffle = True
 
 model_conf = GPTConfig(train_dataset.population_size, block_size,    # frame_block_size
@@ -402,7 +406,7 @@ model_conf = GPTConfig(train_dataset.population_size, block_size,    # frame_blo
                         sparse_topk_frame=None, sparse_topk_id=None, sparse_topk_prev_id=None,
                         n_dt=len(n_dt),
                         pretrain=False,
-                        n_state_layers=8, n_state_history_layers=8,
+                        n_state_layers=4, n_state_history_layers=2,
                         n_stimulus_layers=8, self_att_layers=0,
                         n_behavior_layers=0, predict_behavior=predict_behavior, n_behavior=n_behavior,
                         n_head=4, n_embd=n_embd, 
@@ -453,7 +457,7 @@ for k in y.keys():
 
 # epoch250_rand{RAND_PERM}_downstream:{DOWNSTREAM}
 # title =  f'3/4prop_{CLASS_WEIGHTS}/past_state_{PAST_STATE}_visual{VISUAL}_contrastive_{CONTRASTIVE}_clip_loss{CLIP_LOSS}t{mconf.clip_temp}_freeze_{FREEZE_MODEL}_class_weights{CLASS_WEIGHTS}/randperm_{RAND_PERM}/Big_fixed_noself-att'
-title = f'fourth/RESUME{RESUME != None}_paststate{PAST_STATE}_visual{VISUAL}_contrastive{model_conf.contrastive}'
+title = f'ablations_2/RESUME{RESUME != None}_paststate{PAST_STATE}_visual{VISUAL}_contrastive{model_conf.contrastive}'
 # model_path = f"""./models/tensorboard/{DATASET}/ablations_small/{title}_2/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{mconf.window}_wp:{mconf.window_prev}/Cont:{mconf.contrastive}_window:{mconf.window}_f_window:{mconf.frame_window}_df:{mconf.dt}_blocksize:{mconf.id_block_size}_conv_{mconf.conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
 model_path = f"""./models/tensorboard/{DATASET}/interval_correction/downstream_exp/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{mconf.window}_wp:{mconf.window_prev}/Cont:{mconf.contrastive}_window:{mconf.window}_f_window:{mconf.frame_window}_df:{mconf.dt}_blocksize:{mconf.id_block_size}_conv_{mconf.conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
 
@@ -512,7 +516,7 @@ tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rat
                     decay_weights=True, weight_decay=0.1, shuffle=shuffle,
                     final_tokens=len(train_dataset)*(id_block_size) * (max_epochs),
                     clip_norm=1.0, grad_norm_clip=1.0,
-                    dataset='higher_order', mode='predict',
+                    dataset='Combo3_V1AL', mode='predict',
                     block_size=train_dataset.block_size,
                     id_block_size=train_dataset.id_block_size,
                     show_grads=False, plot_raster=False,
@@ -537,7 +541,7 @@ else:
     else:
         model_path = glob.glob(os.path.join(base_path, '**.pt'), recursive=True)[0]
     print(f"Loading model from {model_path}")
-    model.load_state_dict(torch.load(model_path, map_location='cpu'), strict=False)
+    model.load_state_dict(torch.load(model_path, map_location='cpu'), strict=True)
 
 
 
