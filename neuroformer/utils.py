@@ -722,6 +722,32 @@ def get_class_weights(dataset, stoi, stoi_dt):
     plt.bar(np.arange(len(class_weights['id'])), class_weights['id'])
     # plt.bar(np.arange(len(c_weights)), c_weights)
 
+def check_common_attrs(*objects):
+    if not objects:
+        raise ValueError("At least one object must be provided")
+
+    first, *others = objects
+
+    common_attrs = {}
+    for attr in dir(first):
+        if attr.startswith("__"):  # skip Python internal (dunder) attributes
+            continue
+
+        try:
+            first_value = getattr(first, attr)
+        except AttributeError:
+            continue
+
+        common_objects = []
+        for obj in others:
+            if hasattr(obj, attr) and getattr(obj, attr) != first_value:
+                setattr(obj, attr, first_value)
+                common_objects.append(obj)
+
+        if common_objects:
+            common_attrs[attr] = (first_value, common_objects)
+
+    return common_attrs
 
 # # precision_score = collections.defaultdict(list)
 # # recall_score = collections.defaultdict(list)

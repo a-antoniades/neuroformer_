@@ -68,7 +68,7 @@ def set_research_params():
     fs = 5
     LW = 0.001
     plt.rcParams['axes.prop_cycle'] = plt.cycler(color=plt.cm.Set1.colors)
-    plt.rcParams['font.family'] = 'arial'
+    plt.rcParams['font.family'] = 'sans'
     plt.rcParams['xtick.labelsize']= fs
     plt.rcParams['ytick.labelsize']= fs
     plt.rcParams['axes.labelsize']= fs
@@ -78,7 +78,7 @@ def set_research_params():
     plt.rcParams['xtick.major.size'] = 1
     plt.rcParams['ytick.major.size'] = 0.5
     
-    plt.rcParams['axes.linewidth'] = 1.5 / 50
+    plt.rcParams['axes.linewidth'] = 0.05
 
 
 def nature_style():

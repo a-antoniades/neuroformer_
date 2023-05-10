@@ -894,7 +894,7 @@ class SpikeTimeVidData2(Dataset):
 
                 x['cid'] = torch.tensor(current_id_interval)
                 x['pid'] = torch.tensor(prev_id_interval)
-                x['f_idx'] = torch.tensor([frame_idx - f_b, frame_idx])
+                x['f_idx'] = torch.tensor([f_idx_0, f_idx_1])
 
                 return x, y
 
