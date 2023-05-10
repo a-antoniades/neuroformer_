@@ -1076,13 +1076,19 @@ class GPT(nn.Module):
                     precision_score = torchmetrics.functional.precision(true_neurons, pred_neurons, task='multiclass', num_classes=self.config.vocab_size).to(self.device)
                     recall_score = torchmetrics.functional.recall(true_neurons, pred_neurons, task='multiclass', num_classes=self.config.vocab_size).to(self.device)
                     F1_score = torchmetrics.functional.f1_score(true_neurons, pred_neurons, task='multiclass', num_classes=self.config.vocab_size).to(self.device)
-                    
+
                     probs_id.append(probs_neurons)
                     if (precision, recall, F1) is not None:
                         precision.append(precision_score)
                         recall.append(recall_score)
-                        F1.append(F1_score)            
-            preds['probs_id'] = torch.cat(probs_id)
+                        F1.append(F1_score)
+                    else:
+                        zero_tensor = torch.zeros(1).to(self.device)
+                        precision.append(zero_tensor)
+                        recall.append(zero_tensor)
+                        F1.append(zero_tensor)
+            if len(probs_id) > 0:            
+                preds['probs_id'] = torch.cat(probs_id)
         else:
             zero_tensor = torch.zeros(1).to(self.device)
             precision.append(zero_tensor)
@@ -1098,9 +1104,11 @@ class GPT(nn.Module):
             # precision_top5, recall_top5, F1_top5 = topk_metrics(id_logits, targets['id'], k=5, 
             #                                                     num_classes=self.config.id_vocab_size, ignore_index=self.config.ignore_index_id)
             # preds['precision_top5'], preds['recall_top5'], preds['F1_top5'] = precision_top5, recall_top5, F1_top5
+        # check if precision, recall and f1 are all same shape
         preds['precision'] = torch.stack(precision).mean()
         preds['recall'] = torch.stack(recall).mean()
         preds['F1'] = torch.stack(F1).mean()
+
         preds['id'] = id_logits    # [:, tf:]    # only id logits
         preds['dt'] = dt_logits
 

@@ -561,7 +561,8 @@ def predict_beam_search(model, loader, stoi, frame_end=0):
 
 
 @torch.no_grad()
-def predict_behavior(model, dataset, itos, sample=False):
+def predict_behavior(model, dataset, itos, sample=False, top_k=0, top_p=0):
+    model.eval()
     loader = DataLoader(dataset, shuffle=False, pin_memory=False)
     pbar = tqdm(enumerate(loader), total=len(loader))
     model.cpu()
@@ -574,6 +575,8 @@ def predict_behavior(model, dataset, itos, sample=False):
         x = all_device(x, 'cpu')
         y = all_device(y, 'cpu')
         logits, features, loss = model(x, y)
+        if top_k or top_p != 0:
+            logits['behavior'] = top_k_top_p_filtering(logits['behavior'], top_k=top_k, top_p=top_p)
         probs = F.softmax(logits['behavior'], dim=-1)
         if sample:
             ix =  torch.multinomial(probs, 1).flatten()
