@@ -1,9 +1,6 @@
 _is_protocol: false
-behavior_block_size: 20
-block_size: 446
 data_dict: null
 dataset: visnav
-dt: 0.005
 dt_frames: 0.05
 dt_max: 52
 dt_population_size: 28

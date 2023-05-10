@@ -28,10 +28,11 @@ n_head: 8
 n_state_history_layers: 8
 n_state_layers: 8
 n_stimulus_layers: 8
+n_behavior_layers: 0
 p_sparse: null
 pos_emb: false
 pos_pdrop: 0.2
-predict_behavior: false
+predict_behavior: true
 pretrain: false
 prev_id_block_size: 300
 resid_pdrop: 0.2
