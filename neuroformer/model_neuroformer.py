@@ -1088,13 +1088,9 @@ class GPT(nn.Module):
                         recall.append(zero_tensor)
                         F1.append(zero_tensor)
             if len(probs_id) > 0:            
-<<<<<<< HEAD
-                preds['probs_id'] = torch.cat(probs_id) if len(probs_id) > 0 else torch.zeros(1).to(self.device)
-=======
                 preds['probs_id'] = torch.cat(probs_id)
             else:
                 preds['probs_id'] = torch.zeros(1).to(self.device)
->>>>>>> 68ab6d62aad414732dd8ea49a93650749b65b729
         else:
             zero_tensor = torch.zeros(1).to(self.device)
             precision.append(zero_tensor)
