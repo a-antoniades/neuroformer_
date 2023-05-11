@@ -1107,18 +1107,10 @@ class GPT(nn.Module):
             #                                                     num_classes=self.config.id_vocab_size, ignore_index=self.config.ignore_index_id)
             # preds['precision_top5'], preds['recall_top5'], preds['F1_top5'] = precision_top5, recall_top5, F1_top5
         # check if precision, recall and f1 are all same shape
-<<<<<<< HEAD
-        # check that these are are non-empty tensor lists
-        if len(precision) > 0 and len(recall) > 0 and len(F1) > 0:
-            preds['precision'] = torch.stack(precision).mean()
-            preds['recall'] = torch.stack(recall).mean()
-            preds['F1'] = torch.stack(F1).mean()
-=======
 
         preds['precision'] = torch.stack(precision).mean()
         preds['recall'] = torch.stack(recall).mean()
         preds['F1'] = torch.stack(F1).mean()
->>>>>>> 68ab6d62aad414732dd8ea49a93650749b65b729
 
         preds['id'] = id_logits    # [:, tf:]    # only id logits
         preds['dt'] = dt_logits
