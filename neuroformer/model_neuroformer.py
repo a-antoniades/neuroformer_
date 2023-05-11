@@ -1088,7 +1088,7 @@ class GPT(nn.Module):
                         recall.append(zero_tensor)
                         F1.append(zero_tensor)
             if len(probs_id) > 0:            
-                preds['probs_id'] = torch.cat(probs_id)
+                preds['probs_id'] = torch.cat(probs_id) if len(probs_id) > 0 else torch.zeros(1).to(self.device)
         else:
             zero_tensor = torch.zeros(1).to(self.device)
             precision.append(zero_tensor)
@@ -1105,9 +1105,11 @@ class GPT(nn.Module):
             #                                                     num_classes=self.config.id_vocab_size, ignore_index=self.config.ignore_index_id)
             # preds['precision_top5'], preds['recall_top5'], preds['F1_top5'] = precision_top5, recall_top5, F1_top5
         # check if precision, recall and f1 are all same shape
-        preds['precision'] = torch.stack(precision).mean()
-        preds['recall'] = torch.stack(recall).mean()
-        preds['F1'] = torch.stack(F1).mean()
+        # check that these are are non-empty tensor lists
+        if len(precision) > 0 and len(recall) > 0 and len(F1) > 0:
+            preds['precision'] = torch.stack(precision).mean()
+            preds['recall'] = torch.stack(recall).mean()
+            preds['F1'] = torch.stack(F1).mean()
 
         preds['id'] = id_logits    # [:, tf:]    # only id logits
         preds['dt'] = dt_logits
