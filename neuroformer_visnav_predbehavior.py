@@ -96,9 +96,9 @@ try:
     DATASET = "medial"
     DIST = False
     DOWNSTREAM = False
-    RESUME = "./models/tensorboard/visnav_medial/behavior_pred_exp/classification/1/RESUMEFalse_paststateTrue_method_behavior_False_['speed']_predictbehaviorTrue_visualTrue_contrastiveFalse_['id', 'frames']/sparse_f:None_id:None/w:0.05_wp:0.25/6_Cont:False_window:0.05_f_window:0.3_df:0.005_blocksize:100_conv_True_shuffle:True_batch:224_sparse_(None_None)_blocksz446_pos_emb:False_temp_emb:True_drop:0.35_dt:True_2.0_52_max0.005_(8, 8, 8)_8_256.pt"
+    RESUME = "./models/tensorboard/visnav_medial/behavior_pred_exp/classification/ablations_25/behavior_before_stim_RESUMEFalse_paststateTrue_method_behavior_True_['speed']_predictbehaviorTrue_roundedFalsevisualTrue_contrastiveFalse_['id', 'frames', 'behavior_mean']/_behavior_predict_no_pretraining_1.0/sparse_f:None_id:None/w:0.05_wp:0.25/6_Cont:False_window:0.05_f_window:0.2_df:0.005_blocksize:100_conv_True_shuffle:True_batch:224_sparse_(None_None)_blocksz446_pos_emb:False_temp_emb:True_drop:0.35_dt:True_2.0_52_max0.005_(8, 8, 8)_8_256.pt"
     RAND_PERM = False
-    MCONF = "./models/tensorboard/visnav_medial/behavior_pred_exp/classification/1/RESUMEFalse_paststateTrue_method_behavior_False_['speed']_predictbehaviorTrue_visualTrue_contrastiveFalse_['id', 'frames']/sparse_f:None_id:None/w:0.05_wp:0.25/mconf.yaml"
+    MCONF = "./models/tensorboard/visnav_medial/behavior_pred_exp/classification/ablations_25/behavior_before_stim_RESUMEFalse_paststateTrue_method_behavior_True_['speed']_predictbehaviorTrue_roundedFalsevisualTrue_contrastiveFalse_['id', 'frames', 'behavior_mean']/_behavior_predict_no_pretraining_1.0/sparse_f:None_id:None/w:0.05_wp:0.25/mconf.yaml"
     FREEZE_MODEL = False
     TITLE = None
     SEED = 25
@@ -502,7 +502,7 @@ model_conf.contrastive_vars = ['id', 'frames', 'behavior_mean']
 if INFERENCE or MCONF is not None:
     update_object(model_conf, mconf)
 
-if TRAIN:
+if TRAIN or FINETUNE:
     if MCONF is not None:
         print(f"// -- updating model conf -- //")
         update_object(model_conf, mconf)
@@ -513,6 +513,7 @@ if TRAIN:
     if PREDICT_BEHAVIOR is True:
         print(f"// Predict behavior: n_behavior_layers = 0 //")
         model_conf.n_behavior_layers = 0
+        model_conf.predict_behavior = True
 
     if PAST_STATE is False:
         print(f"// -- No past state, layers=0 -- //")
@@ -538,7 +539,7 @@ if RESUME:
     model.load_state_dict(torch.load(RESUME, map_location='cpu'), strict=False)
 
 n = 1
-title =  f'ablations_{n}/MLP_ONLY_{MLP_ONLY}/behavior_before_stim_RESUME{RESUME != None}_paststate{PAST_STATE}_method_behavior_{behavior}_{behavior_vars}_predictbehavior{PREDICT_BEHAVIOR}_rounded{ROUND_VARS}visual{VISUAL}_contrastive{model_conf.contrastive}_{model_conf.contrastive_vars}'
+title =  f'ablations_3/finetuning/behavior_before_stim_RESUME{RESUME != None}_paststate{PAST_STATE}_method_behavior_{behavior}_{behavior_vars}_predictbehavior{PREDICT_BEHAVIOR}_rounded{ROUND_VARS}visual{VISUAL}_contrastive{model_conf.contrastive}_{model_conf.contrastive_vars}'
 
 # count number of files at the same level as this one
 if not INFERENCE:
@@ -622,6 +623,7 @@ else:
 if TRAIN or FINETUNE:
     # load best model
     model.load_state_dict(torch.load(tconf.ckpt_path, map_location='cpu'), strict=True)
+dir_name = os.path.dirname(model_path)
 
 # %%
 
@@ -638,8 +640,8 @@ behavior_preds = predict_behavior(model, trial_dataset, itos_speed, sample=True,
 from scipy.stats import pearsonr
 r, p = pearsonr(behavior_preds['behavior'], behavior_preds['true'])
 print(f"r: {r}, p: {p}")
-behavior_preds.to_csv(os.path.join(base_path, 'behavior_pred.csv'), index=False)
-with open(os.path.join(base_path, 'behavior_pred.json'), 'wb') as f:
+behavior_preds.to_csv(os.path.join(dir_name, 'behavior_pred.csv'), index=False)
+with open(os.path.join(dir_name, 'behavior_pred.json'), 'wb') as f:
     json.dump({'r': r, 'p': p}, f)
 
 # plot hexplot of predicted vs true speed
@@ -724,7 +726,6 @@ scores_scikit = compute_scores_scikit(df_1, df_pred)
 print(scores)
 print(f"len predL: {len(df_pred)}, len true: {len(df_true)}")
 
-dir_name = os.path.dirname(model_path)
 model_name = os.path.basename(model_path)
 df_pred.to_csv(os.path.join(dir_name, F'df_pred_.csv'))
 

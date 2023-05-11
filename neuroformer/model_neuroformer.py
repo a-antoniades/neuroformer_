@@ -1110,10 +1110,14 @@ class GPT(nn.Module):
             #                                                     num_classes=self.config.id_vocab_size, ignore_index=self.config.ignore_index_id)
             # preds['precision_top5'], preds['recall_top5'], preds['F1_top5'] = precision_top5, recall_top5, F1_top5
         # check if precision, recall and f1 are all same shape
-
-        preds['precision'] = torch.stack(precision).mean()
-        preds['recall'] = torch.stack(recall).mean()
-        preds['F1'] = torch.stack(F1).mean()
+        if len(precision) > 0 and len(recall) > 0 and len(F1) > 0:
+            preds['precision'] = torch.stack(precision).mean()
+            preds['recall'] = torch.stack(recall).mean()
+            preds['F1'] = torch.stack(F1).mean()
+        else:
+            preds['precision'] = torch.zeros(1).to(self.device)
+            preds['recall'] = torch.zeros(1).to(self.device)
+            preds['F1'] = torch.zeros(1).to(self.device)
 
         preds['id'] = id_logits    # [:, tf:]    # only id logits
         preds['dt'] = dt_logits
