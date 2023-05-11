@@ -354,5 +354,19 @@ class ClassifierWrapper(nn.Module):
         features['cls'] = last_layer
         loss['cls'] = cls_loss
         
-        return preds, features, loss
+        return preds, features, loss 
+
+
+class MLP(nn.Module):
+    def __init__(self, n_in, n_out, p_drop=0.2):
+        super().__init__()
+        self.mlp = nn.Sequential(
+            nn.Linear(n_in, 512),
+            nn.GELU(),
+            nn.Dropout(p=0.2),
+            nn.Linear(512, n_in)
+        )
+    
+    def forward(self, x):
+        return self.mlp(x)
 

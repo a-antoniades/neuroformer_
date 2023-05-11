@@ -96,7 +96,7 @@ class GPTConfig:
     resnet_backbone = False
     vit_encoder = True
     freeze_weights = None
-
+    mlp_only = False
 
     def __init__(self, vocab_size, block_size, **kwargs):
         self.vocab_size = vocab_size
@@ -997,7 +997,10 @@ class GPT(nn.Module):
         # assert t <= self.block_size, "Cannot forward, model block size is exhausted"
         
         features, pad = self.process_features(x)
-        x = self.neural_visual_transformer(features)
+        if self.config.mlp_only:
+            x = features['id']
+        else:
+            x = self.neural_visual_transformer(features)
         id_logits = self.head_id(x)
         dt_logits = self.head_dt(x)    # (B, T_id, 1)
         if self.config.predict_behavior:

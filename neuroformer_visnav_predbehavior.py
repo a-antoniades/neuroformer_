@@ -77,6 +77,7 @@ def parse_args():
     parser.add_argument("--contrastive", action="store_true", default=False, help="Contrastive")
     parser.add_argument("--local_rank", type=int, default=0)
     parser.add_argument("--fuse_stim_behavior", action="store_true", default=False, help="Fuse stimulus and behavior")
+    parser.add_argument("--mlp_only", action="store_true", default=False, help="MLP only")
     return parser.parse_args()
 
 # if __name__ == "__main__":
@@ -111,6 +112,7 @@ try:
     FUSE_STIM_BEHAVIOR = False
     FINETUNE = False
     PDATA = 0.1
+    MLP_ONLY = False
 except:
     print("Running in terminal")
     args = parse_args()
@@ -135,6 +137,7 @@ except:
     FUSE_STIM_BEHAVIOR = args.fuse_stim_behavior
     FINETUNE = args.finetune
     PDATA = args.pdata
+    MLP_ONLY = args.mlp_only
     
 set_seed(25)
 
@@ -491,7 +494,7 @@ model_conf = GPTConfig(train_dataset.population_size, block_size,    # frame_blo
                         window=window, window_prev=window_prev, frame_window=frame_window, dt=dt,
                         neurons=neurons, stoi_dt=stoi_dt, itos_dt=itos_dt, n_embd_frames=n_embd_frames,
                         ignore_index_id=stoi['PAD'], ignore_index_dt=stoi_dt['PAD'],
-                        fuse_stim_behavior=FUSE_STIM_BEHAVIOR)  # 0.35
+                        fuse_stim_behavior=FUSE_STIM_BEHAVIOR, mlp_only=MLP_ONLY)  # 0.35
 
 # update_object(model_conf, mconf)
 model_conf.contrastive_vars = ['id', 'frames', 'behavior_mean']
@@ -519,12 +522,13 @@ if TRAIN:
         print(f"// -- contrastive objective -- //")
         model_conf.contrastive = True
     else:
-        print(f"// -- NOOO cross entropy objective -- //")
+        print(f"// -- NOOO contrastive objective -- //")
         model_conf.contrastive = False
 
     if VISUAL is False:
         print(f"// -- No visual, layers=0 -- //")
         model_conf.n_stimulus_layers = 0
+    
 
 
 model = GPT(model_conf)
@@ -533,8 +537,8 @@ if RESUME:
     print(f"// -- Resuming model -- //")
     model.load_state_dict(torch.load(RESUME, map_location='cpu'), strict=False)
 
-n = 69
-title =  f'ablations_{n}/behavior_before_stim_RESUME{RESUME != None}_paststate{PAST_STATE}_method_behavior_{behavior}_{behavior_vars}_predictbehavior{PREDICT_BEHAVIOR}_rounded{ROUND_VARS}visual{VISUAL}_contrastive{model_conf.contrastive}_{model_conf.contrastive_vars}'
+n = 1
+title =  f'ablations_{n}/MLP_ONLY_{MLP_ONLY}/behavior_before_stim_RESUME{RESUME != None}_paststate{PAST_STATE}_method_behavior_{behavior}_{behavior_vars}_predictbehavior{PREDICT_BEHAVIOR}_rounded{ROUND_VARS}visual{VISUAL}_contrastive{model_conf.contrastive}_{model_conf.contrastive_vars}'
 
 # count number of files at the same level as this one
 if not INFERENCE:
@@ -596,6 +600,7 @@ elif FINETUNE:
     
     setattr(tconf, 'loss_bprop', loss_bprop)
     setattr(tconf, 'finetune', True)
+    print(f"// loss to backprop: {loss_bprop} //")
     print(f"// -- Finetuning model -- //")
     model.load_state_dict(torch.load(RESUME, map_location='cpu'))
     trainer = Trainer(model, finetune_dataset, test_dataset, tconf, model_conf)
