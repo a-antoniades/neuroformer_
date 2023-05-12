@@ -97,6 +97,7 @@ class GPTConfig:
     vit_encoder = True
     freeze_weights = None
     mlp_only = False
+    wave_emb = True
 
     def __init__(self, vocab_size, block_size, **kwargs):
         self.vocab_size = vocab_size
