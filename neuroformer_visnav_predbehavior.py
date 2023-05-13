@@ -139,7 +139,7 @@ except:
     FINETUNE = args.finetune
     PDATA = args.pdata
     MLP_ONLY = args.mlp_only
-    PARALLEL = True
+    PARALLEL = False
     
 set_seed(25)
 
