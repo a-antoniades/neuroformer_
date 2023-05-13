@@ -433,21 +433,7 @@ train_dataset = SpikeTimeVidData2(train_data, None, block_size, id_block_size, f
                                   stoi_speed=stoi_speed, itos_speed=itos_speed, dt_speed=dt_speed) # stoi_phi=stoi_phi, itos_phi=itos_phi, 
                                   # dt_phi=dt_phi, stoi_th=stoi_th, itos_th=itos_th, dt_th=dt_th)
 
-update_object(train_dataset, dconf)
-train_dataset = train_dataset.copy(train_data)
 test_dataset = train_dataset.copy(test_data)
-
-test_dataset = SpikeTimeVidData2(test_data, None, block_size, id_block_size, frame_block_size, prev_id_block_size, 
-                                  window, dt, frame_memory, stoi, itos, neurons, stoi_dt, itos_dt, frame_feats,
-                                  pred=False, window_prev=window_prev, frame_window=frame_window,
-                                  dt_frames=dt_frames, intervals=None, dataset='visnav',
-                                  behavior=df_behavior, behavior_vars=behavior_vars, dt_vars=dt_vars,
-                                  behavior_block_size=behavior_block_size, samples_per_behavior=samples_per_behavior,
-                                  window_behavior=window_behavior, predict_behavior=predict_behavior,
-                                  stoi_speed=stoi_speed, itos_speed=itos_speed, dt_speed=dt_speed) # stoi_phi=stoi_phi, itos_phi=itos_phi,
-                                  # dt_phi=dt_phi, stoi_th=stoi_th, itos_th=itos_th, dt_th=dt_th)
-update_object(test_dataset, dconf)
-test_dataset = test_dataset.copy(test_data)
 
 print(f'train: {len(train_dataset)}, test: {len(test_dataset)}')
 
@@ -595,6 +581,10 @@ if TRAIN:
     trainer.train()
 elif FINETUNE:
     assert PDATA is not None, "Must provide path to data to finetune"
+    if PDATA < 1:
+        batch_size = 32
+        setattr(tconf, 'batch_size', batch_size)
+        # max_epochs = 200
     # assert RESUME is not None, "Must provide path to model to finetune"
     loss_bprop = ['behavior']
     r_split_ft = PDATA
@@ -609,7 +599,7 @@ elif FINETUNE:
     print(f"// -- Finetuning model -- //")
     if RESUME is not None:
         print(f"// -- Loading model from {RESUME} -- //")
-        model.load_state_dict(torch.load(RESUME, map_location='cpu'))
+        model.load_state_dict(torch.load(RESUME, map_location='cpu'), strict=False)
     trainer = Trainer(model, finetune_dataset, test_dataset, tconf, model_conf)
     trainer.train()
 
