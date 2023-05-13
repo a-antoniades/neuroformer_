@@ -658,9 +658,9 @@ df_pred_paths = list(pathlib.Path(base_path).glob('*.csv'))
 df_pred = None
 results_dict = dict()
 
-top_p = 0.75
-top_p_t = 0.75
-temp = 1.15
+top_p = 0.65
+top_p_t = 0.65
+temp = 1.
 temp_t = 1.
 
 test_trials = test_data['Trial'].unique()
@@ -778,22 +778,12 @@ plot_distribution(df_1, df_pred, save_path=os.path.join(dir_name, F'psth_dist_.s
 # save scores to json}}
 # check if files already exists
 scores_path = os.path.join(dir_name, F'scores_{save_title}_.json')
-n_files = 0
-while os.path.exists(scores_path):
-    # how many exist
-    n_files += 1
-    scores_path = os.path.join(dir_name, F'scores_{save_title}_{n_files}.json')
 
 with open(os.path.join(dir_name, scores_path), 'w') as fp:
     json.dump(pred_scores, fp)
 
 # save scikit scores to json
 scores_path_scikit = os.path.join(dir_name, F'scores_scikit_{save_title}_.json')
-n_files = 0
-while os.path.exists(scores_path_scikit):
-    # how many exist
-    n_files += 1
-    scores_path_scikit = os.path.join(dir_name, F'scores_scikit_{save_title}_{n_files}.json')
 with open(os.path.join(dir_name, scores_path_scikit), 'w') as fp:
     json.dump(scores_scikit, fp)
 
