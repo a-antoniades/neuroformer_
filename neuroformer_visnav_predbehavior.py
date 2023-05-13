@@ -653,13 +653,13 @@ if PREDICT_BEHAVIOR:
 from neuroformer.utils import predict_raster_recursive_time_auto, process_predictions
 
 PARALLEL = PARALLEL
-df_pred_paths = list(pathlib.Path(base_path).glob('*.csv'))
-# df_pred = pd.read_csv(df_pred_paths[0]) if len(df_pred_paths) > 0 else None 
-df_pred = None
+df_pred_paths = list(pathlib.Path(base_path).glob('*df_pred_.csv*.csv'))
+df_pred = pd.read_csv(df_pred_paths[0]) if len(df_pred_paths) > 0 else None 
+# df_pred = "./models/tensorboard/visnav_lateral/behavior_pred_exp/classification/ablations_1/behavior_before_stim_RESUMEFalse_paststateTrue_method_behavior_True_['phi', 'th']_predictbehaviorFalse_roundedFalsevisualTrue_contrastiveFalse_['id', 'frames', 'behavior_mean', 'behavior_mean']/sparse_f:None_id:None/w:0.05_wp:0.25/df_true__top_p0_top_p_t0_9_temp1_0_temp_t1_0_.csv"
 results_dict = dict()
 
-top_p = 0.65
-top_p_t = 0.65
+top_p = 0.9
+top_p_t = 0.9
 temp = 1.
 temp_t = 1.
 
@@ -765,7 +765,6 @@ plt.xlabel('Pearson r', fontsize=25)
 plt.hist(top_corr_pred, label='real - simulated', alpha=0.6, bins=30)
 plt.legend(fontsize=20)
 
-dir_name = os.path.dirname(model_path)
 model_name = os.path.basename(model_path)
 
 top_p = 0
@@ -779,12 +778,12 @@ plot_distribution(df_1, df_pred, save_path=os.path.join(dir_name, F'psth_dist_.s
 # check if files already exists
 scores_path = os.path.join(dir_name, F'scores_{save_title}_.json')
 
-with open(os.path.join(dir_name, scores_path), 'w') as fp:
-    json.dump(pred_scores, fp)
+# with open(os.path.join(scores_path), 'w') as fp:
+#     json.dump(pred_scores, fp)
 
 # save scikit scores to json
-scores_path_scikit = os.path.join(dir_name, F'scores_scikit_{save_title}_.json')
-with open(os.path.join(dir_name, scores_path_scikit), 'w') as fp:
+scores_path_scikit = os.path.join(dir_name, F'scores_scikit_{save_title}.json')
+with open(scores_path_scikit, 'w') as fp:
     json.dump(scores_scikit, fp)
 
 total_scores = dict()
