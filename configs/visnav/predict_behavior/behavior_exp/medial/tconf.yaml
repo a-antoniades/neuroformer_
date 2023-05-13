@@ -8,7 +8,6 @@ decay_weights: true
 dist: false
 grad_norm_clip: 1.0
 learning_rate: 0.0001
-loss_bprop: null
 lr_decay: true
 mode: predict
 no_pbar: false
