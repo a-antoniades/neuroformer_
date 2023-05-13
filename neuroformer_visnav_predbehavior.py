@@ -113,7 +113,7 @@ try:
     FINETUNE = False
     PDATA = 0.1
     MLP_ONLY = False
-    PARALLEL = False
+    PARALLEL = True
 except:
     print("Running in terminal")
     args = parse_args()
@@ -139,7 +139,7 @@ except:
     FINETUNE = args.finetune
     PDATA = args.pdata
     MLP_ONLY = args.mlp_only
-    PARALLEL = False
+    PARALLEL = True
     
 set_seed(25)
 
@@ -490,7 +490,7 @@ model_conf.contrastive_vars = ['id', 'frames', 'behavior_mean']
 if INFERENCE or MCONF is not None:
     update_object(model_conf, mconf)
 
-if TRAIN or FINETUNE:
+if TRAIN or FINETUNE or INFERENCE:
     if MCONF is not None:
         print(f"// -- updating model conf -- //")
         update_object(model_conf, mconf)
@@ -658,9 +658,9 @@ df_pred_paths = list(pathlib.Path(base_path).glob('*.csv'))
 df_pred = None
 results_dict = dict()
 
-top_p = 0.9
-top_p_t = 0.9
-temp = 1.
+top_p = 0.75
+top_p_t = 0.75
+temp = 1.15
 temp_t = 1.
 
 test_trials = test_data['Trial'].unique()
@@ -769,17 +769,32 @@ dir_name = os.path.dirname(model_path)
 model_name = os.path.basename(model_path)
 
 top_p = 0
-save_title = f'_top_p{str(top_p).replace(".", "")}'
+save_title = f'_top_p{str(top_p)}_top_p_t{str(top_p_t)}_temp{str(temp)}_temp_t{str(temp_t)}'.replace('.', '_')
 plt.savefig(os.path.join(dir_name, F'psth_corr_{save_title}_.svg'))
 df_pred.to_csv(os.path.join(dir_name, F'df_pred_{save_title}_.csv'))
+df_true.to_csv(os.path.join(dir_name, F'df_true_{save_title}_.csv'))
 
 plot_distribution(df_1, df_pred, save_path=os.path.join(dir_name, F'psth_dist_.svg'))
 # save scores to json}}
-with open(os.path.join(dir_name, F'scores_{save_title}_.json'), 'w') as fp:
+# check if files already exists
+scores_path = os.path.join(dir_name, F'scores_{save_title}_.json')
+n_files = 0
+while os.path.exists(scores_path):
+    # how many exist
+    n_files += 1
+    scores_path = os.path.join(dir_name, F'scores_{save_title}_{n_files}.json')
+
+with open(os.path.join(dir_name, scores_path), 'w') as fp:
     json.dump(pred_scores, fp)
 
 # save scikit scores to json
-with open(os.path.join(dir_name, F'scores_scikit_{save_title}_.json'), 'w') as fp:
+scores_path_scikit = os.path.join(dir_name, F'scores_scikit_{save_title}_.json')
+n_files = 0
+while os.path.exists(scores_path_scikit):
+    # how many exist
+    n_files += 1
+    scores_path_scikit = os.path.join(dir_name, F'scores_scikit_{save_title}_{n_files}.json')
+with open(os.path.join(dir_name, scores_path_scikit), 'w') as fp:
     json.dump(scores_scikit, fp)
 
 total_scores = dict()
