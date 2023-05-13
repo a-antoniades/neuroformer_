@@ -89,33 +89,33 @@ class Trainer:
 
         # take over whatever gpus are on the system
         self.device = 'cpu'
-        if torch.cuda.is_available():
-            # self.device = torch.cuda.current_device()
-            # self.model = torch.nn.DataParallel(self.model).to(self.device)
-            # self.criterion = self.criterion.to(self.device)
+        # if torch.cuda.is_available():
+        #     # self.device = torch.cuda.current_device()
+        #     # self.model = torch.nn.DataParallel(self.model).to(self.device)
+        #     # self.criterion = self.criterion.to(self.device)
 
-            if config.dist:
-                rank = int(os.environ["RANK"])
-                world_size = int(os.environ['WORLD_SIZE'])
-                local_rank = int(os.environ['LOCAL_RANK'])
-                dist.init_process_group(backend='nccl',
-                                        init_method='env://', 
-                                        world_size=world_size,
-                                        rank=rank)
-                torch.cuda.set_device(local_rank)
-                dist.barrier()
+        #     if config.dist:
+        #         rank = int(os.environ["RANK"])
+        #         world_size = int(os.environ['WORLD_SIZE'])
+        #         local_rank = int(os.environ['LOCAL_RANK'])
+        #         dist.init_process_group(backend='nccl',
+        #                                 init_method='env://', 
+        #                                 world_size=world_size,
+        #                                 rank=rank)
+        #         torch.cuda.set_device(local_rank)
+        #         dist.barrier()
 
-                self.device = torch.device('cuda', torch.cuda.current_device())
-                self.model = self.model.to(self.device)
-                self.model = torch.nn.parallel.DistributedDataParallel(self.model,
-                                                                    device_ids=[torch.cuda.current_device()],
-                                                                    output_device=torch.cuda.current_device(),
-                                                                    find_unused_parameters=True)
+        #         self.device = torch.device('cuda', torch.cuda.current_device())
+        #         self.model = self.model.to(self.device)
+        #         self.model = torch.nn.parallel.DistributedDataParallel(self.model,
+        #                                                             device_ids=[torch.cuda.current_device()],
+        #                                                             output_device=torch.cuda.current_device(),
+        #                                                             find_unused_parameters=True)
                             
-            else:
-                self.device = torch.device('cuda', torch.cuda.current_device())
-                self.model = self.model.to(self.device)
-                # self.model = torch.nn.DataParallel(self.model)
+        #     else:
+        #         self.device = torch.device('cuda', torch.cuda.current_device())
+        #         self.model = self.model.to(self.device)
+        #         # self.model = torch.nn.DataParallel(self.model)
 
         self.writer.add_scalar(f"model/no_parameters", sum(p.numel() for p in model.parameters())) 
 
