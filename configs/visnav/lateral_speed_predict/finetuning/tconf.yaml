@@ -7,11 +7,10 @@ decay_weights: true
 dist: false
 grad_norm_clip: 1.0
 id_block_size: 100
-loss_bprop: null
 lr_decay: true
 no_pbar: false
 plot_raster: false
-save_every: 1000
+save_every: 50
 show_grads: false
 shuffle: true
 weight_decay: 1.0

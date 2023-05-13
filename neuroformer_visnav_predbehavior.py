@@ -113,6 +113,7 @@ try:
     FINETUNE = False
     PDATA = 0.1
     MLP_ONLY = False
+    PARALLEL = False
 except:
     print("Running in terminal")
     args = parse_args()
@@ -138,6 +139,7 @@ except:
     FINETUNE = args.finetune
     PDATA = args.pdata
     MLP_ONLY = args.mlp_only
+    PARALLEL = True
     
 set_seed(25)
 
@@ -621,36 +623,36 @@ dir_name = os.path.dirname(model_path)
 
 # %%
 
-from neuroformer.utils import predict_behavior
-
-chosen_trials = test_data['Trial'].unique()
-trial_data = test_data[test_data['Trial'].isin(chosen_trials)]
-trial_dataset = train_dataset.copy(trial_data)
-behavior_preds = predict_behavior(model, trial_dataset, itos_speed, sample=True, top_p=0.75)
-
 
 # %%
-# get correlation between predicted and true speed
-from scipy.stats import pearsonr
-r, p = pearsonr(behavior_preds['behavior'], behavior_preds['true'])
-print(f"r: {r}, p: {p}")
-behavior_preds.to_csv(os.path.join(dir_name, 'behavior_pred.csv'), index=False)
-with open(os.path.join(dir_name, 'behavior_pred.json'), 'wb') as f:
-    json.dump({'r': r, 'p': p}, f)
+    # get correlation between predicted and true speed
+if PREDICT_BEHAVIOR:
+    from neuroformer.utils import predict_behavior
+    chosen_trials = test_data['Trial'].unique()
+    trial_data = test_data[test_data['Trial'].isin(chosen_trials)]
+    trial_dataset = train_dataset.copy(trial_data)
+    behavior_preds = predict_behavior(model, trial_dataset, itos_speed, sample=True, top_p=0.75)
 
-# plot hexplot of predicted vs true speed
+    from scipy.stats import pearsonr
+    r, p = pearsonr(behavior_preds['behavior'], behavior_preds['true'])
+    print(f"r: {r}, p: {p}")
+    behavior_preds.to_csv(os.path.join(dir_name, 'behavior_pred.csv'), index=False)
+    with open(os.path.join(dir_name, 'behavior_pred.json'), 'wb') as f:
+        json.dump({'r': r, 'p': p}, f)
 
-import seaborn as sns
-import matplotlib.pyplot as plt
-sns.set_theme(style="white", color_codes=True)
-g = sns.jointplot(x="behavior", y="true", data=behavior_preds, kind="hex")
-g.ax_joint.plot([0, 1], [0, 1], 'k--')
-plt.show()
+    # plot hexplot of predicted vs true speed
+
+    import seaborn as sns
+    import matplotlib.pyplot as plt
+    sns.set_theme(style="white", color_codes=True)
+    g = sns.jointplot(x="behavior", y="true", data=behavior_preds, kind="hex")
+    g.ax_joint.plot([0, 1], [0, 1], 'k--')
+    plt.show()
 
 # %%
 from neuroformer.utils import predict_raster_recursive_time_auto, process_predictions
 
-PARALLEL = False
+PARALLEL = PARALLEL
 df_pred_paths = list(pathlib.Path(base_path).glob('*.csv'))
 # df_pred = pd.read_csv(df_pred_paths[0]) if len(df_pred_paths) > 0 else None 
 df_pred = None
