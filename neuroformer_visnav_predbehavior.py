@@ -527,7 +527,7 @@ if RESUME:
     model.load_state_dict(torch.load(RESUME, map_location='cpu'), strict=False)
 
 n = 1
-title =  f'ablations_1/finetuning_{PDATA}g/behavior_before_stim_RESUME{RESUME != None}_paststate{PAST_STATE}_method_behavior_{behavior}_{behavior_vars}_predictbehavior{PREDICT_BEHAVIOR}_rounded{ROUND_VARS}visual{VISUAL}_contrastive{model_conf.contrastive}_{model_conf.contrastive_vars}'
+title =  f'ablations_1/finetuning_{PDATA}_resume{RESUME != None}/behavior_before_stim_RESUME{RESUME != None}_paststate{PAST_STATE}_method_behavior_{behavior}_{behavior_vars}_predictbehavior{PREDICT_BEHAVIOR}_rounded{ROUND_VARS}visual{VISUAL}_contrastive{model_conf.contrastive}_{model_conf.contrastive_vars}'
 
 # count number of files at the same level as this one
 if not INFERENCE:
@@ -563,7 +563,7 @@ tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rat
                     id_block_size=train_dataset.id_block_size,
                     show_grads=False, plot_raster=False,
                     ckpt_path=model_path, no_pbar=False, 
-                    dist=DIST, save_every=50)
+                    dist=DIST, save_every=0)
 
 if TRAIN:
     # trainer = Trainer(model, train_dataset, test_dataset, tconf, model_conf)
