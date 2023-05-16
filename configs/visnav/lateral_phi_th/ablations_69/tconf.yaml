@@ -1,0 +1,17 @@
+betas: !!python/tuple
+- 0.9
+- 0.95
+clip_norm: 1.0
+dataset: visnav
+decay_weights: true
+dist: false
+grad_norm_clip: 1.0
+id_block_size: 100
+loss_bprop: null
+lr_decay: true
+no_pbar: false
+plot_raster: false
+save_every: 1000
+show_grads: false
+shuffle: true
+weight_decay: 1.0

@@ -504,7 +504,7 @@ def predict_raster_recursive_time_auto(model, dataset, window, window_prev, stoi
             x['id'][:, i + 1] = ix.flatten()
             x['dt'][:, i + 1] = ix_dt.flatten() if pred_dt else x['dt']
            
-            if ix >= stoi['EOS']:    # T_id - int(x['pad']):   # or len(current_id_stoi) == T_id: # and dtx == 0.5:    # dtx >= window:   # ix == stoi['EOS']:
+            if ix >= stoi['EOS'] or i > T_id - int(x['pad']):   # or len(current_id_stoi) == T_id: # and dtx == 0.5:    # dtx >= window:   # ix == stoi['EOS']:
                 # print(f"n_regres_block: {i}")
                 break
             
