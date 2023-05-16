@@ -658,10 +658,10 @@ df_pred = pd.read_csv(df_pred_paths[0]) if len(df_pred_paths) > 0 else None
 # df_pred = "./models/tensorboard/visnav_lateral/behavior_pred_exp/classification/ablations_1/behavior_before_stim_RESUMEFalse_paststateTrue_method_behavior_True_['phi', 'th']_predictbehaviorFalse_roundedFalsevisualTrue_contrastiveFalse_['id', 'frames', 'behavior_mean', 'behavior_mean']/sparse_f:None_id:None/w:0.05_wp:0.25/df_true__top_p0_top_p_t0_9_temp1_0_temp_t1_0_.csv"
 results_dict = dict()
 
-top_p = 0.9
-top_p_t = 0.9
-temp = 0.6
-temp_t = 0.6
+top_p = 0.75
+top_p_t = 0.75
+temp = 1.1
+temp_t = 1.1
 
 test_trials = test_data['Trial'].unique()
 # pick 8 trials at random from test
