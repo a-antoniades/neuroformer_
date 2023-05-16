@@ -1,0 +1,9 @@
+_is_protocol: false
+block_size: 446
+data_dict: null
+dataset: visnav
+dt_speed: 0.2
+dt_vars: 0.05
+idx: 0
+interval: 0
+intervals: null

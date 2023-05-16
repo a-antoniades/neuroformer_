@@ -107,11 +107,11 @@ def get_accuracy(true, pred):
 
 def compute_scores(true, pred):
     scores = collections.defaultdict(list)
-    intervals = pred[['Interval', 'Trial']].drop_duplicates().reset_index(drop=True)
-    pred[['Interval', 'Trial']].drop_duplicates().reset_index(drop=True)
+    intervals = true[['Interval', 'Trial']].drop_duplicates().reset_index(drop=True)
     for idx in range(len(intervals)):
         interval = intervals.iloc[idx][0]
         trial = intervals.iloc[idx][1]
+        # print(f"Interval: {interval}, Trial: {trial}")
         true_int = true[(true['Interval'] == interval) & (true['Trial'] == trial)]
         pred_int = pred[(pred['Interval'] == interval) & (pred['Trial'] == trial)]
         
