@@ -67,6 +67,7 @@ def set_plot_black():
 def set_research_params():
     fs = 5
     LW = 0.001
+    TW = 0.3
     plt.rcParams['axes.prop_cycle'] = plt.cycler(color=plt.cm.Set1.colors)
     plt.rcParams['font.family'] = 'sans'
     plt.rcParams['xtick.labelsize']= fs
@@ -74,12 +75,14 @@ def set_research_params():
     plt.rcParams['axes.labelsize']= fs
     plt.rcParams['axes.titlesize']= 6
     plt.rcParams['legend.fontsize']= fs
-    # plt.rcParams['lines.linewidth']= 2
-    plt.rcParams['xtick.major.size'] = 1
-    plt.rcParams['ytick.major.size'] = 0.5
+    plt.rcParams['lines.linewidth']= 0.5
+    plt.rcParams['xtick.major.size'] = 1.5
+    plt.rcParams['ytick.major.size'] = 1.5
+    # make ticks thinner
+    plt.rcParams['xtick.major.width'] = TW
+    plt.rcParams['ytick.major.width'] = TW
     
-    plt.rcParams['axes.linewidth'] = 0.05
-
+    plt.rcParams['axes.linewidth'] = 0.2
 
 def nature_style():
     # Custom style settings
