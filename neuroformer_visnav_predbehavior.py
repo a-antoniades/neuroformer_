@@ -582,7 +582,7 @@ if TRAIN:
 elif FINETUNE:
     assert PDATA is not None, "Must provide path to data to finetune"
     if PDATA < 1:
-        batch_size = 32
+        batch_size = 32 * 7
         setattr(tconf, 'batch_size', batch_size)
         # max_epochs = 200
     # assert RESUME is not None, "Must provide path to model to finetune"
@@ -595,6 +595,7 @@ elif FINETUNE:
     
     setattr(tconf, 'loss_bprop', loss_bprop)
     setattr(tconf, 'finetune', True)
+    setattr(tconf, 'max_epochs', 1000)
     print(f"// loss to backprop: {loss_bprop} //")
     print(f"// -- Finetuning model -- //")
     if RESUME is not None:
@@ -631,23 +632,22 @@ if PREDICT_BEHAVIOR:
     chosen_trials = test_data['Trial'].unique()
     trial_data = test_data[test_data['Trial'].isin(chosen_trials)]
     trial_dataset = train_dataset.copy(trial_data)
-    behavior_preds = predict_behavior(model, trial_dataset, itos_speed, sample=True, top_p=0.75)
+    sample_behavior = False
+    top_p = 0.75 if sample_behavior else 0
+    behavior_preds = predict_behavior(model, trial_dataset, itos_speed, 
+                                      sample=sample_behavior, top_p=top_p)
 
     from scipy.stats import pearsonr
     r, p = pearsonr(behavior_preds['behavior'], behavior_preds['true'])
     print(f"r: {r}, p: {p}")
-    behavior_preds.to_csv(os.path.join(dir_name, 'behavior_pred.csv'), index=False)
-    with open(os.path.join(dir_name, 'behavior_pred.json'), 'wb') as f:
-        json.dump({'r': r, 'p': p}, f)
-
+    behavior_preds.to_csv(os.path.join(dir_name, f'behavior_pred_sample_{sample_behavior}_{top_p}.csv'), index=False)
     # plot hexplot of predicted vs true speed
-
-    import seaborn as sns
-    import matplotlib.pyplot as plt
-    sns.set_theme(style="white", color_codes=True)
-    g = sns.jointplot(x="behavior", y="true", data=behavior_preds, kind="hex")
-    g.ax_joint.plot([0, 1], [0, 1], 'k--')
-    plt.show()
+    # import seaborn as sns
+    # import matplotlib.pyplot as plt
+    # sns.set_theme(style="white", color_codes=True)
+    # g = sns.jointplot(x="behavior", y="true", data=behavior_preds, kind="hex")
+    # g.ax_joint.plot([0, 1], [0, 1], 'k--')
+    # plt.show()
 
 # %%
 from neuroformer.utils import predict_raster_recursive_time_auto, process_predictions
@@ -660,8 +660,8 @@ results_dict = dict()
 
 top_p = 0.9
 top_p_t = 0.9
-temp = 1.
-temp_t = 1.
+temp = 0.6
+temp_t = 0.6
 
 test_trials = test_data['Trial'].unique()
 # pick 8 trials at random from test

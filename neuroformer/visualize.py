@@ -82,7 +82,16 @@ def set_research_params():
     plt.rcParams['xtick.major.width'] = TW
     plt.rcParams['ytick.major.width'] = TW
     
+<<<<<<< HEAD
     plt.rcParams['axes.linewidth'] = 0.2
+=======
+    # change grid si to make it lighter
+    plt.rcParams['grid.linewidth'] = LW
+    plt.rcParams['grid.alpha'] = 0.7
+
+    plt.rcParams['axes.linewidth'] = 0.2
+
+>>>>>>> 8f7b7d488cb3691f6aaa97249df5391ec0d25efa
 
 def nature_style():
     # Custom style settings
