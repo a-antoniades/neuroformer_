@@ -641,17 +641,13 @@ if PREDICT_BEHAVIOR:
     r, p = pearsonr(behavior_preds['behavior'], behavior_preds['true'])
     print(f"r: {r}, p: {p}")
     behavior_preds.to_csv(os.path.join(dir_name, f'behavior_pred_sample_{sample_behavior}_{top_p}.csv'), index=False)
-    with open(os.path.join(dir_name, 'behavior_pred.json'), 'wb') as f:
-        json.dump({'r': r, 'p': p}, f)
-
     # plot hexplot of predicted vs true speed
-
-    import seaborn as sns
-    import matplotlib.pyplot as plt
-    sns.set_theme(style="white", color_codes=True)
-    g = sns.jointplot(x="behavior", y="true", data=behavior_preds, kind="hex")
-    g.ax_joint.plot([0, 1], [0, 1], 'k--')
-    plt.show()
+    # import seaborn as sns
+    # import matplotlib.pyplot as plt
+    # sns.set_theme(style="white", color_codes=True)
+    # g = sns.jointplot(x="behavior", y="true", data=behavior_preds, kind="hex")
+    # g.ax_joint.plot([0, 1], [0, 1], 'k--')
+    # plt.show()
 
 # %%
 from neuroformer.utils import predict_raster_recursive_time_auto, process_predictions
@@ -664,8 +660,8 @@ results_dict = dict()
 
 top_p = 0.9
 top_p_t = 0.9
-temp = 1.
-temp_t = 1.
+temp = 0.6
+temp_t = 0.6
 
 test_trials = test_data['Trial'].unique()
 # pick 8 trials at random from test
