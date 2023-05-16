@@ -582,7 +582,7 @@ if TRAIN:
 elif FINETUNE:
     assert PDATA is not None, "Must provide path to data to finetune"
     if PDATA < 1:
-        batch_size = 32
+        batch_size = 32 * 7
         setattr(tconf, 'batch_size', batch_size)
         # max_epochs = 200
     # assert RESUME is not None, "Must provide path to model to finetune"
@@ -631,7 +631,7 @@ if PREDICT_BEHAVIOR:
     chosen_trials = test_data['Trial'].unique()
     trial_data = test_data[test_data['Trial'].isin(chosen_trials)]
     trial_dataset = train_dataset.copy(trial_data)
-    behavior_preds = predict_behavior(model, trial_dataset, itos_speed, sample=True, top_p=0.75)
+    behavior_preds = predict_behavior(model, trial_dataset, itos_speed, sample=False, top_p=0)
 
     from scipy.stats import pearsonr
     r, p = pearsonr(behavior_preds['behavior'], behavior_preds['true'])

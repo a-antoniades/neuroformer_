@@ -82,6 +82,10 @@ def set_research_params():
     plt.rcParams['xtick.major.width'] = TW
     plt.rcParams['ytick.major.width'] = TW
     
+    # change grid si to make it lighter
+    plt.rcParams['grid.linewidth'] = LW
+    plt.rcParams['grid.alpha'] = 0.7
+
     plt.rcParams['axes.linewidth'] = 0.2
 
 
