@@ -632,14 +632,10 @@ if PREDICT_BEHAVIOR:
     chosen_trials = test_data['Trial'].unique()
     trial_data = test_data[test_data['Trial'].isin(chosen_trials)]
     trial_dataset = train_dataset.copy(trial_data)
-<<<<<<< HEAD
     sample_behavior = False
     top_p = 0.75 if sample_behavior else 0
     behavior_preds = predict_behavior(model, trial_dataset, itos_speed, 
                                       sample=sample_behavior, top_p=top_p)
-=======
-    behavior_preds = predict_behavior(model, trial_dataset, itos_speed, sample=False, top_p=0)
->>>>>>> c28d655406188a40f7871a8e438b3367cbe8f335
 
     from scipy.stats import pearsonr
     r, p = pearsonr(behavior_preds['behavior'], behavior_preds['true'])
