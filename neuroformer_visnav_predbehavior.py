@@ -595,6 +595,7 @@ elif FINETUNE:
     
     setattr(tconf, 'loss_bprop', loss_bprop)
     setattr(tconf, 'finetune', True)
+    setattr(tconf, 'max_epochs', 1000)
     print(f"// loss to backprop: {loss_bprop} //")
     print(f"// -- Finetuning model -- //")
     if RESUME is not None:
@@ -631,12 +632,15 @@ if PREDICT_BEHAVIOR:
     chosen_trials = test_data['Trial'].unique()
     trial_data = test_data[test_data['Trial'].isin(chosen_trials)]
     trial_dataset = train_dataset.copy(trial_data)
-    behavior_preds = predict_behavior(model, trial_dataset, itos_speed, sample=True, top_p=0.75)
+    sample_behavior = False
+    top_p = 0.75 if sample_behavior else 0
+    behavior_preds = predict_behavior(model, trial_dataset, itos_speed, 
+                                      sample=sample_behavior, top_p=top_p)
 
     from scipy.stats import pearsonr
     r, p = pearsonr(behavior_preds['behavior'], behavior_preds['true'])
     print(f"r: {r}, p: {p}")
-    behavior_preds.to_csv(os.path.join(dir_name, 'behavior_pred.csv'), index=False)
+    behavior_preds.to_csv(os.path.join(dir_name, f'behavior_pred_sample_{sample_behavior}_{top_p}.csv'), index=False)
     with open(os.path.join(dir_name, 'behavior_pred.json'), 'wb') as f:
         json.dump({'r': r, 'p': p}, f)
 

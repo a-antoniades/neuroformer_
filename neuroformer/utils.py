@@ -253,23 +253,22 @@ def sample(model, x, steps, temperature=1.0, sample=False, top_k=None):
         return x
 
 @torch.no_grad()
-def top_k_top_p_filtering(logits, top_k=0, top_p=0, filter_value=-float('Inf')):
+def top_k_top_p_filtering(logits, top_k=0, top_p=0.0, filter_value=-1e10):
     """ Filter a distribution of logits using top-k and/or nucleus (top-p) filtering
         Args:
-            logits: logits distribution shape (vocabulary size)
+            logits: logits distribution shape (batch size, vocabulary size)
             top_k >0: keep only top k tokens with highest probability (top-k filtering).
             top_p >0.0: keep the top tokens with cumulative probability >= top_p (nucleus filtering).
                 Nucleus filtering is described in Holtzman et al. (http://arxiv.org/abs/1904.09751)
     """
-    # assert logits.dim() == 1  # batch size 1 for now - could be updated for more but the code would be less clear
     top_k = min(top_k, logits.size(-1))  # Safety check
     if top_k > 0:
         # Remove all tokens with a probability less than the last token of the top-k
-        indices_to_remove = logits < torch.topk(logits, top_k)[0][..., -1, None]
+        indices_to_remove = logits < torch.topk(logits, top_k, dim=-1)[0][..., -1, None]
         logits[indices_to_remove] = filter_value
 
     if top_p > 0:
-        sorted_logits, sorted_indices = torch.sort(logits, descending=True)
+        sorted_logits, sorted_indices = torch.sort(logits, descending=True, dim=-1)
         cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
 
         # Remove tokens with cumulative probability above the threshold
@@ -278,8 +277,13 @@ def top_k_top_p_filtering(logits, top_k=0, top_p=0, filter_value=-float('Inf')):
         sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
         sorted_indices_to_remove[..., 0] = 0
 
-        indices_to_remove = sorted_indices[sorted_indices_to_remove]
-        logits[:, indices_to_remove] = filter_value
+        # batch_indices is an addition in the modified function. This creates an array holding the batch indices
+        batch_indices = torch.arange(logits.size(0))[:, None].expand_as(sorted_indices_to_remove)
+
+        # Use torch.where to handle higher-dimensional tensors for indexing
+        indices_to_remove = torch.where(sorted_indices_to_remove, sorted_indices, sorted_indices)
+        logits[batch_indices, indices_to_remove] = filter_value
+
     return logits
 
 @torch.no_grad()
@@ -560,36 +564,96 @@ def predict_beam_search(model, loader, stoi, frame_end=0):
     return true_raster[1:], predicted_raster[1:]
 
 
+# @torch.no_grad()
+# def predict_behavior(model, dataset, itos, sample=False, top_k=0, top_p=0):
+#     model.eval()
+#     loader = DataLoader(dataset, shuffle=False, pin_memory=False)
+#     pbar = tqdm(enumerate(loader), total=len(loader))
+#     model.cpu()
+#     model.eval()
+#     behavior_preds = []
+#     intervals = []
+#     trials = []
+#     behavior_true = []
+#     for it, (x, y) in pbar:
+#         x = all_device(x, 'cpu')
+#         y = all_device(y, 'cpu')
+#         logits, features, loss = model(x, y)
+#         if top_k or top_p != 0:
+#             logits['behavior'] = top_k_top_p_filtering(logits['behavior'], top_k=top_k, top_p=top_p)
+#         probs = F.softmax(logits['behavior'], dim=-1)
+#         if sample:
+#             ix =  torch.multinomial(probs, 1).flatten()
+#         else:
+#             ix = torch.argmax(probs, dim=-1).flatten()
+#         ix_itos = itos[int(ix)]
+#         interval = float(x['interval'].flatten())
+#         trial = float(x['trial'].flatten())
+#         y_behavior = itos[int(y['behavior'])]
+#         behavior_preds.append(ix_itos)
+#         intervals.append(interval)
+#         trials.append(trial)
+#         behavior_true.append(y_behavior)
+    
+#     # make behavior preds, intervals etc into dataframe
+#     behavior_preds = pd.DataFrame(behavior_preds)
+#     behavior_preds.columns = ['behavior']
+#     behavior_preds['interval'] = intervals
+#     behavior_preds['trial'] = trials
+#     behavior_preds['true'] = behavior_true
+
+#     # make cum interval
+#     behavior_preds['cum_interval'] = behavior_preds['interval'].copy()
+#     prev_trial = None
+#     for trial in behavior_preds['trial'].unique():
+#         if prev_trial is None:
+#             prev_trial = trial
+#             continue
+#         else:
+#             max_interval = behavior_preds[behavior_preds['trial'] == prev_trial]['interval'].max()
+#             behavior_preds.loc[behavior_preds['trial'] >= trial, 'cum_interval'] += max_interval
+
+#     return behavior_preds
+
 @torch.no_grad()
 def predict_behavior(model, dataset, itos, sample=False, top_k=0, top_p=0):
+    device = torch.cuda.current_device() if torch.cuda.is_available() else "cpu"
+    
     model.eval()
-    loader = DataLoader(dataset, shuffle=False, pin_memory=False)
+    model.to(device)
+    
+    loader = DataLoader(dataset, batch_size=64, shuffle=False, pin_memory=False)
     pbar = tqdm(enumerate(loader), total=len(loader))
-    model.cpu()
-    model.eval()
+    
     behavior_preds = []
     intervals = []
     trials = []
     behavior_true = []
     for it, (x, y) in pbar:
-        x = all_device(x, 'cpu')
-        y = all_device(y, 'cpu')
+        x = all_device(x, device)
+        y = all_device(y, device)
         logits, features, loss = model(x, y)
+        # take everything back to cpu
+        logits = all_device(logits, 'cpu')
+        features = all_device(features, 'cpu')
+        loss = all_device(loss, 'cpu')
+        
         if top_k or top_p != 0:
             logits['behavior'] = top_k_top_p_filtering(logits['behavior'], top_k=top_k, top_p=top_p)
         probs = F.softmax(logits['behavior'], dim=-1)
         if sample:
-            ix =  torch.multinomial(probs, 1).flatten()
+            ix = torch.multinomial(probs, 1).flatten()
         else:
             ix = torch.argmax(probs, dim=-1).flatten()
-        ix_itos = itos[int(ix)]
-        interval = float(x['interval'].flatten())
-        trial = float(x['trial'].flatten())
-        y_behavior = itos[int(y['behavior'])]
-        behavior_preds.append(ix_itos)
-        intervals.append(interval)
-        trials.append(trial)
-        behavior_true.append(y_behavior)
+        
+        ix_itos = [itos[int(i)] for i in ix]
+        interval = x['interval'].flatten().tolist()
+        trial = x['trial'].flatten().tolist()
+        y_behavior = [itos[int(i)] for i in y['behavior']]
+        behavior_preds.extend(ix_itos)
+        intervals.extend(interval)
+        trials.extend(trial)
+        behavior_true.extend(y_behavior)
     
     # make behavior preds, intervals etc into dataframe
     behavior_preds = pd.DataFrame(behavior_preds)
