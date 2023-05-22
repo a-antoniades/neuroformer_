@@ -88,7 +88,7 @@ set_seed(n_seed)
 
 import yaml
 
-base_path = "./models/tensorboard/LRN/att_exp"
+base_path = "./configs/LRN/final/supp_materials"
 
 with open(os.path.join(base_path, 'mconf.yaml'), 'r') as stream:
     mconf = yaml.full_load(stream)
@@ -115,14 +115,15 @@ mconf.dataset
 # %%
 # df = pd.read_csv(parent_path + "code/data/OneCombo3/Combo3_all_stim.csv")
 w_mult = 3
-frame_window = dconf.frame_window
 window = dconf.window
 window_prev = dconf.window_prev
+frame_window = window + window_prev
 dt = dconf.dt
 dt_frames = dconf.dt_frames
 # p_window = window / (window + window_prev)
 # intervals = np.load(os.path.join(base_path, "intervals.npy"))
 intervals = None
+p_reduce = frame_window // dt
 
 
 from SpikeVidUtils import make_intervals
@@ -232,7 +233,7 @@ model_conf = GPTConfig(train_dataset.population_size, block_size,    # frame_blo
                         window=window, window_prev=window_prev, frame_window=frame_window, dt=dt,
                         n_embd_frames=n_embd_frames, dataset=None,
                         ignore_index_id=stoi['PAD'], ignore_index_dt=stoi_dt['PAD'],
-                        p_reduce=200)  # 0.35
+                        p_reduce=200)
 
 for k, v in mconf.__dict__.items():
     # if not hasattr(mconf, k):
@@ -250,7 +251,7 @@ shuffle = tconf.shuffle
 
 weighted = True if mconf.class_weights is not None else False
 title =  f'window:{window}_prev:{window_prev}_smooth'
-model_path = f"""./models/tensorboard/LRN/att_exp/2_{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{window}_wp:{window_prev}/{6}_Cont:{mconf.contrastive}_window:{window}_f_window:{frame_window}_df:{dt}_blocksize:{id_block_size}_conv_{conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
+model_path = f"""./models/tensorboard/LRN/supp_materials/2_{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{window}_wp:{window_prev}/{6}_Cont:{mconf.contrastive}_window:{window}_f_window:{frame_window}_df:{dt}_blocksize:{id_block_size}_conv_{conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
 
 # model_path = "/data5/antonis/neuroformer/models/tensorboard/LRN/channel/window:0.5_prev:19.5_smooth/sparse_f:None_id:None/w:0.5_wp:19.5/6_Cont:True_window:0.5_f_window:20_df:0.1_blocksize:150_conv_False_shuffle:True_batch:12_sparse_(None_None)_blocksz1150_pos_emb:False_temp_emb:True_drop:0.35_dt:True_2.0_197_max0.1_(8, 8, 8)_8_256.pt"
 # if os.path.exists(model_path):
@@ -270,7 +271,7 @@ tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rat
                     id_block_size=train_dataset.id_block_size,
                     show_grads=False, plot_raster=False,
                     ckpt_path=model_path, no_pbar=False, 
-                    dist=False, save_every=1000)
+                    dist=True, save_every=1000)
 
 trainer = Trainer(model, train_dataset, test_dataset, tconf, mconf)
 trainer.train()
@@ -296,7 +297,7 @@ from utils import *
 from IPython.utils import io
 # top_p=0.25, top_p_t=0.9, temp=2.
 
-model_path = "models/tensorboard/LRN/channel/window:0.5_prev:19.5_smooth/sparse_f:None_id:None/w:0.5_wp:19.5/6_Cont:True_window:0.5_f_window:20_df:0.1_blocksize:150_conv_False_shuffle:True_batch:12_sparse_(None_None)_blocksz1150_pos_emb:False_temp_emb:True_drop:0.35_dt:True_2.0_197_max0.1_(8, 8, 8)_8_256.pt"
+# model_path = "models/tensorboard/LRN/channel/window:0.5_prev:19.5_smooth/sparse_f:None_id:None/w:0.5_wp:19.5/6_Cont:True_window:0.5_f_window:20_df:0.1_blocksize:150_conv_False_shuffle:True_batch:12_sparse_(None_None)_blocksz1150_pos_emb:False_temp_emb:True_drop:0.35_dt:True_2.0_197_max0.1_(8, 8, 8)_8_256.pt"
 
 model_weights = glob.glob(os.path.join(base_path, '**/**.pt'), recursive=True)
 model_weights = sorted(model_weights, key=os.path.getmtime, reverse=True)
