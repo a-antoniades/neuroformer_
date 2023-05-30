@@ -302,7 +302,8 @@ def model_ensemble(models, x):
 @torch.no_grad()
 def predict_raster_recursive_time_auto(model, dataset, window, window_prev, stoi, itos_dt, itos=None, 
                                       get_dt=False, sample=False, top_k=0, top_p=0, top_p_t=0, temp=1, temp_t=1, 
-                                      frame_end=0, gpu=False, pred_dt=True, p_bar=False, plot_probs=False):    
+                                      frame_end=0, gpu=False, pred_dt=True, true_past=False,
+                                      p_bar=False, plot_probs=False):    
     """
     predict both ID and dt recursively
     """
@@ -372,7 +373,6 @@ def predict_raster_recursive_time_auto(model, dataset, window, window_prev, stoi
         x = torch.tensor([sos_token] + x_clean + [eos_token], dtype=torch.long, device=device)
         return x, idx_excl
 
-    stoi_dt = {v: k for k, v in itos_dt.items()}
     device = 'cpu' if not gpu else torch.cuda.current_device() # torch.cuda.current_device() if torch.cuda.is_available() else "cpu"
     model = [model_n.to(device) for model_n in model] if isinstance(model, list) else model.to(device) 
     model = [model_n.eval() for model_n in model] if isinstance(model, list) else model.eval()
@@ -405,20 +405,22 @@ def predict_raster_recursive_time_auto(model, dataset, window, window_prev, stoi
         for key, value in y.items():
             y[key] = y[key].to(device)
         
-        if x['interval'] > window_prev + window:
-            df = {k: v for k, v in data.items() if k in ('ID', 'dt', 'Trial', 'Interval', 'Time')}
-            df = pd.DataFrame(df)
+        # feed predicted IDs from buffer into past state
+        if true_past is False:
+            if x['interval'] > window_prev + window:
+                df = {k: v for k, v in data.items() if k in ('ID', 'dt', 'Trial', 'Interval', 'Time')}
+                df = pd.DataFrame(df)
 
-            # filter all instances of ['SOS', 'EOS' and 'PAD'] from all columns of pandas dataframe:
-            df = df[(df != 'SOS').all(axis=1)].reset_index(drop=True)
-            df = df[(df != 'EOS').all(axis=1)].reset_index(drop=True)
-            df = df[(df != 'PAD').all(axis=1)].reset_index(drop=True)
-            df['Time'] = df['dt'] + df['Interval']
+                # filter all instances of ['SOS', 'EOS' and 'PAD'] from all columns of pandas dataframe:
+                df = df[(df != 'SOS').all(axis=1)].reset_index(drop=True)
+                df = df[(df != 'EOS').all(axis=1)].reset_index(drop=True)
+                df = df[(df != 'PAD').all(axis=1)].reset_index(drop=True)
+                df['Time'] = df['dt'] + df['Interval']
 
-            prev_id_interval, current_id_interval = dataset.calc_intervals(x['interval'])
-            x['id_prev'], x['dt_prev'], pad_prev = dataset.get_interval(prev_id_interval, float(x['trial']), T_id_prev, data=df)
-            x['id_prev'] = torch.tensor(x['id_prev'], dtype=torch.long).unsqueeze(0).to(device)
-            x['dt_prev'] = torch.tensor(x['dt_prev'], dtype=torch.long).unsqueeze(0).to(device)
+                prev_id_interval, current_id_interval = dataset.calc_intervals(x['interval'])
+                x['id_prev'], x['dt_prev'], pad_prev = dataset.get_interval(prev_id_interval, float(x['trial']), T_id_prev, data=df)
+                x['id_prev'] = torch.tensor(x['id_prev'], dtype=torch.long).unsqueeze(0).to(device)
+                x['dt_prev'] = torch.tensor(x['dt_prev'], dtype=torch.long).unsqueeze(0).to(device)
             
         pad = x['pad'] if 'pad' in x else 0
         x['id_full'] = x['id'][:, 0]
@@ -431,10 +433,7 @@ def predict_raster_recursive_time_auto(model, dataset, window, window_prev, stoi
         for i in range(T_id - 1):   # 1st token is SOS (already there)
             t_pad = torch.tensor([stoi['PAD']] * (T_id - x['id_full'].shape[-1]), device=device)
             t_pad_dt = torch.tensor([0] * (T_id - x['dt_full'].shape[-1]), device=device)
-            # x['id'] = torch.cat((x['id_full'], t_pad)).unsqueeze(0).long()
-            # x['dt'] = torch.cat((x['dt_full'], t_pad_dt)).unsqueeze(0).long() if pred_dt else x['dt']
 
-            # print(x['id'], x['dt'])
             # forward model, if list of models, then ensemble
             if isinstance(model, list):
                 logits = model_ensemble(model, x)
@@ -504,7 +503,7 @@ def predict_raster_recursive_time_auto(model, dataset, window, window_prev, stoi
             x['id'][:, i + 1] = ix.flatten()
             x['dt'][:, i + 1] = ix_dt.flatten() if pred_dt else x['dt']
            
-            if ix >= stoi['EOS'] or i > T_id - int(x['pad']):   # or len(current_id_stoi) == T_id: # and dtx == 0.5:    # dtx >= window:   # ix == stoi['EOS']:
+            if ix >= stoi['EOS']:    # or i > T_id - int(x['pad']):   # or len(current_id_stoi) == T_id: # and dtx == 0.5:    # dtx >= window:   # ix == stoi['EOS']:
                 # print(f"n_regres_block: {i}")
                 break
             

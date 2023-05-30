@@ -39,6 +39,8 @@ parent_path = os.path.dirname(os.path.dirname(os.getcwd())) + "/"
 import argparse
 from neuroformer.SpikeVidUtils import round_n
 
+# os.environ["CUDA_VISIBLE_DEVICES"] = "3"
+
 # set up logging
 import logging
 logging.basicConfig(
@@ -79,12 +81,12 @@ def parse_args():
 try:
     shell = get_ipython().__class__.__name__
     print("Running in Jupyter notebook")
-    INFERENCE = False
+    INFERENCE = True
     SEED = 25
-    DOWNSTREAM = True
-    RESUME = None
+    DOWNSTREAM = False
+    RESUME = "./models/tensorboard/Combo3_V1AL/interval_correction/downstream_exp/ablations_2/69/RESUMEFalse_paststateTrue_visualTrue_contrastiveFalse/sparse_f:None_id:None/w:0.1_wp:0.25/Cont:True_window:0.1_f_window:0.1_df:0.01_blocksize:55_conv_True_shuffle:True_batch:128_sparse_(None_None)_blocksz110_pos_emb:False_temp_emb:True_drop:0.35_dt:True_2.0_27_max0.01_(8, 8, 8)_8_256.pt"
     RAND_PERM = False
-    MCONF = None
+    MCONF = "./configs/Combo3_V1AL/kernel_size/wave_emb/1second/mconf.yaml"
     FREEZE_MODEL = False
     TITLE = None
     DATASET = "Combo3_V1AL"
@@ -92,8 +94,8 @@ try:
     PREDICT_BEHAVIOR = False
     VISUAL = True
     PAST_STATE = True
-    CONTRASTIVE = False
-    CLIP_LOSS = False
+    CONTRASTIVE = True
+    CLIP_LOSS = True
     CLASS_WEIGHTS = False
 except:
     print("Running in terminal")
@@ -120,6 +122,7 @@ set_seed(SEED)
 print(f"CONTRASTIUVEEEEEEE {CONTRASTIVE}")
 print(f"VISUAL: {VISUAL}")
 print(f"PAST_STATE: {PAST_STATE}")
+
 
 
 # %%
@@ -156,12 +159,14 @@ video_stack = torch.load(STIMULUS_PATH)
 stimulus = video_stack[:, :, 0]
 
 
+
 # %%
 print(video_stack.shape)
 
 fig, ax = plt.subplots(1, 3, figsize=(15, 5))
 for i in range(3):
     ax[i].imshow(video_stack[i, 1, 0].permute(0, 1))
+
 
 
 
@@ -199,6 +204,7 @@ dconf = OmegaConf.create(dconf)
 common_attrs = check_common_attrs(mconf, tconf, dconf)
 print(f"Common attributes: {common_attrs}")
 
+
 # %%
 
 if INFERENCE or mconf:
@@ -227,6 +233,7 @@ if RAND_PERM:
     df['ID'] = df['ID'].sample(frac=1, random_state=25).reset_index(drop=True)
 
 
+
 # %%
 ## choose modalities ##
 
@@ -238,6 +245,7 @@ n_behavior = len(behavior_vars)
 predict_behavior = PREDICT_BEHAVIOR
 # stimulus
 visual_stim = VISUAL
+
 
 
 # %%
@@ -279,6 +287,7 @@ else:
 
 
 
+
 # %%
 from SpikeVidUtils import make_intervals
 
@@ -295,6 +304,7 @@ if RAND_PERM:
 max_window = max(window, window_prev)
 dt_range = math.ceil(max_window / dt) + 1  # add first / last interval for SOS / EOS'
 n_dt = [round(dt * n, 2) for n in range(dt_range)] + ['EOS'] + ['PAD']
+
 
 
 
@@ -333,6 +343,7 @@ stoi_dt = { ch:i for i,ch in enumerate(n_dt) }
 itos_dt = { i:ch for i,ch in enumerate(n_dt) }
 
 
+
 # %%
 import random
 
@@ -359,6 +370,7 @@ train_data = df[~df['Trial'].isin(n)].reset_index(drop=True)
 test_data = df[df['Trial'].isin(n)].reset_index(drop=True)
 small_data = df[df['Trial'].isin([5])].reset_index(drop=True)
 
+
 # %%
 if CLASS_WEIGHTS:
     class_weights = {}
@@ -369,6 +381,7 @@ if CLASS_WEIGHTS:
     class_weights['dt'][stoi_dt['PAD']] = 0
 else:
     class_weights = None
+
 
 # %%
 from neuroformer.SpikeVidUtils import SpikeTimeVidData2
@@ -389,11 +402,12 @@ finetune_dataset = train_dataset.copy(finetune_data)
     
 print(f'train: {len(train_dataset)}, test: {len(test_dataset)}')
 
+
 # %%
 
 layers = (mconf.n_state_layers, mconf.n_state_history_layers, mconf.n_stimulus_layers)   
 max_epochs = 250
-batch_size = round((32 * 4))
+batch_size = round((32 * 5))
 shuffle = True
 
 model_conf = GPTConfig(train_dataset.population_size, block_size,    # frame_block_size
@@ -440,9 +454,11 @@ if not INFERENCE:
 
 model = GPT(model_conf)
 
+
 # %%
 loader = DataLoader(train_dataset, batch_size=1, shuffle=False, num_workers=4, pin_memory=True)
 iterable = iter(loader)
+
 
 
 # %%
@@ -458,8 +474,10 @@ for k in y.keys():
 # epoch250_rand{RAND_PERM}_downstream:{DOWNSTREAM}
 # title =  f'3/4prop_{CLASS_WEIGHTS}/past_state_{PAST_STATE}_visual{VISUAL}_contrastive_{CONTRASTIVE}_clip_loss{CLIP_LOSS}t{mconf.clip_temp}_freeze_{FREEZE_MODEL}_class_weights{CLASS_WEIGHTS}/randperm_{RAND_PERM}/Big_fixed_noself-att'
 title = f'ablations_2/{SEED}/RESUME{RESUME != None}_paststate{PAST_STATE}_visual{VISUAL}_contrastive{model_conf.contrastive}'
-# model_path = f"""./models/tensorboard/{DATASET}/ablations_small/{title}_2/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{mconf.window}_wp:{mconf.window_prev}/Cont:{mconf.contrastive}_window:{mconf.window}_f_window:{mconf.frame_window}_df:{mconf.dt}_blocksize:{mconf.id_block_size}_conv_{mconf.conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
-model_path = f"""./models/tensorboard/{DATASET}/interval_correction/downstream_exp/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{mconf.window}_wp:{mconf.window_prev}/Cont:{mconf.contrastive}_window:{mconf.window}_f_window:{mconf.frame_window}_df:{mconf.dt}_blocksize:{mconf.id_block_size}_conv_{mconf.conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
+model_path = f"""./models/tensorboard/{DATASET}/inference_test/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{mconf.window}_wp:{mconf.window_prev}/Cont:{mconf.contrastive}_window:{mconf.window}_f_window:{mconf.frame_window}_df:{mconf.dt}_blocksize:{mconf.id_block_size}_conv_{mconf.conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
+# model_path = f"""./models/tensorboard/{DATASET}/interval_correction/downstream_exp/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{mconf.window}_wp:{mconf.window_prev}/Cont:{mconf.contrastive}_window:{mconf.window}_f_window:{mconf.frame_window}_df:{mconf.dt}_blocksize:{mconf.id_block_size}_conv_{mconf.conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
+# model_path = RESUME
+
 
 # %%
 
@@ -510,6 +528,7 @@ if DOWNSTREAM:
     test_dataset = test_dataset.copy(test_data, t=test_interval_trial_cls)
 
 
+
 # %%
 tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rate=1e-4, 
                     num_workers=4, lr_decay=True, patience=3, warmup_tokens=8e4, 
@@ -541,7 +560,7 @@ else:
     else:
         model_path = glob.glob(os.path.join(base_path, '**.pt'), recursive=True)[0]
     print(f"Loading model from {model_path}")
-    model.load_state_dict(torch.load(model_path, map_location='cpu'), strict=True)
+    model.load_state_dict(torch.load(model_path, map_location='cpu'), strict=False)
 
 
 
@@ -564,10 +583,12 @@ else:
 #         ax_step.scatter(x_axis, step_preds)
 #         ax_step.set_title(f"""{step}""", fontsize=20)
 
+
 # %%
 x, y = next(iterable)
 for k in x.keys():
     print(k, x[k].shape)
+
 
 
 # %%
@@ -579,10 +600,11 @@ df_pred_paths = list(pathlib.Path(base_path).glob('*.csv'))
 df_pred = None
 results_dict = dict()
 
-top_p = 0.9
-top_p_t = 0.9
-temp = 1.
-temp_t = 1.
+top_p = 0.75
+top_p_t = 0.75
+temp = 1.25
+temp_t = 1.25
+true_past = True
 
 
 trials = sorted(train_data['Trial'].unique())[::4]
@@ -596,7 +618,8 @@ if df_pred is None:
         trial_dataset = train_dataset.copy(df_trial)
         results_trial = predict_raster_recursive_time_auto(model, trial_dataset, window, window_prev, stoi, itos_dt, itos=itos, 
                                                         sample=True, top_p=top_p, top_p_t=top_p_t, temp=temp, temp_t=temp_t, 
-                                                        frame_end=0, get_dt=True, gpu=False, pred_dt=True, plot_probs=False)
+                                                        frame_end=0, get_dt=True, gpu=False, pred_dt=True, plot_probs=False,
+                                                        true_past=true_past)
         df_trial_pred, df_trial_true = process_predictions(results_trial, stoi, itos, window)
         print(f"pred: {df_trial_pred.shape}, true: {df_trial_true.shape}" )
         return df_trial_pred, df_trial_true
@@ -630,10 +653,11 @@ print(scores)
 print(f"ID unique: pred: {len(df_pred['ID'].unique())}, true: {len(df_true['ID'].unique())}")
 print(f"len pred: {len(df_pred)}, len true: {len(df_true)}")
 
+title = F"top_p: {top_p}, top_p_t: {top_p_t}, temp: {temp}, temp_t: {temp_t}/true_past:{true_past}"
 dir_name = os.path.dirname(model_path)
 model_name = os.path.basename(model_path)
 df_pred.to_csv(os.path.join(dir_name, F'df_pred_.csv'))
-
+df_true.to_csv(os.path.join(dir_name, F'df_true_.csv'))
 
 # %%
 """
@@ -872,5 +896,60 @@ plt.savefig(os.path.join(base_path, 'preds_mean_std.png'))
 np.save(os.path.join(base_path, 'preds_mean.npy'), preds_mean)
 
 """
+
+
+
+
+# %%
+iterable = iter(test_dataset)
+
+# %%
+# while iv < 1.95:
+x, y = next(iterable)
+
+T = len(x['id'])
+P = x['pad']
+T_prev = len(x['id_prev'])
+P_prev = x['pad_prev'] - 4
+
+T_y = len(y['id'])
+P_y = x['pad']
+
+iv = float(x['interval'])
+
+xid = x['id'][: T - P]
+xid = [itos[int(i)] for i in xid]
+xdt = x['dt'][: T - P]
+
+yid = y['id'][: T_y - P_y]
+yid = [itos[int(i)] for i in yid]
+ydt = y['dt'][: T - P]
+
+xid_prev = x['id_prev'][: T_prev - P_prev]
+xid_prev = [itos[int(i)] for i in xid_prev]
+
+print(f"iv: {iv}, ix+window: {iv + window} pid: {x['pid']} cid: {x['cid']}")
+print(f"x: {xid}")
+print(f"xdt: {xdt}")
+print(f"y: {yid}")
+print(f"ydt: {ydt}")
+
+print(f"xid_prev: {xid_prev}")
+
+tdiff = 0
+t_var = 'Time' # 'Interval'
+int_var = 'cid'
+# df[(df[t_var] >= iv - tdiff) & (df[t_var] <= iv + (window + tdiff)) & (df['Trial'] == int(x['trial']))]
+# df[(df[t_var] >= float(x[int_var][0]) - tdiff) & (df[t_var] <= float(x[int_var][1] + tdiff)) & (df['Trial'] == int(x['trial']))]
+df[(df[t_var] > float(x[int_var][0]) - tdiff) & (df[t_var] <= float(x['cid'][1] + tdiff)) & (df['Trial'] == int(x['trial']))]
+
+# t_var = 'Time' # 'Interval'
+# int_var = 'pid'
+# df[(df[t_var] > round(float(x[int_var][0]), 2) - tdiff) & (df[t_var] <= round(float(x[int_var][1]), 2)) & (df['Trial'] == int(x['trial']))
+
+# print(f"trial: {x['trial']}, pid: {x['pid']}, cid: {x['cid']}")
+
+# %%
+""
 
 
