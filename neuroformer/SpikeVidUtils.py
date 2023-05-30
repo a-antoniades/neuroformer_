@@ -610,7 +610,8 @@ class SpikeTimeVidData2(Dataset):
                 self.window_prev = window if window_prev is None else window_prev
                 # assert self.window_prev % self.window == 0, "window_prev must be a multiple of window"
                 self.frame_window = 1.0
-                self.min_interval = window + window_prev
+                self.min_interval = window + window_prev if dataset not in ['LRN'] else 0
+                print(f"Min Interval: {self.min_interval}")
                 self.min_trial = data['Trial'].min()
 
                 # calculate intervals on init
@@ -692,7 +693,10 @@ class SpikeTimeVidData2(Dataset):
                                         (data['Time'] <= prev_id_interval[1])]
             t_diff = prev_trial_interval[1] - prev_id_interval[0]
             
-            prev_trial_data['Time'] = prev_trial_data['Time'] - prev_trial_interval[0].min()
+            try:
+                prev_trial_data['Time'] = prev_trial_data['Time'] - prev_trial_interval[0].min()
+            except:
+                print(f"trial: {trial}, inteval: {prev_id_interval}, prev_trial_interval: {prev_trial_interval}")
             current_trial_data['Time'] = current_trial_data['Time'] - prev_id_interval[0]
             
             # connect the two trials
