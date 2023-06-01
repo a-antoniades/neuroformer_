@@ -407,7 +407,7 @@ print(f'train: {len(train_dataset)}, test: {len(test_dataset)}')
 
 layers = (mconf.n_state_layers, mconf.n_state_history_layers, mconf.n_stimulus_layers)   
 max_epochs = 250
-batch_size = round((32 * 5))
+batch_size = round((32 * 4))
 shuffle = True
 
 model_conf = GPTConfig(train_dataset.population_size, block_size,    # frame_block_size
@@ -608,6 +608,9 @@ true_past = True
 
 
 trials = sorted(train_data['Trial'].unique())[::4]
+
+# load model with lowest loss
+model.load_state_dict(torch.load(model_path, map_location='cpu'), strict=False)
 
 if df_pred is None:
     from joblib import Parallel, delayed

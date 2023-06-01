@@ -823,7 +823,11 @@ class SpikeTimeVidData2(Dataset):
 
                 ## BEHAVIOR ##
                 if self.behavior_feats is not None:
-                    behavior_interval = (prev_id_interval[0], current_id_interval[1])
+                    # check if self.window_behavior exists
+                    if hasattr(self, 'window_behavior') and self.window_behavior is not None:
+                        behavior_interval = (current_id_interval[1] - self.window_behavior, current_id_interval[1]) 
+                    else:
+                        behavior_interval = (prev_id_interval[0], current_id_interval[1])
                     behavior, behavior_dt = self.get_behavior(self.behavior_feats, behavior_interval, 
                                                               variables=self.behavior_vars, trial=t['Trial'])
                     if self.predict_behavior:

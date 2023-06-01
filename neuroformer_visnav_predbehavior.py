@@ -96,9 +96,9 @@ try:
     DATASET = "medial"
     DIST = False
     DOWNSTREAM = False
-    RESUME = "./models/tensorboard/visnav_medial/behavior_pred_exp/classification/ablations_25/behavior_before_stim_RESUMEFalse_paststateTrue_method_behavior_True_['speed']_predictbehaviorTrue_roundedFalsevisualTrue_contrastiveFalse_['id', 'frames', 'behavior_mean']/_behavior_predict_no_pretraining_1.0/sparse_f:None_id:None/w:0.05_wp:0.25/6_Cont:False_window:0.05_f_window:0.2_df:0.005_blocksize:100_conv_True_shuffle:True_batch:224_sparse_(None_None)_blocksz446_pos_emb:False_temp_emb:True_drop:0.35_dt:True_2.0_52_max0.005_(8, 8, 8)_8_256.pt"
+    RESUME = "./models/tensorboard/visnav_medial/behavior_pred_exp/classification/ablations_1/finetuning_None_resumeFalse/behavior_before_stim_RESUMEFalse_paststateTrue_method_behavior_True_['speed']_predictbehaviorFalse_roundedFalsevisualTrue_contrastiveTrue_['id', 'frames', 'behavior_mean', 'behavior_mean']/CEBRA/sparse_f:None_id:None/w:0.05_wp:0.25/6_Cont:False_window:0.05_f_window:0.2_df:0.005_blocksize:100_conv_True_shuffle:True_batch:224_sparse_(None_None)_blocksz446_pos_emb:False_temp_emb:True_drop:0.35_dt:True_2.0_52_max0.005_(8, 8, 8)_8_256.pt"
     RAND_PERM = False
-    MCONF = "./models/tensorboard/visnav_medial/behavior_pred_exp/classification/ablations_25/behavior_before_stim_RESUMEFalse_paststateTrue_method_behavior_True_['speed']_predictbehaviorTrue_roundedFalsevisualTrue_contrastiveFalse_['id', 'frames', 'behavior_mean']/_behavior_predict_no_pretraining_1.0/sparse_f:None_id:None/w:0.05_wp:0.25/mconf.yaml"
+    MCONF = "./models/tensorboard/visnav_medial/behavior_pred_exp/classification/ablations_1/finetuning_None_resumeFalse/behavior_before_stim_RESUMEFalse_paststateTrue_method_behavior_True_['speed']_predictbehaviorFalse_roundedFalsevisualTrue_contrastiveTrue_['id', 'frames', 'behavior_mean', 'behavior_mean']/CEBRA/sparse_f:None_id:None/w:0.05_wp:0.25/mconf.yaml"
     FREEZE_MODEL = False
     TITLE = None
     SEED = 25
@@ -108,12 +108,12 @@ try:
     ROUND_VARS = False
     PAST_STATE = True
     VISUAL = True
-    CONTRASTIVE = False
+    CONTRASTIVE = True
     FUSE_STIM_BEHAVIOR = False
     FINETUNE = False
     PDATA = 0.1
     MLP_ONLY = False
-    PARALLEL = True
+    PARALLEL = False
 except:
     print("Running in terminal")
     args = parse_args()
@@ -158,6 +158,7 @@ logging.basicConfig(
         level=logging.INFO,
 )
 
+
 # %%
 from neuroformer.prepare_data import DataLinks
 
@@ -172,6 +173,7 @@ if not os.path.exists(data_dir):
     import gdown
     url = DATA_POINTERS['url']
     gdown.download_folder(id=url, quiet=False, use_cookies=False, output=DATA_POINTERS['DIRECTORY'])
+
 
 
 
@@ -195,6 +197,7 @@ with open(os.path.join(base_path, 'dconf.yaml'), 'r') as stream:
 mconf = OmegaConf.create(mconf)
 tconf = OmegaConf.create(tconf)
 dconf = OmegaConf.create(dconf)
+
 
 
 
@@ -223,6 +226,7 @@ data = mat73.loadmat(os.path.join(data_path, "experiment_data.mat"))['neuroforme
 # neurons_sel1 = np.array(neurons_sel1).flatten()
 
 
+
 # %%
 if INFERENCE or DOWNSTREAM or FINETUNE or TRAIN: 
     window = mconf.window
@@ -249,6 +253,7 @@ else:
 common_attrs = check_common_attrs(mconf, tconf, dconf)
 print(f"Common attributes: {common_attrs}")
 
+
 # %%
 ## choose modalities ##
 
@@ -262,6 +267,7 @@ predict_behavior = PREDICT_BEHAVIOR
 visual_stim = VISUAL
 
 print(f" // using behavior vars: {BEHAVIOR_VARS} //")
+
 
 
 # %%
@@ -319,8 +325,8 @@ if behavior or predict_behavior is True:
         itos_th = { i:round_n(ch, dt_th) for i,ch in enumerate(dt_range_th) }
 
     # assert (window_behavior) % dt_vars < 1e-5, "window + window_prev must be divisible by dt_vars"
-    samples_per_behavior = int((window + window_prev) // dt_vars)
-    behavior_block_size = int((window + window_prev) // dt_vars) * (len(df_behavior.columns) - 1)
+    samples_per_behavior = int(window_behavior // dt_vars)
+    behavior_block_size = samples_per_behavior * (len(df_behavior.columns) - 1)
 else:
     behavior = False 
     df_behavior = None
@@ -338,6 +344,7 @@ else:
     itos_th = None
     dt_range_th = None
 
+
 # %%
 from neuroformer.SpikeVidUtils import make_intervals
 
@@ -349,6 +356,7 @@ df = df.reset_index(drop=True)
 max_window = max(window, window_prev)
 dt_range = math.ceil(max_window / dt) + 1  # add first / last interval for SOS / EOS'
 n_dt = [round(dt * n, 2) for n in range(dt_range)] + ['EOS'] + ['PAD']
+
 
 # %%
 var_group = 'Interval'
@@ -363,6 +371,7 @@ print(f"Top {top_p} groups: {top_k_groups}")
 print(f"Mean groups: {mean_groups}")
 
 
+
 # %%
 var_group = 'Interval_2'
 groups = df.groupby([var_group, 'Trial']).size()
@@ -374,6 +383,7 @@ mean_groups = groups.mean()
 print(f"Unique groups: {n_unique}")
 print(f"Top {top_p} groups: {top_k_groups}")
 print(f"Mean groups: {mean_groups}")
+
 
 
 
@@ -409,6 +419,7 @@ stoi_dt = { ch:i for i,ch in enumerate(n_dt) }
 itos_dt = { i:ch for i,ch in enumerate(n_dt) }
 
 
+
 # %%
 import random
 
@@ -418,6 +429,7 @@ train_trials = random.sample(all_trials, int(len(all_trials) * r_split))
 
 train_data = df[df['Trial'].isin(train_trials)]
 test_data = df[~df['Trial'].isin(train_trials)]
+
 
 # %%
 from neuroformer.SpikeVidUtils import SpikeTimeVidData2
@@ -437,12 +449,10 @@ test_dataset = train_dataset.copy(test_data)
 
 print(f'train: {len(train_dataset)}, test: {len(test_dataset)}')
 
-
-
-
 # %%
 loader = DataLoader(train_dataset, batch_size=2, shuffle=False, num_workers=4, pin_memory=True)
 iterable = iter(loader)
+
 
 # %%
 x, y = next(iterable)
@@ -451,6 +461,7 @@ for k in x.keys():
     print(k, x[k].shape)
 for k in y.keys():
     print(f"y: {k}, {y[k].shape}")
+
 
 
 
@@ -485,7 +496,7 @@ model_conf = GPTConfig(train_dataset.population_size, block_size,    # frame_blo
                         fuse_stim_behavior=FUSE_STIM_BEHAVIOR, mlp_only=MLP_ONLY)  # 0.35
 
 # update_object(model_conf, mconf)
-model_conf.contrastive_vars = ['id', 'frames', 'behavior_mean']
+model_conf.contrastive_vars = ['id', 'frames']
 
 if INFERENCE or MCONF is not None:
     update_object(model_conf, mconf)
@@ -533,7 +544,7 @@ title =  f'ablations_1/finetuning_{PDATA}_resume{RESUME != None}/behavior_before
 if not INFERENCE:
     while os.path.exists(f'./models/tensorboard/visnav_medial/{title}'):
         n += 1
-        title =  f'{n}/RESUME{RESUME != None}_paststate{PAST_STATE}_method_behavior_{behavior}_{behavior_vars}_predictbehavior{PREDICT_BEHAVIOR}_visual{VISUAL}_contrastive{model_conf.contrastive}_{model_conf.contrastive_vars}'
+        title = f'cebra/RESUME{RESUME != None}_paststate{PAST_STATE}_method_behavior_{behavior}_{behavior_vars}_predictbehavior{PREDICT_BEHAVIOR}_visual{VISUAL}_contrastive{model_conf.contrastive}_{model_conf.contrastive_vars}'
 if FINETUNE:        
     title = os.path.join(title, f'_{args.title}_{PDATA}')
 if TITLE is not None:
@@ -549,7 +560,6 @@ model_path = f"""./models/tensorboard/visnav_{DATASET}/behavior_pred_exp/classif
 
 
 preds, features, loss = model(x, y)
-
 
 # %%
 print(F"DIST: {DIST}")
@@ -623,10 +633,7 @@ if TRAIN or FINETUNE:
 dir_name = os.path.dirname(model_path)
 
 # %%
-
-
-# %%
-    # get correlation between predicted and true speed
+# get correlation between predicted and true speed
 if PREDICT_BEHAVIOR:
     from neuroformer.utils import predict_behavior
     chosen_trials = test_data['Trial'].unique()
@@ -648,6 +655,17 @@ if PREDICT_BEHAVIOR:
     # g = sns.jointplot(x="behavior", y="true", data=behavior_preds, kind="hex")
     # g.ax_joint.plot([0, 1], [0, 1], 'k--')
     # plt.show()
+
+
+# %%
+# # Extract latents ##
+
+# from neuroformer.utils import extract_latents
+
+# chosen_trials = test_data['Trial'].unique()
+# trial_data = test_data[test_data['Trial'].isin(chosen_trials)]
+# trial_dataset = train_dataset.copy(trial_data)
+# latents = extract_latents(model, trial_dataset)
 
 # %%
 from neuroformer.utils import predict_raster_recursive_time_auto, process_predictions
@@ -676,7 +694,7 @@ if df_pred is None:
         trial_dataset = train_dataset.copy(df_trial)
         results_trial = predict_raster_recursive_time_auto(model, trial_dataset, window, window_prev, stoi, itos_dt, itos=itos, 
                                                         sample=True, top_p=top_p, top_p_t=top_p_t, temp=temp, temp_t=temp_t, 
-                                                        frame_end=0, get_dt=True, gpu=False, pred_dt=True, plot_probs=False)
+                                                        frame_end=0, get_dt=True, gpu=False, pred_dt=True, plot_probs=True)
         df_trial_pred, df_trial_true = process_predictions(results_trial, stoi, itos, window)
         print(f"pred: {df_trial_pred.shape}, true: {df_trial_true.shape}" )
         return df_trial_pred, df_trial_true
@@ -702,6 +720,7 @@ if df_pred is None:
         else:
             df_pred = pd.concat([df_pred, df_trial_pred])
             df_true = pd.concat([df_true, df_trial_true])
+
 
 
 # %%
@@ -733,6 +752,7 @@ rates_pred = get_rates_trial(df_pred_full, labels)
 rates_1 = get_rates_trial(df_1, labels)
 
 top_corr_pred = calc_corr_psth(rates_pred, rates_1)
+
 
 
 
@@ -796,8 +816,10 @@ print(f"model: {title}")
 
 
 
+
 # %%
 iterable = iter(test_dataset)
+
 
 
 
@@ -843,6 +865,9 @@ df[(df[t_var] > float(x[int_var][0]) - tdiff) & (df[t_var] <= float(x['cid'][1] 
 t_var = 'Time' # 'Interval'
 int_var = 'cid'
 df[(df[t_var] > round(float(x[int_var][0]), 2) - tdiff) & (df[t_var] <= round(float(x[int_var][1]), 2)) & (df['Trial'] == int(x['trial']))]
+
+
+
 
 
 

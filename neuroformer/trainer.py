@@ -280,9 +280,11 @@ class Trainer:
                 logger.info('  '.join([f'{str(key)}_{str(split)}: {value:.5f}  ' for key, value in av_losses.items()]))
                 # logger.info('  '.join([f'{str(key)}_{str(split)}: {value:.5f}  ' for key, value in scores.items() if key in config.score_metrics]))
             
-                return total_losses.item(), scores
+                return total_losses.item(), av_losses, scores
 
         best_loss = float('inf')
+        best_decoder_loss = float('inf')
+        best_clip_loss = float('inf')
         best_f1 = 0
         self.tokens = 0 # counter used for learning rate decay
         for epoch in range(config.max_epochs):
@@ -290,7 +292,7 @@ class Trainer:
                 raw_model.config.epoch += 1
                 run_epoch('train')
             if self.test_dataset is not None:
-                test_loss, scores = run_epoch('test')
+                test_loss, av_losses, scores = run_epoch('test')
                 # if config.lr_decay:
                 #     scheduler.step(test_loss)
 
@@ -302,6 +304,17 @@ class Trainer:
                 if good_model:
                     best_loss = test_loss
                     self.save_checkpoint(test_loss)
+            if 'clip' in av_losses.keys():
+                good_model = av_losses['clip'] < best_clip_loss
+                if good_model:
+                    best_clip_loss = av_losses['clip']
+                    self.save_checkpoint(av_losses['clip'], epoch="clip")
+            if 'id' in av_losses.keys():
+                good_model = av_losses['id'] < best_decoder_loss
+                if good_model:
+                    best_decoder_loss = av_losses['id']
+                    self.save_checkpoint(av_losses['id'], epoch="decoder")
+                
                 # F1_score = torch.tensor(scores['F1']).mean()
                 # if F1_score > best_f1:
                 #     self.save_checkpoint(scores['F1'], epoch=f"F1:{F1_score}_epoch:{epoch}")

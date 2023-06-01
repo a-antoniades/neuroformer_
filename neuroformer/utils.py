@@ -252,23 +252,58 @@ def sample(model, x, steps, temperature=1.0, sample=False, top_k=None):
 
         return x
 
+# @torch.no_grad()
+# def top_k_top_p_filtering(logits, top_k=0, top_p=0.0, filter_value=-1e10):
+#     """ Filter a distribution of logits using top-k and/or nucleus (top-p) filtering
+#         Args:
+#             logits: logits distribution shape (batch size, vocabulary size)
+#             top_k >0: keep only top k tokens with highest probability (top-k filtering).
+#             top_p >0.0: keep the top tokens with cumulative probability >= top_p (nucleus filtering).
+#                 Nucleus filtering is described in Holtzman et al. (http://arxiv.org/abs/1904.09751)
+#     """
+#     top_k = min(top_k, logits.size(-1))  # Safety check
+#     if top_k > 0:
+#         # Remove all tokens with a probability less than the last token of the top-k
+#         indices_to_remove = logits < torch.topk(logits, top_k, dim=-1)[0][..., -1, None]
+#         logits[indices_to_remove] = filter_value
+
+#     if top_p > 0:
+#         sorted_logits, sorted_indices = torch.sort(logits, descending=True, dim=-1)
+#         cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
+
+#         # Remove tokens with cumulative probability above the threshold
+#         sorted_indices_to_remove = cumulative_probs > top_p
+#         # Shift the indices to the right to keep also the first token above the threshold
+#         sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
+#         sorted_indices_to_remove[..., 0] = 0
+
+#         # batch_indices is an addition in the modified function. This creates an array holding the batch indices
+#         batch_indices = torch.arange(logits.size(0))[:, None].expand_as(sorted_indices_to_remove)
+
+#         # Use torch.where to handle higher-dimensional tensors for indexing
+#         indices_to_remove = torch.where(sorted_indices_to_remove, sorted_indices, sorted_indices)
+#         logits[batch_indices, indices_to_remove] = filter_value
+
+#     return logits
+
 @torch.no_grad()
-def top_k_top_p_filtering(logits, top_k=0, top_p=0.0, filter_value=-1e10):
+def top_k_top_p_filtering(logits, top_k=0, top_p=0, filter_value=-float('Inf')):
     """ Filter a distribution of logits using top-k and/or nucleus (top-p) filtering
         Args:
-            logits: logits distribution shape (batch size, vocabulary size)
+            logits: logits distribution shape (vocabulary size)
             top_k >0: keep only top k tokens with highest probability (top-k filtering).
             top_p >0.0: keep the top tokens with cumulative probability >= top_p (nucleus filtering).
                 Nucleus filtering is described in Holtzman et al. (http://arxiv.org/abs/1904.09751)
     """
+    # assert logits.dim() == 1  # batch size 1 for now - could be updated for more but the code would be less clear
     top_k = min(top_k, logits.size(-1))  # Safety check
     if top_k > 0:
         # Remove all tokens with a probability less than the last token of the top-k
-        indices_to_remove = logits < torch.topk(logits, top_k, dim=-1)[0][..., -1, None]
+        indices_to_remove = logits < torch.topk(logits, top_k)[0][..., -1, None]
         logits[indices_to_remove] = filter_value
 
     if top_p > 0:
-        sorted_logits, sorted_indices = torch.sort(logits, descending=True, dim=-1)
+        sorted_logits, sorted_indices = torch.sort(logits, descending=True)
         cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
 
         # Remove tokens with cumulative probability above the threshold
@@ -277,13 +312,8 @@ def top_k_top_p_filtering(logits, top_k=0, top_p=0.0, filter_value=-1e10):
         sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
         sorted_indices_to_remove[..., 0] = 0
 
-        # batch_indices is an addition in the modified function. This creates an array holding the batch indices
-        batch_indices = torch.arange(logits.size(0))[:, None].expand_as(sorted_indices_to_remove)
-
-        # Use torch.where to handle higher-dimensional tensors for indexing
-        indices_to_remove = torch.where(sorted_indices_to_remove, sorted_indices, sorted_indices)
-        logits[batch_indices, indices_to_remove] = filter_value
-
+        indices_to_remove = sorted_indices[sorted_indices_to_remove]
+        logits[:, indices_to_remove] = filter_value
     return logits
 
 @torch.no_grad()
@@ -390,9 +420,6 @@ def predict_raster_recursive_time_auto(model, dataset, window, window_prev, stoi
     data['Trial'] = context
     data['Interval'] = context
 
-    zero_tensor = torch.tensor(0, device=device).unsqueeze(0)
-    id_prev_stoi_buffer = [stoi['SOS']]
-    dt_prev_stoi_buffer = [float(zero_tensor)]
     loader = DataLoader(dataset, shuffle=False, pin_memory=False)
     pbar = tqdm(enumerate(loader), total=len(loader), disable=p_bar)
     for it, (x, y) in pbar:
@@ -438,7 +465,7 @@ def predict_raster_recursive_time_auto(model, dataset, window, window_prev, stoi
             if isinstance(model, list):
                 logits = model_ensemble(model, x)
             else:
-                logits, features, _ = model(x)
+                logits, features, _ = model(x, y)
             
             logits['id'] = logits['id'][:, i]
             logits['dt'] = logits['dt'][:, i]
@@ -506,10 +533,7 @@ def predict_raster_recursive_time_auto(model, dataset, window, window_prev, stoi
             if ix >= stoi['EOS']:    # or i > T_id - int(x['pad']):   # or len(current_id_stoi) == T_id: # and dtx == 0.5:    # dtx >= window:   # ix == stoi['EOS']:
                 # print(f"n_regres_block: {i}")
                 break
-            
-            n_ix = sum([1 for i in current_id_stoi if (i == stoi['EOS']) or (i == stoi['PAD'])])
-            id_prev_stoi_buffer.extend(ix.flatten())
-            dt_prev_stoi_buffer.extend(ix_dt.flatten())
+                        
             try:
                 ix_itos = torch.tensor(itos[int(ix.flatten())]).unsqueeze(0)
             except:
@@ -673,6 +697,36 @@ def predict_behavior(model, dataset, itos, sample=False, top_k=0, top_p=0):
             behavior_preds.loc[behavior_preds['trial'] >= trial, 'cum_interval'] += max_interval
 
     return behavior_preds
+
+@torch.no_grad()
+def extract_latents(model, dataset):
+    device = torch.cuda.current_device() if torch.cuda.is_available() else "cpu"
+    
+    model.eval()
+    model.to(device)
+    
+    loader = DataLoader(dataset, batch_size=64, shuffle=False, pin_memory=False)
+    pbar = tqdm(enumerate(loader), total=len(loader))
+    
+    latents = dict()
+    intervals = []
+    trials = []
+    behavior_true = []
+    for it, (x, y) in pbar:
+        x = all_device(x, device)
+        y = all_device(y, device)
+        logits, features, loss = model(x, y)
+        # take everything back to cpu
+        logits = all_device(logits, 'cpu')
+        features = all_device(features, 'cpu')
+        loss = all_device(loss, 'cpu')
+        
+        for modality in features['clip'].keys():
+            latents[modality] = collections.defaultdict(list)
+            for behavior in x['behavior']:
+                latents[modality][behavior].append(features['clip'])
+
+    return latents
 
 @torch.no_grad()
 def predict_beam_search_time(model, loader, stoi, itos_dt, frame_end=0):

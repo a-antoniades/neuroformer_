@@ -1062,6 +1062,7 @@ class GPT(nn.Module):
                     feats_clip['frames'] = feat_contra_frames
                 assert len(feats_clip.keys()) >= 2, "Need at least 2 variables for contrastive loss"
                 loss['clip'] = self.contrastive_loss(feats_clip, temp=self.config.clip_temp) * (1 / 4)
+                features['clip'] = feats_clip
             
             loss['id'] = ((2 / 4) * loss_id) * (1 - 1 / n)   # sum(loss_id) / (b * 2)   # / len(loss_id)
             loss['time'] = ((1 / 4) * loss_time) * (1 - 1 / n)
