@@ -1037,17 +1037,9 @@ class GPT(nn.Module):
                 loss_behavior = F.cross_entropy(behavior_logits.view(-1, behavior_logits.size(-1)), targets['behavior'].view(-1))
             
             if self.config.contrastive:
-                clip_id_feats = []
-                for B, P in enumerate(pad):
-                    clip_id_feats.append(features['id'][B, t - P])
-                clip_id_feats = torch.stack(clip_id_feats)
-                # n = 2
-                # loss['clip'] = self.clip(features['frames'][:, 0], features['id'][:, -1]) * (1 / n) 
-                # loss['clip'] = self.clip(features['frames'][:, 0], clip_id_feats) * (1 / n)
                 feats_clip = dict()
-                feat_contra_frames = features['frames']
                 # average pool over 1st dim
-                feat_contra_frames = feat_contra_frames.mean(dim=1)
+                feat_contra_frames = features['frames'].mean(dim=1)
                 feat_contra_id = features['id'].mean(dim=1)
                 if hasattr(self.config, 'contrastive_vars'):
                     for variable in self.config.contrastive_vars:

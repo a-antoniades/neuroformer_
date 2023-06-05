@@ -433,6 +433,7 @@ def predict_raster_recursive_time_auto(model, dataset, window, window_prev, stoi
             y[key] = y[key].to(device)
         
         # feed predicted IDs from buffer into past state
+        # count how many steps 
         if true_past is False:
             if x['interval'] > window_prev + window:
                 df = {k: v for k, v in data.items() if k in ('ID', 'dt', 'Trial', 'Interval', 'Time')}
@@ -442,13 +443,13 @@ def predict_raster_recursive_time_auto(model, dataset, window, window_prev, stoi
                 df = df[(df != 'SOS').all(axis=1)].reset_index(drop=True)
                 df = df[(df != 'EOS').all(axis=1)].reset_index(drop=True)
                 df = df[(df != 'PAD').all(axis=1)].reset_index(drop=True)
-                df['Time'] = df['dt'] + df['Interval']
+                df['Time'] = df['dt'] + df['Interval'] - window
 
                 prev_id_interval, current_id_interval = dataset.calc_intervals(x['interval'])
-                x['id_prev'], x['dt_prev'], pad_prev = dataset.get_interval(prev_id_interval, float(x['trial']), T_id_prev, data=df)
-                x['id_prev'] = torch.tensor(x['id_prev'], dtype=torch.long).unsqueeze(0).to(device)
-                x['dt_prev'] = torch.tensor(x['dt_prev'], dtype=torch.long).unsqueeze(0).to(device)
-            
+                id_prev, dt_prev, pad_prev = dataset.get_interval(prev_id_interval, float(x['trial']), T_id_prev, data=df)
+                x['id_prev'] = torch.tensor(id_prev[:-1], dtype=torch.long).unsqueeze(0).to(device)
+                x['dt_prev'] = torch.tensor(dt_prev[:-1], dtype=torch.long).unsqueeze(0).to(device)
+        
         pad = x['pad'] if 'pad' in x else 0
         x['id_full'] = x['id'][:, 0]
         # x['id'] = x['id'][:, 0]
@@ -530,7 +531,7 @@ def predict_raster_recursive_time_auto(model, dataset, window, window_prev, stoi
             x['id'][:, i + 1] = ix.flatten()
             x['dt'][:, i + 1] = ix_dt.flatten() if pred_dt else x['dt']
            
-            if ix >= stoi['EOS']:    # or i > T_id - int(x['pad']):   # or len(current_id_stoi) == T_id: # and dtx == 0.5:    # dtx >= window:   # ix == stoi['EOS']:
+            if ix >= stoi['EOS']:  # ix >= stoi['EOS']:   # or i > T_id - int(x['pad']):   # or len(current_id_stoi) == T_id: # and dtx == 0.5:    # dtx >= window:   # ix == stoi['EOS']:
                 # print(f"n_regres_block: {i}")
                 break
                         

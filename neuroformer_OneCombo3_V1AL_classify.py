@@ -39,7 +39,7 @@ parent_path = os.path.dirname(os.path.dirname(os.getcwd())) + "/"
 import argparse
 from neuroformer.SpikeVidUtils import round_n
 
-# os.environ["CUDA_VISIBLE_DEVICES"] = "3"
+os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 
 # set up logging
 import logging
@@ -84,9 +84,10 @@ try:
     INFERENCE = True
     SEED = 25
     DOWNSTREAM = False
-    RESUME = "./models/tensorboard/Combo3_V1AL/interval_correction/downstream_exp/ablations_2/69/RESUMEFalse_paststateTrue_visualTrue_contrastiveFalse/sparse_f:None_id:None/w:0.1_wp:0.25/Cont:True_window:0.1_f_window:0.1_df:0.01_blocksize:55_conv_True_shuffle:True_batch:128_sparse_(None_None)_blocksz110_pos_emb:False_temp_emb:True_drop:0.35_dt:True_2.0_27_max0.01_(8, 8, 8)_8_256.pt"
+    # RESUME = "./models/tensorboard/Combo3_V1AL/inference_test/ablations_2/69/2_RESUMEFalse_paststateTrue_visualTrue_contrastiveTrue/sparse_f:None_id:None/w:0.1_wp:0.25/Cont:True_window:0.1_f_window:0.1_df:0.01_blocksize:55_conv_True_shuffle:True_batch:128_sparse_(None_None)_blocksz110_pos_emb:False_temp_emb:True_drop:0.35_dt:True_2.0_27_max0.01_(8, 8, 8)_8_256/_epoch_decoder.pt"
+    RESUME = "./models/tensorboard/Combo3_V1AL/inference_test/ablations_2/69/2_RESUMEFalse_paststateTrue_visualTrue_contrastiveTrue/sparse_f:None_id:None/w:0.1_wp:0.25/Cont:True_window:0.1_f_window:0.1_df:0.01_blocksize:55_conv_True_shuffle:True_batch:128_sparse_(None_None)_blocksz110_pos_emb:False_temp_emb:True_drop:0.35_dt:True_2.0_27_max0.01_(8, 8, 8)_8_256.pt"
     RAND_PERM = False
-    MCONF = "./configs/Combo3_V1AL/kernel_size/wave_emb/1second/mconf.yaml"
+    MCONF = "./models/tensorboard/Combo3_V1AL/inference_test/ablations_2/69/2_RESUMEFalse_paststateTrue_visualTrue_contrastiveTrue/sparse_f:None_id:None/w:0.1_wp:0.25/mconf.yaml"
     FREEZE_MODEL = False
     TITLE = None
     DATASET = "Combo3_V1AL"
@@ -395,7 +396,7 @@ train_dataset = SpikeTimeVidData2(train_data, None, block_size, id_block_size, f
                                   window_behavior=window_behavior, predict_behavior=predict_behavior,
                                   stoi_speed=stoi_speed, itos_speed=itos_speed, dt_speed=dt_speed, labels=True)
 
-update_object(train_dataset, dconf)
+# update_object(train_dataset, dconf)
 train_dataset = train_dataset.copy(train_data)
 test_dataset = train_dataset.copy(test_data)
 finetune_dataset = train_dataset.copy(finetune_data)
@@ -459,8 +460,6 @@ model = GPT(model_conf)
 loader = DataLoader(train_dataset, batch_size=1, shuffle=False, num_workers=4, pin_memory=True)
 iterable = iter(loader)
 
-
-
 # %%
 x, y = next(iterable)
 # print(x['behavior'].shape, x['behavior_dt'].shape)
@@ -473,10 +472,10 @@ for k in y.keys():
 
 # epoch250_rand{RAND_PERM}_downstream:{DOWNSTREAM}
 # title =  f'3/4prop_{CLASS_WEIGHTS}/past_state_{PAST_STATE}_visual{VISUAL}_contrastive_{CONTRASTIVE}_clip_loss{CLIP_LOSS}t{mconf.clip_temp}_freeze_{FREEZE_MODEL}_class_weights{CLASS_WEIGHTS}/randperm_{RAND_PERM}/Big_fixed_noself-att'
-title = f'ablations_2/{SEED}/RESUME{RESUME != None}_paststate{PAST_STATE}_visual{VISUAL}_contrastive{model_conf.contrastive}'
-model_path = f"""./models/tensorboard/{DATASET}/inference_test/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{mconf.window}_wp:{mconf.window_prev}/Cont:{mconf.contrastive}_window:{mconf.window}_f_window:{mconf.frame_window}_df:{mconf.dt}_blocksize:{mconf.id_block_size}_conv_{mconf.conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
+# title = f'ablations_2/{SEED}/RESUME{RESUME != None}_paststate{PAST_STATE}_visual{VISUAL}_contrastive{model_conf.contrastive}'
+# model_path = f"""./models/tensorboard/{DATASET}/ablations_small/{title}_2/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{mconf.window}_wp:{mconf.window_prev}/Cont:{mconf.contrastive}_window:{mconf.window}_f_window:{mconf.frame_window}_df:{mconf.dt}_blocksize:{mconf.id_block_size}_conv_{mconf.conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
 # model_path = f"""./models/tensorboard/{DATASET}/interval_correction/downstream_exp/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{mconf.window}_wp:{mconf.window_prev}/Cont:{mconf.contrastive}_window:{mconf.window}_f_window:{mconf.frame_window}_df:{mconf.dt}_blocksize:{mconf.id_block_size}_conv_{mconf.conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
-# model_path = RESUME
+model_path = RESUME
 
 
 # %%
@@ -527,8 +526,6 @@ if DOWNSTREAM:
     train_dataset = train_dataset.copy(train_data, t=train_interval_trial_cls)
     test_dataset = test_dataset.copy(test_data, t=test_interval_trial_cls)
 
-
-
 # %%
 tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rate=1e-4, 
                     num_workers=4, lr_decay=True, patience=3, warmup_tokens=8e4, 
@@ -563,7 +560,6 @@ else:
     model.load_state_dict(torch.load(model_path, map_location='cpu'), strict=False)
 
 
-
 # %%
 # model.eval()
 # # model.train()
@@ -589,16 +585,16 @@ x, y = next(iterable)
 for k in x.keys():
     print(k, x[k].shape)
 
-
-
 # %%
 from neuroformer.utils import predict_raster_recursive_time_auto, process_predictions
 
 PARALLEL = True
-df_pred_paths = list(pathlib.Path(base_path).glob('*.csv'))
+# df_pred_paths = list(pathlib.Path(base_path).glob('*.csv'))
+df_pred_paths = ["./models/tensorboard/Combo3_V1AL/inference_test/ablations_2/69/RESUMEFalse_paststateTrue_visualTrue_contrastiveTrue/sparse_f:None_id:None/w:0.1_wp:0.25/df_pred.csv"]
 # df_pred = pd.read_csv(df_pred_paths[0]) if len(df_pred_paths) > 0 else None
 df_pred = None
 results_dict = dict()
+# sample = False
 
 top_p = 0.75
 top_p_t = 0.75
@@ -606,11 +602,9 @@ temp = 1.25
 temp_t = 1.25
 true_past = True
 
-
 trials = sorted(train_data['Trial'].unique())[::4]
 
-# load model with lowest loss
-model.load_state_dict(torch.load(model_path, map_location='cpu'), strict=False)
+model.load_state_dict(torch.load(RESUME, map_location='cpu'), strict=False)
 
 if df_pred is None:
     from joblib import Parallel, delayed
@@ -658,9 +652,9 @@ print(f"len pred: {len(df_pred)}, len true: {len(df_true)}")
 
 title = F"top_p: {top_p}, top_p_t: {top_p_t}, temp: {temp}, temp_t: {temp_t}/true_past:{true_past}"
 dir_name = os.path.dirname(model_path)
-model_name = os.path.basename(model_path)
-df_pred.to_csv(os.path.join(dir_name, F'df_pred_.csv'))
-df_true.to_csv(os.path.join(dir_name, F'df_true_.csv'))
+# model_name = os.path.basename(model_path)
+# df_pred.to_csv(os.path.join(dir_name, F'df_pred_.csv'))
+# df_true.to_csv(os.path.join(dir_name, F'df_true_.csv'))
 
 # %%
 """
