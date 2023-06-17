@@ -549,6 +549,46 @@ def get_var(data, interval, variable=None, trial=None):
     data = data[(data['Interval'] > interval[0]) & 
                     (data['Interval'] <= interval[1])]
     return data
+
+def round_n(x, base):
+    return round(base * (round(float(x)/base)), 6)
+
+def resample_groups(dataframe, extra_samples_factor):
+    # Calculate group sizes
+    group_size = dataframe.groupby(['Interval', 'Trial']).size().reset_index(name='count')
+    # Calculate inverse weights (so that smaller groups have higher chances)
+    weights = 1 / group_size['count']
+    # Normalizing the weights so they sum to 1
+    weights = weights / weights.sum()
+    # Define how many extra samples you want
+    num_extra_samples = (len(group_size) * extra_samples_factor) - len(group_size)
+    # Perform stratified resampling
+    sampled_groups = pd.concat([group_size, group_size.sample(n=num_extra_samples, replace=True, weights=weights)], ignore_index=True)
+    # Expand the count column into rows
+    expanded_sampled_groups = sampled_groups.loc[sampled_groups.index.repeat(sampled_groups['count'])].reset_index(drop=True)
+    # Drop the 'count' column as it is no longer needed
+    expanded_sampled_groups = expanded_sampled_groups.drop(columns=['count'])
+    # Return the expanded_sampled_groups DataFrame
+    return expanded_sampled_groups
+
+def tokenizer(neurons, max_window, dt, no_eos_dt=False):
+    feat_encodings = neurons + ['SOS'] + ['EOS'] + ['PAD']
+    stoi = { ch:i for i,ch in enumerate(feat_encodings) }
+    itos = { i:ch for i,ch in enumerate(feat_encodings) }
+    dt_range = math.ceil(max_window / dt) + 1  # add first / last interval for SOS / EOS'
+    n_dt = [round(dt * n, 2) for n in range(dt_range)]
+    """
+    add exclusive EOS and PAD dts,
+    if not we use max_dt for EOS and PAD IDs
+    inside dataloder
+    """
+    if no_eos_dt is False:
+        n_dt += ['EOS'] + ['PAD']
+    else:
+        n_dt += ['PAD']
+    stoi_dt = { ch:i for i,ch in enumerate(n_dt) }
+    itos_dt = { i:ch for i,ch in enumerate(n_dt) }
+    return stoi, itos, stoi_dt, itos_dt
     
 # dataloader class
 class SpikeTimeVidData2(Dataset):
@@ -613,6 +653,7 @@ class SpikeTimeVidData2(Dataset):
                 self.min_interval = window + window_prev if dataset not in ['LRN'] else 0
                 print(f"Min Interval: {self.min_interval}")
                 self.min_trial = data['Trial'].min()
+                self.resample_data = False
 
                 # calculate intervals on init
                 self.set_intervals(data)
@@ -640,6 +681,8 @@ class SpikeTimeVidData2(Dataset):
             if self.intervals is not None:
                 print(f"Using smooth intervals")
                 self.t = self.intervals
+            elif self.resample_data:
+                self.t = resample_groups(self.data, 10)
             else:
                 if self.dataset != 'combo_v2':
                     self.t = self.data.drop_duplicates(subset=['Interval', 'Trial']) # .sample(frac=1).reset_index(drop=True) # interval-trial unique pairs
@@ -652,26 +695,28 @@ class SpikeTimeVidData2(Dataset):
                     # for LRN dataset the current trial continuous from the previous one
                     self.t[self.t['Trial'] == self.min_trial] = self.t[self.t['Trial'] == self.min_trial][self.t[self.t['Trial'] == self.min_trial]['Interval'] >= self.min_interval]
                     self.t = self.t.dropna().reset_index(drop=True)
+                
 
-        def copy(self, data, t=None):
+        def copy(self, data, t=None, **kwargs):
             """return new class with everything the same except data,
             and the recalculation of self.t and self.size"""
             new = copy.deepcopy(self)
             new.data = data
+            for k, v in kwargs.items():
+                setattr(new, k, v)
+            
             if t is not None:
                 new.intervals = t
             new.set_intervals(data)
             return new
 
-        def round_n(self, x, base):
-            return round(base * (round(float(x)/base)), 2)
         # return round(base * float(x)/base)
 
         def calc_intervals(self, interval):
-            prev_int = self.round_n(interval, self.dt)
-            prev_id_interval = self.round_n(prev_int - self.window_prev, self.dt), prev_int
-            current_int = self.round_n(interval, self.dt)
-            current_id_interval = current_int, self.round_n(current_int + self.window, self.dt)
+            prev_int = round_n(interval - self.window, self.dt)
+            prev_id_interval = round_n(prev_int - self.window_prev, self.dt), prev_int
+            current_int = prev_int
+            current_id_interval = prev_int, round_n(current_int + self.window, self.dt)
             assert prev_id_interval[1] == current_id_interval[0]
             return prev_id_interval, current_id_interval
 
@@ -714,7 +759,10 @@ class SpikeTimeVidData2(Dataset):
             variables = data.columns if variables is None else variables
             behavior = torch.tensor(np.array(data[variables]), 
                                     dtype=torch.float32).transpose(0, 1)
-            behavior_dt = torch.tensor(np.array(data['Time']), dtype=torch.float32)
+            if len(data) > 0:
+                behavior_dt = torch.tensor(np.array(data['Time']) - np.array(data['Interval']), dtype=torch.float32)
+            else:
+                behavior_dt = torch.tensor([0], dtype=torch.float32)
             # pad
             behavior = pad_tensor(behavior, self.samples_per_behavior, self.stoi['PAD'])
             behavior_dt = pad_tensor(behavior_dt, self.samples_per_behavior, self.stoi_dt['PAD'])
@@ -734,8 +782,8 @@ class SpikeTimeVidData2(Dataset):
                         data, id_interval = self.get_data_prev_trial(trial, interval)
                     else:
                         data = data[data['Trial'] == trial]
-                        data = data[(data['Time'] > interval[0]) & 
-                                        (data['Time'] <= interval[1])][-(block_size - 2):]
+                        data = data[(data['Time'] >= interval[0]) & 
+                                        (data['Time'] < interval[1])][-(block_size - 2):]
                         if n_stim is not None:
                             data = data[data['Stimulus'] == n_stim]
                 # else:
@@ -755,7 +803,7 @@ class SpikeTimeVidData2(Dataset):
 
                 # print(data['Time'], "int", interval[0])
                 dt_chunk = (data['Time'] - (interval[0])) if interval[0] > 0 else data['Time']
-                dt_chunk = [self.stoi_dt[self.round_n(dt, self.dt)] for dt in dt_chunk]
+                dt_chunk = [self.stoi_dt[round_n(dt, self.dt)] for dt in dt_chunk]
 
                 if 'EOS' in self.stoi_dt.keys():
                     eos_token = self.stoi_dt['EOS']
@@ -802,7 +850,7 @@ class SpikeTimeVidData2(Dataset):
 
                 # get intervals
                 prev_id_interval, current_id_interval = self.calc_intervals(t['Interval'])
-
+                
                 ## PREV ##
                 # get state history + dt (last 30 seconds)
                 id_prev, dt_prev, pad_prev = self.get_interval(prev_id_interval, t['Trial'], self.id_prev_block_size, n_stim)
@@ -899,10 +947,10 @@ class SpikeTimeVidData2(Dataset):
 
                     if n_stim is not None:
                         x['stimulus'] = torch.tensor(n_stim, dtype=torch.long)
+                    x['f_idx'] = torch.tensor([f_idx_0, f_idx_1])
 
                 x['cid'] = torch.tensor(current_id_interval)
                 x['pid'] = torch.tensor(prev_id_interval)
-                x['f_idx'] = torch.tensor([f_idx_0, f_idx_1])
 
                 return x, y
 

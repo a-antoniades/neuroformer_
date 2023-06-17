@@ -1005,3 +1005,178 @@ def plot_psth(df_1, df_2, ax, xlims=None):
         ax.set_xlim(xlims)
     
     ax.set_yticks([])
+
+
+def plot_hippocampus(ax, embedding, label, gray = False, idx_order = (0,1,2)):
+    """
+    embedding: (N x 3) (n example, n_embd_clip)
+    label: (N x 3) (example, [location, right dir, left dir])
+    """
+    l_ind = label[:,1] == 1
+    r_ind = label[:,2] == 1
+    
+    if not gray:
+        r_cmap = 'cool'
+        l_cmap = 'viridis'
+        r_c = label[r_ind, 0]
+        l_c = label[l_ind, 0]
+    else:
+        r_cmap = None
+        l_cmap = None
+        r_c = 'gray'
+        l_c = 'gray'
+    
+    idx1, idx2, idx3 = idx_order
+    r=ax.scatter(embedding [r_ind,idx1], 
+               embedding [r_ind,idx2], 
+               embedding [r_ind,idx3], 
+               c=r_c,
+               cmap=r_cmap, s=0.5)
+    l=ax.scatter(embedding [l_ind,idx1], 
+               embedding [l_ind,idx2], 
+               embedding [l_ind,idx3], 
+               c=l_c,
+               cmap=l_cmap, s=0.5)
+    
+    ax.grid(False)
+    ax.xaxis.pane.fill = False
+    ax.yaxis.pane.fill = False
+    ax.zaxis.pane.fill = False
+    ax.xaxis.pane.set_edgecolor('w')
+    ax.yaxis.pane.set_edgecolor('w')
+    ax.zaxis.pane.set_edgecolor('w')
+        
+    return ax
+
+
+"""
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib import cm
+from neuroformer.visualize import set_plot_white
+
+IS_3D = False
+
+def plot_data(data, is_3d=True):
+    set_plot_white()
+
+    # Creating a color map based on the keys of the data
+    cmap = cm.get_cmap('viridis')  # Can choose different colormap here
+    norm = plt.Normalize(min(data.keys()), max(data.keys()))  # Normalize speed values
+
+    fig = plt.figure(figsize=(10, 10))
+    
+    if is_3d:
+        ax = fig.add_subplot(111, projection='3d')
+        ax.set_zlabel('Z')
+    else:
+        ax = fig.add_subplot(111)
+    
+    # Iterating through the dictionary
+    for speed in data.keys():
+        speed_data = torch.stack(data[speed], dim=0)
+        # Convert list of vectors to a numpy array
+        vectors = np.array(speed_data)
+        
+        if is_3d:
+            ax.scatter(vectors[:, 0], vectors[:, 1], vectors[:, 2], color=cmap(norm(speed)))
+        else:
+            ax.scatter(vectors[:, 0], vectors[:, 1], color=cmap(norm(speed)))
+
+    # Setting labels
+    ax.set_xlabel('X')
+    ax.set_ylabel('Y')
+
+    # show colorbar
+    sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+    plt.colorbar(sm)
+    plt.title('Latent Space, Alignment (Color = Speed)', fontsize=20)
+
+
+plot_data(latents['id'], is_3d=IS_3D)
+save_pth = "./plots/dim_reduction"
+# plt.savefig(os.path.join(save_pth, '2D_speed_neurons.png'))
+# plt.savefig(os.path.join(save_pth, '2D_speed_neurons.pdf'))
+"""
+
+"""
+
+import os
+import pathlib
+import torch
+import pandas as pd
+from joblib import Parallel, delayed
+from neuroformer.utils import predict_raster_recursive_time_auto, process_predictions
+from neuroformer.analysis import compute_scores
+
+
+CONFIG = {
+    "PARALLEL": True,
+    "PLOT_PROBS": False,
+    "TOP_P": 0.75,
+    "TOP_P_T": 1.3,
+    "TEMP": 0.75,
+    "TEMP_T": 1.3,
+    "TRUE_PAST": False
+}
+
+
+def process_trial(trial_number, trial, model, train_dataset, df, stoi, itos_dt, itos, window, window_prev, config):
+    print(f"-- No. {trial_number} Trial: {trial} --")
+    df_trial = df[df['Trial'] == trial]
+    trial_dataset = train_dataset.copy(df_trial)
+    results_trial = predict_raster_recursive_time_auto(
+        model, trial_dataset, window, window_prev, stoi, itos_dt, itos=itos,
+        sample=True, top_p=config["TOP_P"], top_p_t=config["TOP_P_T"], temp=config["TEMP"], temp_t=config["TEMP_T"],
+        frame_end=0, get_dt=True, gpu=False, pred_dt=True, plot_probs=config["PLOT_PROBS"], true_past=config["TRUE_PAST"]
+    )
+    df_trial_pred, df_trial_true = process_predictions(results_trial, stoi, itos, window)
+    print(f"pred: {df_trial_pred.shape}, true: {df_trial_true.shape}")
+    return df_trial_pred, df_trial_true
+
+
+def run_analysis(model, model_path, test_data, train_dataset, df, stoi, itos_dt, itos, window, window_prev, config):
+    model.load_state_dict(torch.load(model_path, map_location='cpu'), strict=True)
+
+    trials = sorted(test_data['Trial'].unique())
+    if config["PARALLEL"]:
+        results = Parallel(n_jobs=-1)(
+            delayed(process_trial)(n, trial, model, train_dataset, df, stoi, itos_dt, itos, window, window_prev, config)
+            for n, trial in enumerate(trials)
+        )
+    else:
+        results = [
+            process_trial(n, trial, model, train_dataset, df, stoi, itos_dt, itos, window, window_prev, config)
+            for n, trial in enumerate(trials)
+        ]
+
+    df_pred = None
+    df_true = None
+    for n, (df_trial_pred, df_trial_true) in enumerate(results):
+        print(f"-- No. {n} Trial --")
+        if df_pred is None:
+            df_pred = df_trial_pred
+            df_true = df_trial_true
+        else:
+            df_pred = pd.concat([df_pred, df_trial_pred])
+            df_true = pd.concat([df_true, df_trial_true])
+
+    df_true = df[df['Trial'].isin(trials)]
+    scores = compute_scores(df_true, df_pred)
+    print(scores)
+    print(f"ID unique: pred: {len(df_pred['ID'].unique())}, true: {len(df_true['ID'].unique())}")
+    print(f"len pred: {len(df_pred)}, len true: {len(df_true)}")
+
+    title = f"top_p: {config['TOP_P']}, top_p_t: {config['TOP_P_T']}, temp: {config['TEMP']}, temp_t: {config['TEMP_T']}/true_past:{config['TRUE_PAST']}"
+    dir_name = os.path.dirname(model_path)
+    save_path = os.path.join(dir_name, f"predictions_{title}.csv")
+    # Optionally save the results
+    # df_pred.to_csv(os.path.join(dir_name, 'df_pred.csv'))
+    # df_true.to_csv(os.path.join(dir_name, 'df_true.csv'))
+
+
+if __name__ == "__main__":
+    # Assuming model, model_path, test_data, train_dataset, df, stoi, itos_dt, itos, window, and window_prev are defined.
+    run_analysis(model, model_path, test_data, train_dataset, df, stoi, itos_dt, itos, window, window_prev, CONFIG)
+
+"""

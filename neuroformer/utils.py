@@ -34,11 +34,11 @@ def set_seed(seed):
 def all_device(data, device):
     device = torch.device(device)
     if isinstance(data, dict):
-        return {k: all_device(v, device) for k, v in data.items()}
+        return {k: all_device(v, device) for k, v in data.items() if v is not None}
     elif isinstance(data, list):
-        return [all_device(v, device) for v in data]
+        return [all_device(v, device) for v in data if v is not None]
     elif isinstance(data, tuple):
-        return tuple(all_device(v, device) for v in data)
+        return tuple(all_device(v, device) for v in data if v is not None)
     else:
         return data.to(device)
 
@@ -192,8 +192,20 @@ def load_model(model_dir):
     model.load_state_dict(torch.load(model_path))
     return model, mconf, tconf
 
-
-# results = predict_raster_recursive_time_auto(model, loader, window, stoi, itos_dt, sample=True, top_p=0.95, top_p_t=0.95, frame_end=0, get_dt=True, gpu=False)
+def running_jupyter():
+    try:
+        from IPython import get_ipython
+        shell = get_ipython().__class__.__name__
+        if shell == 'ZMQInteractiveShell':
+            # 'ZMQInteractiveShell' is the class name for the Jupyter Notebook shell
+            return True
+        else:
+            # Probably in IPython or other interactive shell
+            return False
+    except (NameError, ImportError):
+        # Probably in a standard Python shell
+        pass
+    return False
 
 def process_predictions(results, stoi, itos, window):
     pred_keys = ['ID', 'dt', 'Trial', 'Interval']
@@ -402,6 +414,15 @@ def predict_raster_recursive_time_auto(model, dataset, window, window_prev, stoi
             sos_token, eos_token = min(list(itos_dt.keys())), max(list(itos_dt.keys()))
         x = torch.tensor([sos_token] + x_clean + [eos_token], dtype=torch.long, device=device)
         return x, idx_excl
+    
+    def sort_ids(id, dt):
+        """
+        sort ids and dt by dt
+        (on last axis)
+        """
+        dt, idx = torch.sort(dt, dim=-1, descending=True)
+        id = torch.gather(id, dim=-1, index=idx)
+        return id, dt
 
     device = 'cpu' if not gpu else torch.cuda.current_device() # torch.cuda.current_device() if torch.cuda.is_available() else "cpu"
     model = [model_n.to(device) for model_n in model] if isinstance(model, list) else model.to(device) 
@@ -423,6 +444,10 @@ def predict_raster_recursive_time_auto(model, dataset, window, window_prev, stoi
     loader = DataLoader(dataset, shuffle=False, pin_memory=False)
     pbar = tqdm(enumerate(loader), total=len(loader), disable=p_bar)
     for it, (x, y) in pbar:
+        xid_prev_real = x['id_prev'].flatten()
+        pad_real = x['pad_prev'].flatten() - 2
+
+        xdt_prev_real = x['dt_prev'].flatten()
         # if it > 2:
         #     break
         # print(f"it = {it}, interval: {x['interval']}, window_prev: {window_prev}, window: {window}")
@@ -434,7 +459,7 @@ def predict_raster_recursive_time_auto(model, dataset, window, window_prev, stoi
         
         # feed predicted IDs from buffer into past state
         if true_past is False:
-            if x['interval'] > window_prev + window:
+            if it > (window_prev / window):
                 df = {k: v for k, v in data.items() if k in ('ID', 'dt', 'Trial', 'Interval', 'Time')}
                 df = pd.DataFrame(df)
 
@@ -442,12 +467,27 @@ def predict_raster_recursive_time_auto(model, dataset, window, window_prev, stoi
                 df = df[(df != 'SOS').all(axis=1)].reset_index(drop=True)
                 df = df[(df != 'EOS').all(axis=1)].reset_index(drop=True)
                 df = df[(df != 'PAD').all(axis=1)].reset_index(drop=True)
-                df['Time'] = df['dt'] + df['Interval']
+                df['Time'] = df['dt'] + df['Interval'] - window
 
+                # store results in dict
                 prev_id_interval, current_id_interval = dataset.calc_intervals(x['interval'])
                 x['id_prev'], x['dt_prev'], pad_prev = dataset.get_interval(prev_id_interval, float(x['trial']), T_id_prev, data=df)
-                x['id_prev'] = torch.tensor(x['id_prev'], dtype=torch.long).unsqueeze(0).to(device)
-                x['dt_prev'] = torch.tensor(x['dt_prev'], dtype=torch.long).unsqueeze(0).to(device)
+                x['id_prev'] = torch.tensor(x['id_prev'][:-1], dtype=x['id'].dtype).unsqueeze(0).to(device)
+                x['dt_prev'] = torch.tensor(x['dt_prev'][:-1], dtype=x['id'].dtype).unsqueeze(0).to(device)
+                x['pad_prev'] = torch.tensor(pad_prev, dtype=x['id_prev'].dtype).unsqueeze(0).to(device)
+
+                # sort ids according to dt
+                x['id_prev'], x['dt_prev'] = sort_ids(x['id_prev'], x['dt_prev'])
+
+                x_id_prev = x['id_prev'].flatten()
+                x_dt_prev = x['dt_prev'].flatten()
+                x_pad_prev = x['pad_prev'].flatten() - 2
+                # print(f"real: {xid_prev_real[:len(xid_prev_real) - pad_real]}")
+                # print(f"pred: {x_id_prev[:len(x_id_prev) - x_pad_prev]}")
+                # print(f"real_dt: {xdt_prev_real[:len(xdt_prev_real) - pad_real]}")
+                # print(f"pred_dt: {x_dt_prev[:len(x_dt_prev) - x_pad_prev]}")
+                # print("---------------------------------")
+
             
         pad = x['pad'] if 'pad' in x else 0
         x['id_full'] = x['id'][:, 0]
@@ -496,12 +536,12 @@ def predict_raster_recursive_time_auto(model, dataset, window, window_prev, stoi
                 topk_indices = np.argpartition(probs_n, -topk)[-topk:]
                 topk_probs = probs_n[topk_indices]
                 plt.figure()
-                plt.title(f"t={i}, indices: {topk_indices}")
-                plt.axvline(x=ix, color='b')
+                plt.title(f"ID t={i}, indices: {topk_indices}")
+                plt.axvline(x=ix, color='b', linestyle='--')
                 plt.bar(xaxis, probs_n)
                 plt.show()
                 print(x['id'])
-                print(f"i: {i} ix: {ix}, x_true: {y['id'][0, i]}")
+                print(f"Step {it}, i: {i} ix: {ix}, x_true: {y['id'][0, i]}")
                 print(f"topk_ix: {topk_indices}")
                 print(f"topk_probs: {topk_probs}")
 
@@ -512,12 +552,12 @@ def predict_raster_recursive_time_auto(model, dataset, window, window_prev, stoi
                 topk_indices = np.argpartition(probs_dt_n, -topk)[-topk:]
                 topk_probs = probs_dt_n[topk_indices]
                 plt.figure()
-                plt.title(f"t={i}, indices: {topk_indices}")
+                plt.title(f"DT t={i}, indices: {topk_indices}")
+                plt.axvline(x=ix_dt, color='b', linestyle='--')
                 plt.bar(xaxis, probs_dt_n)
-                plt.axvline(x=ix_dt, color='b')
                 plt.show()
                 print(x['dt'])
-                print(f"i: {i} ix_dt: {ix_dt}, dt_true: {y['dt'][0, i]}")
+                print(f"Step {it}, i: {i} ix_dt: {ix_dt}, dt_true: {y['dt'][0, i]}")
                 print(f"topk_ix_dt: {topk_indices} \
                         topk_dt_probs: {topk_probs}")
             
@@ -704,11 +744,13 @@ def extract_latents(model, dataset):
     
     model.eval()
     model.to(device)
+
     
-    loader = DataLoader(dataset, batch_size=64, shuffle=False, pin_memory=False)
+    loader = DataLoader(dataset, batch_size=128, shuffle=False, pin_memory=False)
     pbar = tqdm(enumerate(loader), total=len(loader))
     
-    latents = dict()
+    latents = collections.defaultdict(list)
+    feats = collections.defaultdict(list)
     intervals = []
     trials = []
     behavior_true = []
@@ -720,13 +762,17 @@ def extract_latents(model, dataset):
         logits = all_device(logits, 'cpu')
         features = all_device(features, 'cpu')
         loss = all_device(loss, 'cpu')
-        
+        x = all_device(x, 'cpu')
+    
         for modality in features['clip'].keys():
-            latents[modality] = collections.defaultdict(list)
-            for behavior in x['behavior']:
-                latents[modality][behavior].append(features['clip'])
+            for idx, (behavior, feat) in enumerate(zip(x['behavior'], features['clip'][modality])):
+                # latents[modality][round_n(float(behavior), res)].append(feats)
+                latents[modality].append(feat)
+        for key in x.keys():
+            for idx, _ in enumerate(x[key]):
+                feats[key].append(x[key][idx].numpy())
 
-    return latents
+    return feats, latents
 
 @torch.no_grad()
 def predict_beam_search_time(model, loader, stoi, itos_dt, frame_end=0):

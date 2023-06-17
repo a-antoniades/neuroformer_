@@ -99,6 +99,8 @@ class GPTConfig:
     mlp_only = False
     wave_emb = True
 
+    eos_loss = False
+
     def __init__(self, vocab_size, block_size, **kwargs):
         self.vocab_size = vocab_size
         self.block_size = block_size
@@ -621,28 +623,24 @@ class BlockSequential(nn.Sequential):
 
 
 class CLIP(nn.Module):
-    def __init__ (self, config):
+    def __init__ (self, config, loss):
         super().__init__()
         self.temp = config.clip_temp
-        self.frame_proj = nn.Linear(config.frame_block_size * config.n_embd, config.clip_emb, bias=False)
-        self.id_proj = nn.Linear(config.id_block_size * config.n_embd, config.clip_emb, bias=False)
+        clip_embd = config.clip_embd if hasattr(config, 'clip_embd') else config.n_embd
+        self.proj = nn.Linear(config.n_embd, clip_embd, bias=False)
+        self.loss = loss
         print(config.frame_block_size * config.n_embd)
 
-    
-    def forward(self, frame_feats, id_feats):
+    def forward(self, features):
 
         # frame_feats = rearrange(frame_feats, 'b hw e -> b (hw e)')
         # id_feats = rearrange(id_feats, 'b t e -> b (t e)')
+        for mode in features:
+            features[mode] = self.proj(features[mode])
 
-        # frame_proj = self.frame_proj(frame_feats)
-        # id_proj = self.id_proj(id_feats)
+        loss = contrastive_loss(features, temp=self.temp)
 
-        # frame_proj = frame_feats
-        # id_proj = id_feats
-
-        loss = contrastive_loss(frame_feats, id_feats, temp=self.temp)
-
-        return loss
+        return loss, features
 
 class FeatureEncoder(nn.Module):
     def __init__(self, config):
@@ -806,19 +804,20 @@ class GPT(nn.Module):
         self.drop = nn.Dropout(config.embd_pdrop)
 
         # -- Visual Backbone -- #
-        if config.resnet_backbone is False:
-            self.video_encoder = VideoEncoder(config)
-        else:
-            self.video_encoder = Resnet3DBackbone()
-            print("Using Resnet Backbone")
+        if config.n_stimulus_layers > 0:
+            if config.resnet_backbone is False:
+                self.video_encoder = VideoEncoder(config)
+            else:
+                self.video_encoder = Resnet3DBackbone()
+                print("Using Resnet Backbone")
 
         # -- feature encoder -- # 
         self.feature_encoder = FeatureEncoder(config)
 
         # -- Multimodal Transformer -- #
         if config.contrastive:
-            self.clip = CLIP(config)
             self.contrastive_loss = contrastive_loss if not config.clip_loss else clip_loss
+            self.clip = CLIP(config, loss=self.contrastive_loss)
         self.neural_visual_transformer = MultimodalTransformer(config)
        
         ## -- ID, dt, Logit Projections -- ##
@@ -986,13 +985,55 @@ class GPT(nn.Module):
         x_mean = x.mean(dim=1)
         logits = self.head_behavior(x_mean)
         return logits
+    
+    def separate_eos_tokens(self, eos_id_tok, eos_dt_tok, targets, id_logits, dt_logits):
+        """
+        Separates the logits and targets of the End-Of-Sequence (EOS) tokens 
+        from the non-EOS tokens.
+
+        Parameters:
+        - eos_id_tok (int): The EOS token index for 'id' targets.
+        - eos_dt_tok (int): The EOS token index for 'dt' targets.
+        - targets (dict): A dictionary containing the targets 'id' and 'dt'. Both have shape (batch_size, seq_length).
+        - id_logits (torch.Tensor): The logits for the 'id' targets. Shape (batch_size, seq_length, num_classes).
+        - dt_logits (torch.Tensor): The logits for the 'dt' targets. Shape (batch_size, seq_length, num_classes).
+
+        Returns:
+        - eos_id_logits (torch.Tensor): The logits for the EOS tokens in 'id'. Shape (num_eos, num_classes).
+        - eos_dt_logits (torch.Tensor): The logits for the EOS tokens in 'dt'. Shape (num_eos, num_classes).
+        - id_logits_no_eos (torch.Tensor): The logits for the non-EOS tokens in 'id'. Shape (num_non_eos, num_classes).
+        - dt_logits_no_eos (torch.Tensor): The logits for the non-EOS tokens in 'dt'. Shape (num_non_eos, num_classes).
+        - targets (dict): The updated targets dictionary with keys 'id_', 'dt_', 'id_eos', and 'dt_eos'.
+        """
+        # Create masks for EOS tokens
+        eos_id_mask = targets['id'] == eos_id_tok
+        eos_dt_mask = targets['dt'] == eos_dt_tok
+
+        # Create masks for non-EOS tokens
+        non_eos_id_mask = ~eos_id_mask
+        non_eos_dt_mask = ~eos_dt_mask
+
+        # Apply the mask to select elements
+        eos_id_logits = torch.masked_select(id_logits, eos_id_mask.unsqueeze(-1)).view(-1, id_logits.size(2))
+        eos_dt_logits = torch.masked_select(dt_logits, eos_dt_mask.unsqueeze(-1)).view(-1, dt_logits.size(2))
+
+        id_logits_no_eos = torch.masked_select(id_logits, non_eos_id_mask.unsqueeze(-1)).view(-1, id_logits.size(2))
+        dt_logits_no_eos = torch.masked_select(dt_logits, non_eos_dt_mask.unsqueeze(-1)).view(-1, dt_logits.size(2))
+
+        # Update targets dictionary
+        targets['id_'] = targets['id'][non_eos_id_mask]
+        targets['dt_'] = targets['dt'][non_eos_dt_mask]
+        targets['id_eos'] = targets['id'][eos_id_mask]
+        targets['dt_eos'] = targets['dt'][eos_dt_mask]
+
+        return eos_id_logits, eos_dt_logits, id_logits_no_eos, dt_logits_no_eos, targets
+        
 
     def forward(self, x, targets=None):
         idx = x['id']
         pad = x['pad']
 
         b, t = idx.size()
-        # assert t == t_prev, "Neural states need to be the same size!"
         tf = self.config.frame_block_size
         # assert t + tf == self.config.block_size, f"{tf} {t}"
         # assert t <= self.block_size, "Cannot forward, model block size is exhausted"
@@ -1021,13 +1062,31 @@ class GPT(nn.Module):
         torch.cuda.empty_cache()
         if targets is not None:
             loss = collections.defaultdict(float)
-            n = float('inf')
+            n = float('inf') if not self.config.contrastive else 4
+
+            
+            ## separate ids and dts into the neural data and eos tokens
+            eos_id_tok = self.config.ignore_index_id - 1
+            eos_dt_tok = self.config.ignore_index_dt - 1
+            eos_id_logits, eos_dt_logits, \
+            id_logits_no_eos, dt_logits_no_eos, \
+            targets = self.separate_eos_tokens(eos_id_tok, eos_dt_tok, 
+                                               targets, id_logits, 
+                                               dt_logits)
+
 
             if self.config.class_weights is not None:
                 loss_id = F.cross_entropy(id_logits.view(-1, id_logits.size(-1)), targets['id'].view(-1),
                                           gnore_index=self.config.ignore_index_id, weight=self.class_weights_id)
                 loss_time = F.cross_entropy(dt_logits.view(-1, dt_logits.size(-1)), targets['dt'].view(-1), 
                                           ignore_index=self.config.ignore_index_dt, weight=self.class_weights_dt)
+            elif self.config.eos_loss:
+                loss_id =  F.cross_entropy(id_logits_no_eos.view(-1, id_logits.size(-1)), targets['id_'].view(-1), ignore_index=self.config.ignore_index_id) 
+                loss_time = F.cross_entropy(dt_logits_no_eos.view(-1, dt_logits.size(-1)), targets['dt_'].view(-1), ignore_index=self.config.ignore_index_dt)
+                loss_id_eos = F.cross_entropy(eos_id_logits.view(-1, eos_id_logits.size(-1)), targets['id_eos'].view(-1), ignore_index=self.config.ignore_index_id)
+                loss_time_eos = F.cross_entropy(eos_dt_logits.view(-1, eos_dt_logits.size(-1)), targets['dt_eos'].view(-1), ignore_index=self.config.ignore_index_dt)
+                loss['eos_id'] = ((1 / 8) * loss_id_eos) * (1 - 1 / n)
+                loss['eos_dt'] = ((1 / 8) * loss_time_eos) * (1 - 1 / n)
             else:
                 loss_id =  F.cross_entropy(id_logits.view(-1, id_logits.size(-1)), targets['id'].view(-1), ignore_index=self.config.ignore_index_id) 
                 loss_time = F.cross_entropy(dt_logits.view(-1, dt_logits.size(-1)), targets['dt'].view(-1), ignore_index=self.config.ignore_index_dt)
@@ -1039,33 +1098,38 @@ class GPT(nn.Module):
             if self.config.contrastive:
                 clip_id_feats = []
                 for B, P in enumerate(pad):
-                    clip_id_feats.append(features['id'][B, t - P])
+                    clip_id_feats.append(features['id'][B, t - P + 1])
                 clip_id_feats = torch.stack(clip_id_feats)
                 # n = 2
                 # loss['clip'] = self.clip(features['frames'][:, 0], features['id'][:, -1]) * (1 / n) 
                 # loss['clip'] = self.clip(features['frames'][:, 0], clip_id_feats) * (1 / n)
                 feats_clip = dict()
-                feat_contra_frames = features['frames']
-                # average pool over 1st dim
-                feat_contra_frames = feat_contra_frames.mean(dim=1)
-                feat_contra_id = features['id'].mean(dim=1)
+
+                # feed in x (last layer representation)
+                feat_contra_id = x.mean(dim=1) # features['id'].mean(dim=1)
                 if hasattr(self.config, 'contrastive_vars'):
                     for variable in self.config.contrastive_vars:
+                        # mean pool all sequence
                         if variable == 'id':
                             feats_clip['id'] = feat_contra_id
+                        # use features from eos pos
+                        if variable == 'eos':
+                            feats_clip['eos'] = clip_id_feats
                         elif variable == 'frames':
-                            feats_clip['frames'] = feat_contra_frames
+                            feats_clip['frames'] = features['frames'].mean(dim=1)
                         else:
                             feats_clip[variable] = features[variable]
+                # if clip vars unspecified, use id and frames
                 else:
+                    feats_clip['frames'] = features['frames'].mean(dim=1)
                     feats_clip['id'] = feat_contra_id
-                    feats_clip['frames'] = feat_contra_frames
                 assert len(feats_clip.keys()) >= 2, "Need at least 2 variables for contrastive loss"
-                loss['clip'] = self.contrastive_loss(feats_clip, temp=self.config.clip_temp) * (1 / 4)
-                features['clip'] = feats_clip
+                loss['clip'], features['clip'] = self.clip(feats_clip)
+                loss['clip'] = loss['clip'] * (1 / n)
             
-            loss['id'] = ((2 / 4) * loss_id) * (1 - 1 / n)   # sum(loss_id) / (b * 2)   # / len(loss_id)
-            loss['time'] = ((1 / 4) * loss_time) * (1 - 1 / n)
+            loss['id'] = ((4 / 5) * loss_id) * (1 - 1 / n)   # sum(loss_id) / (b * 2)   # / len(loss_id)
+            loss['time'] = ((1 / 5) * loss_time) * (1 - 1 / n)
+
             if self.config.predict_behavior and 'behavior' in targets:
                 loss['behavior'] = ((1 / 4) * loss_behavior) * (1 - 1 / n)
                 preds['behavior'] = behavior_logits
@@ -1102,8 +1166,6 @@ class GPT(nn.Module):
             recall.append(zero_tensor)
             F1.append(zero_tensor) 
 
-
-
             # # calculate precision, recall, F1
             # precision_top1, recall_top1, F1_top1 = topk_metrics(id_logits, targets['id'], k=1, 
             #                                                     num_classes=self.config.id_vocab_size, ignore_index=self.config.ignore_index_id)
@@ -1123,7 +1185,6 @@ class GPT(nn.Module):
 
         preds['id'] = id_logits    # [:, tf:]    # only id logits
         preds['dt'] = dt_logits
-
         features['last_layer'] = x
 
         return preds, features, loss

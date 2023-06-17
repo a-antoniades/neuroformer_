@@ -20,28 +20,15 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 import pandas as pd
-from torch.utils.data.dataloader import DataLoader
-
-import math
-from torch.utils.data import Dataset
-
-from model_perceiver import GPT, GPTConfig
-from trainer import Trainer, TrainerConfig
-from utils import set_seed
-
 
 from scipy import io as scipyio
-from scipy.special import softmax
 import skimage
-import skvideo.io
-from utils import print_full
 
 import matplotlib.pyplot as plt
-from utils import *
+# from neuroformer.utils import *
 parent_path = os.path.dirname(os.path.dirname(os.getcwd())) + "/"
 
-from SpikeVidUtils import image_dataset
-from SpikeVidUtils import trial_df_combo3
+from neuroformer.SpikeVidUtils import image_dataset, trial_df_combo3, make_intervals
 
 
 class DataLinks:
@@ -68,10 +55,30 @@ class DataLinks:
         "RESPONSE_PATH": "./data/Combo3_V1AL/Combo3_V1AL_response.csv",
         "STIMULUS_PATH": "./data/Combo3_V1AL/Combo3_V1AL_stimulus.pt"
     }
+    Combo3_SimNeu3D = {
+        "url": "https://drive.google.com/drive/folders/1k9LrPWpHzpsrsgLMCzSyzcLyWpMRut63?usp=share_link",
+        "DIRECTORY": "./data/Combo3_SimNeu3D",
+        "RESPONSE_PATH": "./data/Combo3_SimNeu3D/simNeu_3D_Combo4_1000Rep.csv",
+        "STIMULUS_PATH": "./data/Combo3_SimNeu3D/OneCombo3_(2,3)_stimuli.pt"
+    }
     NaturalStim = {
         "url" : "https://drive.google.com/drive/folders/1jgYBERZpXdbAP-E5xcSAHsWSa95Z9IFe?usp=sharing",
         "RESPONSE_PATH" : "./data/NaturalMovie/stimulus/docuMovie.pt",
         "STIMULUS_PATH" : "./data/NaturalMovie/stimulus/docuMovie.pt"
+    }
+    HippocampusPos = {
+        "url": "https://drive.google.com/drive/folders/15VDz6r8y8-nFpAKPcdGtK6nBtMCOQKQA?usp=share_link",
+        "DIRECTORY": "./data/cebra/hippocampus_pos",
+        "RESPONSE_PATH": "./data/cebra/hippocampus_pos/Achilles_Spikes.csv",
+        "BEHAVIOR_PATH": "./data/cebra/hippocampus_pos/Achilles_Behavior.csv",
+        
+    }
+    HippocampusPosCEBRA = {
+    "url": "https://drive.google.com/drive/folders/15VDz6r8y8-nFpAKPcdGtK6nBtMCOQKQA?usp=share_link",
+    "DIRECTORY": "./data/cebra/hippocampus_pos",
+    "RESPONSE_PATH": "./data/cebra/hippocampus_pos/hippocampus_neural_cerba.csv",
+    "BEHAVIOR_PATH": "./data/cebra/hippocampus_pos/hippocampus_pos_cerba.csv",
+    
     }
 
 
@@ -111,8 +118,6 @@ def prepare_onecombo_real(window, dt):
     # df = pd.read_csv(parent_path + "code/data/OneCombo3/Combo3_all_stim.csv")
     window = 0.5
     dt = 0.05
-
-    from SpikeVidUtils import make_intervals
 
     df['Interval'] = make_intervals(df, window)
     # df['Interval_dt'] = make_intervals(df, dt)
@@ -186,9 +191,6 @@ def load_LRL2_small():
     return df, stimulus
 
 
-from SpikeVidUtils import trial_df_real
-import scipy.io as scipyio
-
 def load_natmovie_real(response_path, stimulus_path, dt_frames=0.05):
     spike_data = scipyio.loadmat(response_path)
     spike_data = trial_df_real(np.squeeze(spike_data['spiketrain']['st'].T, axis=-1))
@@ -211,46 +213,46 @@ def load_natmovie_real(response_path, stimulus_path, dt_frames=0.05):
 
     return df, stimulus
 
-import mat73
-from SpikeVidUtils import make_intervals, get_df_visnav
-def load_visnav_1(behavior, behavior_vars):
-    data_path = "../data/VisNav_VR_Expt/experiment_data.mat"
-    data = mat73.loadmat(data_path)['neuroformer']
-    stimulus = data['vid_sm']
-    response = data['spiketimes']['spks']
-    trial_data = data['trialsummary']
-    # response = data_response['spiketime_sel2']['spks']
+# import mat73
+# from SpikeVidUtils import make_intervals, get_df_visnav
+# def load_visnav_1(behavior, behavior_vars):
+#     data_path = "../data/VisNav_VR_Expt/experiment_data.mat"
+#     data = mat73.loadmat(data_path)['neuroformer']
+#     stimulus = data['vid_sm']
+#     response = data['spiketimes']['spks']
+#     trial_data = data['trialsummary']
+#     # response = data_response['spiketime_sel2']['spks']
 
-    print(data.keys())
+#     print(data.keys())
 
-    df = get_df_visnav(response, trial_data, dt_vars)
-    # df = df[df['ID'].isin(neurons_sel1)].reset_index(drop=True)
+#     df = get_df_visnav(response, trial_data, dt_vars)
+#     # df = df[df['ID'].isin(neurons_sel1)].reset_index(drop=True)
 
-    if behavior is True:
-        behavior = pd.DataFrame({k: data[k] for k in behavior_vars + ['t']})
-        # rename t to time
-        behavior = behavior.rename(columns={'t': 'Time'}) if behavior is not None else None
-        behavior['Interval'] = make_intervals(behavior, window)
-        behavior['Interval_2'] = make_intervals(behavior, window_prev)
+#     if behavior is True:
+#         behavior = pd.DataFrame({k: data[k] for k in behavior_vars + ['t']})
+#         # rename t to time
+#         behavior = behavior.rename(columns={'t': 'Time'}) if behavior is not None else None
+#         behavior['Interval'] = make_intervals(behavior, window)
+#         behavior['Interval_2'] = make_intervals(behavior, window_prev)
 
-        # prepare speed variables
-        behavior['speed'] = behavior['speed'].apply(lambda x: round_n(x, dt_speed))
-        dt_range_speed = behavior['speed'].min(), behavior['speed'].max()
-        dt_range_speed = np.arange(dt_range_speed[0], dt_range_speed[1] + dt_speed, dt_speed)
-        n_behavior = len(dt_range_speed)
+#         # prepare speed variables
+#         behavior['speed'] = behavior['speed'].apply(lambda x: round_n(x, dt_speed))
+#         dt_range_speed = behavior['speed'].min(), behavior['speed'].max()
+#         dt_range_speed = np.arange(dt_range_speed[0], dt_range_speed[1] + dt_speed, dt_speed)
+#         n_behavior = len(dt_range_speed)
 
-        stoi_speed = { round_n(ch, dt_speed):i for i,ch in enumerate(dt_range_speed) }
-        itos_speed = { i:round_n(ch, dt_speed) for i,ch in enumerate(dt_range_speed) }
-        assert (window_behavior) % dt_vars < 1e-5, "window + window_prev must be divisible by dt_vars"
-        samples_per_behavior = int((window + window_prev) // dt_vars)
-        behavior_block_size = int((window + window_prev) // dt_vars) * (len(behavior.columns) - 1)
-    else:
-        behavior = None
-        behavior_vars = None
-        behavior_block_size = 0
-        samples_per_behavior = 0
-        stoi_speed = None
-        itos_speed = None
-        dt_range_speed = None
-        n_behavior = None
+#         stoi_speed = { round_n(ch, dt_speed):i for i,ch in enumerate(dt_range_speed) }
+#         itos_speed = { i:round_n(ch, dt_speed) for i,ch in enumerate(dt_range_speed) }
+#         assert (window_behavior) % dt_vars < 1e-5, "window + window_prev must be divisible by dt_vars"
+#         samples_per_behavior = int((window + window_prev) // dt_vars)
+#         behavior_block_size = int((window + window_prev) // dt_vars) * (len(behavior.columns) - 1)
+#     else:
+#         behavior = None
+#         behavior_vars = None
+#         behavior_block_size = 0
+#         samples_per_behavior = 0
+#         stoi_speed = None
+#         itos_speed = None
+#         dt_range_speed = None
+#         n_behavior = None
 
