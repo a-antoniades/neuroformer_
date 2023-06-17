@@ -852,7 +852,6 @@ class SpikeTimeVidData2(Dataset):
                 prev_id_interval, current_id_interval = self.calc_intervals(t['Interval'])
                 
                 ## PREV ##
-                # get state history + dt (last 30 seconds)
                 id_prev, dt_prev, pad_prev = self.get_interval(prev_id_interval, t['Trial'], self.id_prev_block_size, n_stim)
                 x['id_prev'] = torch.tensor(id_prev[:-1], dtype=torch.long)
                 x['dt_prev'] = torch.tensor(dt_prev[:-1], dtype=torch.float) # + 0.5

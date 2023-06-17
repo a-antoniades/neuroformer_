@@ -38,6 +38,11 @@ parent_path = os.path.dirname(os.path.dirname(os.getcwd())) + "/"
 import argparse
 from neuroformer.SpikeVidUtils import round_n
 
+<<<<<<< HEAD
+=======
+os.environ["CUDA_VISIBLE_DEVICES"] = "3"
+
+>>>>>>> 1d98c2ac270d6a9cb4497197bbcd0b5dc98b5aa2
 # set up logging
 import logging
 logging.basicConfig(
@@ -77,6 +82,7 @@ if running_jupyter(): # or __name__ == "__main__":
     INFERENCE = True
     SEED = 25
     DOWNSTREAM = False
+<<<<<<< HEAD
     TITLE = None
     RESUME = "./models/tensorboard/Combo3_V1AL/inference_test/no_clip/sparse_f:None_id:None/w:0.1_wp:0.25/Cont:True_window:0.1_f_window:0.1_df:0.01_blocksize:55_conv_True_shuffle:True_batch:128_sparse_(None_None)_blocksz110_pos_emb:False_temp_emb:True_drop:0.35_dt:True_2.0_27_max0.01_(4, 4, 4)_4_256.pt"
     # RESUME = "./models/tensorboard/Combo3_V1AL/inference_test/ablations_2/69/RESUMEFalse_paststateTrue_visualTrue_contrastiveFalse/sparse_f:None_id:None/w:0.1_wp:0.25/Cont:True_window:0.1_f_window:0.1_df:0.01_blocksize:55_conv_True_shuffle:True_batch:160_sparse_(None_None)_blocksz110_pos_emb:False_temp_emb:True_drop:0.35_dt:True_2.0_27_max0.01_(8, 8, 8)_8_256.pt"
@@ -84,6 +90,12 @@ if running_jupyter(): # or __name__ == "__main__":
     MCONF = "./models/tensorboard/Combo3_V1AL/inference_test/no_clip/sparse_f:None_id:None/w:0.1_wp:0.25/mconf.yaml"
     EOS_LOSS = False
     NO_EOS_DT = False
+=======
+    # RESUME = "./models/tensorboard/Combo3_V1AL/inference_test/ablations_2/69/2_RESUMEFalse_paststateTrue_visualTrue_contrastiveTrue/sparse_f:None_id:None/w:0.1_wp:0.25/Cont:True_window:0.1_f_window:0.1_df:0.01_blocksize:55_conv_True_shuffle:True_batch:128_sparse_(None_None)_blocksz110_pos_emb:False_temp_emb:True_drop:0.35_dt:True_2.0_27_max0.01_(8, 8, 8)_8_256/_epoch_decoder.pt"
+    RESUME = "./models/tensorboard/Combo3_V1AL/inference_test/ablations_2/69/2_RESUMEFalse_paststateTrue_visualTrue_contrastiveTrue/sparse_f:None_id:None/w:0.1_wp:0.25/Cont:True_window:0.1_f_window:0.1_df:0.01_blocksize:55_conv_True_shuffle:True_batch:128_sparse_(None_None)_blocksz110_pos_emb:False_temp_emb:True_drop:0.35_dt:True_2.0_27_max0.01_(8, 8, 8)_8_256.pt"
+    RAND_PERM = False
+    MCONF = "./models/tensorboard/Combo3_V1AL/inference_test/ablations_2/69/2_RESUMEFalse_paststateTrue_visualTrue_contrastiveTrue/sparse_f:None_id:None/w:0.1_wp:0.25/mconf.yaml"
+>>>>>>> 1d98c2ac270d6a9cb4497197bbcd0b5dc98b5aa2
     FREEZE_MODEL = False
     TITLE = None
     DATASET = "Combo3_V1AL"
@@ -454,8 +466,13 @@ for k in y.keys():
 # title =  f'3/4prop_{CLASS_WEIGHTS}/past_state_{PAST_STATE}_visual{VISUAL}_contrastive_{CONTRASTIVE}_clip_loss{CLIP_LOSS}t{mconf.clip_temp}_freeze_{FREEZE_MODEL}_class_weights{CLASS_WEIGHTS}/randperm_{RAND_PERM}/Big_fixed_noself-att'
 # title = f'ablations_2/{SEED}/RESUME{RESUME != None}_paststate{PAST_STATE}_visual{VISUAL}_contrastive{model_conf.contrastive}'
 # model_path = f"""./models/tensorboard/{DATASET}/ablations_small/{title}_2/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{mconf.window}_wp:{mconf.window_prev}/Cont:{mconf.contrastive}_window:{mconf.window}_f_window:{mconf.frame_window}_df:{mconf.dt}_blocksize:{mconf.id_block_size}_conv_{mconf.conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
+<<<<<<< HEAD
 model_path = f"""./models/tensorboard/{DATASET}/{TITLE}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{mconf.window}_wp:{mconf.window_prev}/Cont:{mconf.contrastive}{CLIP_VARS}_window:{mconf.window}_f_window:{mconf.frame_window}_df:{mconf.dt}_blocksize:{mconf.id_block_size}_conv_{mconf.conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
 # model_path = RESUME
+=======
+# model_path = f"""./models/tensorboard/{DATASET}/interval_correction/downstream_exp/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{mconf.window}_wp:{mconf.window_prev}/Cont:{mconf.contrastive}_window:{mconf.window}_f_window:{mconf.frame_window}_df:{mconf.dt}_blocksize:{mconf.id_block_size}_conv_{mconf.conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
+model_path = RESUME
+>>>>>>> 1d98c2ac270d6a9cb4497197bbcd0b5dc98b5aa2
 
 
 
@@ -511,9 +528,12 @@ if DOWNSTREAM:
     train_dataset = train_dataset.copy(train_data, t=train_interval_trial_cls)
     test_dataset = test_dataset.copy(test_data, t=test_interval_trial_cls)
 
+<<<<<<< HEAD
 
 print(f"MODEL_PATH ---->: {model_path}")
 
+=======
+>>>>>>> 1d98c2ac270d6a9cb4497197bbcd0b5dc98b5aa2
 # %%
 tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rate=1e-4, 
                     num_workers=4, lr_decay=True, patience=3, warmup_tokens=8e4, 
@@ -574,6 +594,7 @@ x, y = next(iterable)
 for k in x.keys():
     print(k, x[k].shape)
 
+<<<<<<< HEAD
 
 # %%
 df[(df['Interval'] == 0.2) & (df['Trial'] == 1)]
@@ -581,14 +602,22 @@ df[(df['Interval'] == 0.2) & (df['Trial'] == 1)]
 # %%
 len(test_data['Trial'].unique())
 
+=======
+>>>>>>> 1d98c2ac270d6a9cb4497197bbcd0b5dc98b5aa2
 # %%
 from neuroformer.utils import predict_raster_recursive_time_auto, process_predictions
 
 PARALLEL = True
 # df_pred_paths = list(pathlib.Path(base_path).glob('*.csv'))
+<<<<<<< HEAD
 df_pred_paths = []
 df_pred = pd.read_csv(df_pred_paths[0]) if len(df_pred_paths) > 0 else None
 # df_pred = None
+=======
+df_pred_paths = ["./models/tensorboard/Combo3_V1AL/inference_test/ablations_2/69/RESUMEFalse_paststateTrue_visualTrue_contrastiveTrue/sparse_f:None_id:None/w:0.1_wp:0.25/df_pred.csv"]
+# df_pred = pd.read_csv(df_pred_paths[0]) if len(df_pred_paths) > 0 else None
+df_pred = None
+>>>>>>> 1d98c2ac270d6a9cb4497197bbcd0b5dc98b5aa2
 results_dict = dict()
 # sample = False
 
@@ -598,6 +627,7 @@ temp = 0.75
 temp_t = 1.45
 true_past = False
 
+<<<<<<< HEAD
 
 # trials = sorted(train_data['Trial'].unique())[::4]
 trials = sorted(test_data['Trial'].unique())
@@ -605,6 +635,11 @@ trials = sorted(test_data['Trial'].unique())
 # model_path = RESUME
 # model_path = "./models/tensorboard/Combo3_V1AL/inference_test/no_clip/sparse_f:None_id:None/w:0.1_wp:0.25/Cont:True_window:0.1_f_window:0.1_df:0.01_blocksize:55_conv_True_shuffle:True_batch:128_sparse_(None_None)_blocksz110_pos_emb:False_temp_emb:True_drop:0.35_dt:True_2.0_27_max0.01_(4, 4, 4)_4_256/_epoch_decoder.pt"
 model.load_state_dict(torch.load(model_path, map_location='cpu'), strict=True)
+=======
+trials = sorted(train_data['Trial'].unique())[::4]
+
+model.load_state_dict(torch.load(RESUME, map_location='cpu'), strict=False)
+>>>>>>> 1d98c2ac270d6a9cb4497197bbcd0b5dc98b5aa2
 
 if df_pred is None:
     from joblib import Parallel, delayed
@@ -652,6 +687,7 @@ print(f"len pred: {len(df_pred)}, len true: {len(df_true)}")
 
 title = F"top_p: {top_p}, top_p_t: {top_p_t}, temp: {temp}, temp_t: {temp_t}/true_past:{true_past}"
 dir_name = os.path.dirname(model_path)
+<<<<<<< HEAD
 save_path = os.path.join(dir_name, F"predictions_{title}.csv")
 # model_name = os.path.basename(model_path)
 # df_pred.to_csv(os.path.join(dir_name, F'df_pred_.csv'))
@@ -727,6 +763,11 @@ save_path = os.path.join(dir_name, F"predictions_{title}.csv")
 # scores, df_pred, df_true = predict_and_analyze(model_path, test_data, train_dataset, df, stoi, itos_dt, itos, window, window_prev,
 #                                                top_p=top_p, top_p_t=top_p_t, temp=temp, temp_t=temp_t, true_past=true_past, parallel=PARALLEL)
 
+=======
+# model_name = os.path.basename(model_path)
+# df_pred.to_csv(os.path.join(dir_name, F'df_pred_.csv'))
+# df_true.to_csv(os.path.join(dir_name, F'df_true_.csv'))
+>>>>>>> 1d98c2ac270d6a9cb4497197bbcd0b5dc98b5aa2
 
 # %%
 """
