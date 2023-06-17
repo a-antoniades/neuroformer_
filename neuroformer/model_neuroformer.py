@@ -1096,7 +1096,6 @@ class GPT(nn.Module):
                 loss_behavior = F.cross_entropy(behavior_logits.view(-1, behavior_logits.size(-1)), targets['behavior'].view(-1))
             
             if self.config.contrastive:
-<<<<<<< HEAD
                 clip_id_feats = []
                 for B, P in enumerate(pad):
                     clip_id_feats.append(features['id'][B, t - P + 1])
@@ -1108,12 +1107,6 @@ class GPT(nn.Module):
 
                 # feed in x (last layer representation)
                 feat_contra_id = x.mean(dim=1) # features['id'].mean(dim=1)
-=======
-                feats_clip = dict()
-                # average pool over 1st dim
-                feat_contra_frames = features['frames'].mean(dim=1)
-                feat_contra_id = features['id'].mean(dim=1)
->>>>>>> 1d98c2ac270d6a9cb4497197bbcd0b5dc98b5aa2
                 if hasattr(self.config, 'contrastive_vars'):
                     for variable in self.config.contrastive_vars:
                         # mean pool all sequence

@@ -178,7 +178,7 @@ if MCONF is not None:
 elif RESUME is not None:
     base_path = os.path.dirname(RESUME)
 else:
-    base_path = "./models/tensorboard/V1_AL/downstream/learnt_temporal_embeddings/sparse_f:None_id:None/w:0.05_wp:0.25"
+    base_path = "./configs/Combo3_V1AL/kernel_size/wave_emb/01second-noselfatt/01second-noselfatt_small/"
     
 
 with open(os.path.join(base_path, 'mconf.yaml'), 'r') as stream:
@@ -400,8 +400,8 @@ print(f'train: {len(train_dataset)}, test: {len(test_dataset)}')
 # %%
 
 layers = (mconf.n_state_layers, mconf.n_state_history_layers, mconf.n_stimulus_layers)   
-max_epochs = 250
-batch_size = round((32 * 8))
+max_epochs = 1000
+batch_size = round((32 * 16))
 shuffle = True
 
 model_conf = GPTConfig(train_dataset.population_size, block_size,    # frame_block_size
