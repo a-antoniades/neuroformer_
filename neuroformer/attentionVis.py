@@ -14,6 +14,8 @@ from matplotlib.colors import LinearSegmentedColormap
 from numpy import linalg as LA
 from SpikeVidUtils import get_frame_idx
 from utils import top_k_top_p_filtering
+from einops import rearrange
+
 
 from scipy import signal
 
@@ -32,6 +34,36 @@ def convolve_atts_3D(stim_atts):
     for n_id in range(stim_atts.shape[0]):
         stim_atts[n_id] = signal.convolve(stim_atts[n_id], kernel, mode="same")
     return stim_atts
+
+
+def reshape_features(features, kernel_size, frame_window, dt_frames):
+    """
+    Reshapes features from (batch_size, time_steps * height * width, features)
+    to (batch_size, time_steps, height, width, features).
+    
+    :param features: Dictionary containing 'raw_frames' and 'frames' numpy arrays
+    :param frame_window: Frame window size
+    :param dt_frames: Time step size between frames
+    :return: Reshaped features array
+    """
+    
+    # Extract dimensions from the input features
+    n_frames = int(frame_window / dt_frames) / kernel_size[0]
+    H = int(features['raw_frames'].shape[2])
+    W = int(features['raw_frames'].shape[3])
+    feats = np.array(features['frames'][:, 1:].detach().cpu().numpy())
+    
+    # Ensure that the batch size is 1
+    if feats.shape[0] != 1:
+        raise ValueError("Batch size must be 1")
+    
+    # Ensure that the dimensions are consistent
+    if n_frames * H * W != feats.shape[1]:
+        raise ValueError("The dimensions of the input features are inconsistent")
+    
+    # Reshape the features using rearrange
+    return rearrange(feats, 'b (t h w) d -> b t h w d', t=n_frames, h=H, w=W)
+
 
 def rollout_attentions(att):
     ''' Rollout attentions
