@@ -72,56 +72,56 @@ def parse_args():
     parser.add_argument("--resample", action="store_true", default=False, help="Resample")
     return parser.parse_args()
 
-# print(f"running_jupyter: {running_jupyter()}")
-# if running_jupyter(): # or __name__ == "__main__":
-#     print("Running in Jupyter")
-#     INFERENCE = True
-#     DIST = False
-#     SEED = 25
-#     DOWNSTREAM = False
-#     TITLE = None
-#     RESUME = None
-#     # RESUME = "./models/tensorboard/Combo3_V1AL/inference_test/ablations_2/69/RESUMEFalse_paststateTrue_visualTrue_contrastiveFalse/sparse_f:None_id:None/w:0.1_wp:0.25/Cont:True_window:0.1_f_window:0.1_df:0.01_blocksize:55_conv_True_shuffle:True_batch:160_sparse_(None_None)_blocksz110_pos_emb:False_temp_emb:True_drop:0.35_dt:True_2.0_27_max0.01_(8, 8, 8)_8_256.pt"
-#     RAND_PERM = False
-#     MCONF = None
-#     EOS_LOSS = False
-#     NO_EOS_DT = False
-#     FREEZE_MODEL = False
-#     TITLE = None
-#     DATASET = "Combo3_SimNeu3D"
-#     BEHAVIOR = False
-#     PREDICT_BEHAVIOR = False
-#     VISUAL = True
-#     PAST_STATE = True
-#     CONTRASTIVE = False
-#     CLIP_LOSS = True
-#     CLIP_VARS = ['id','frames']
-#     CLASS_WEIGHTS = False
-#     RESAMPLE_DATA = False
-# else:
-print("Running in terminal")
-args = parse_args()
-INFERENCE = not args.train
-DIST = args.dist
-SEED = args.seed
-DOWNSTREAM = args.downstream
-TITLE = args.title
-RESUME = args.resume
-RAND_PERM = args.rand_perm
-MCONF = args.mconf
-EOS_LOSS = args.eos_loss
-NO_EOS_DT = args.no_eos_dt
-FREEZE_MODEL = args.freeze_model
-DATASET = args.dataset
-BEHAVIOR = args.behavior
-PREDICT_BEHAVIOR = args.pred_behavior
-VISUAL = args.visual
-PAST_STATE = args.past_state
-CONTRASTIVE = args.contrastive
-CLIP_LOSS = args.clip_loss
-CLIP_VARS = args.clip_vars
-CLASS_WEIGHTS = args.class_weights
-RESAMPLE_DATA = args.resample
+print(f"running_jupyter: {running_jupyter()}")
+if running_jupyter(): # or __name__ == "__main__":
+    print("Running in Jupyter")
+    INFERENCE = True
+    DIST = False
+    SEED = 25
+    DOWNSTREAM = False
+    TITLE = None
+    RESUME = None
+    # RESUME = "./models/tensorboard/Combo3_V1AL/inference_test/ablations_2/69/RESUMEFalse_paststateTrue_visualTrue_contrastiveFalse/sparse_f:None_id:None/w:0.1_wp:0.25/Cont:True_window:0.1_f_window:0.1_df:0.01_blocksize:55_conv_True_shuffle:True_batch:160_sparse_(None_None)_blocksz110_pos_emb:False_temp_emb:True_drop:0.35_dt:True_2.0_27_max0.01_(8, 8, 8)_8_256.pt"
+    RAND_PERM = False
+    MCONF = None
+    EOS_LOSS = False
+    NO_EOS_DT = False
+    FREEZE_MODEL = False
+    TITLE = None
+    DATASET = "Combo3_SimNeu3D"
+    BEHAVIOR = False
+    PREDICT_BEHAVIOR = False
+    VISUAL = True
+    PAST_STATE = True
+    CONTRASTIVE = False
+    CLIP_LOSS = True
+    CLIP_VARS = ['id','frames']
+    CLASS_WEIGHTS = False
+    RESAMPLE_DATA = False
+else:
+    print("Running in terminal")
+    args = parse_args()
+    INFERENCE = not args.train
+    DIST = args.dist
+    SEED = args.seed
+    DOWNSTREAM = args.downstream
+    TITLE = args.title
+    RESUME = args.resume
+    RAND_PERM = args.rand_perm
+    MCONF = args.mconf
+    EOS_LOSS = args.eos_loss
+    NO_EOS_DT = args.no_eos_dt
+    FREEZE_MODEL = args.freeze_model
+    DATASET = args.dataset
+    BEHAVIOR = args.behavior
+    PREDICT_BEHAVIOR = args.pred_behavior
+    VISUAL = args.visual
+    PAST_STATE = args.past_state
+    CONTRASTIVE = args.contrastive
+    CLIP_LOSS = args.clip_loss
+    CLIP_VARS = args.clip_vars
+    CLASS_WEIGHTS = args.class_weights
+    RESAMPLE_DATA = args.resample
 
 # SET SEED - VERY IMPORTANT
 set_seed(SEED)
