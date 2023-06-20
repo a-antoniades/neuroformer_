@@ -401,7 +401,7 @@ print(f'train: {len(train_dataset)}, test: {len(test_dataset)}')
 
 layers = (mconf.n_state_layers, mconf.n_state_history_layers, mconf.n_stimulus_layers)   
 max_epochs = 1000
-batch_size = round((32 * 16))
+batch_size = round((32 * 6))
 shuffle = True
 
 model_conf = GPTConfig(train_dataset.population_size, block_size,    # frame_block_size
@@ -414,10 +414,10 @@ model_conf = GPTConfig(train_dataset.population_size, block_size,    # frame_blo
                         sparse_topk_frame=None, sparse_topk_id=None, sparse_topk_prev_id=None,
                         n_dt=len(stoi_dt.keys()),
                         pretrain=False,
-                        n_state_layers=4, n_state_history_layers=0,
-                        n_stimulus_layers=4, self_att_layers=0,
+                        n_state_layers=8, n_state_history_layers=0,
+                        n_stimulus_layers=8, self_att_layers=0,
                         n_behavior_layers=0, predict_behavior=predict_behavior, n_behavior=n_behavior,
-                        n_head=4, n_embd=n_embd, 
+                        n_head=8, n_embd=n_embd, 
                         contrastive=mconf.contrastive, clip_emb=1024, clip_temp=mconf.clip_temp,
                         conv_layer=conv_layer, kernel_size=kernel_size, stride_size=stride_size, padding_size=padding_size,
                         temp_emb=mconf.temp_emb, pos_emb=False,
