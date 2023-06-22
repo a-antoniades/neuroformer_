@@ -46,7 +46,6 @@ def set_plot_white():
 
     # Set the font used for MathJax - more on this later
     plt.rc('mathtext',**{'default':'regular'})
-
     plt.rcParams['text.color'] = 'black'
     plt.rcParams['axes.labelcolor'] = 'black'
     plt.rcParams['xtick.color'] = 'black'

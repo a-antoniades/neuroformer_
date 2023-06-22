@@ -48,21 +48,24 @@ def reshape_features(features, kernel_size, frame_window, dt_frames):
     """
     
     # Extract dimensions from the input features
-    n_frames = int(frame_window / dt_frames) / kernel_size[0]
+    n_frames = int( (frame_window / dt_frames) // kernel_size[0])
     H = int(features['raw_frames'].shape[2])
     W = int(features['raw_frames'].shape[3])
     feats = np.array(features['frames'][:, 1:].detach().cpu().numpy())
     
-    # Ensure that the batch size is 1
-    if feats.shape[0] != 1:
-        raise ValueError("Batch size must be 1")
+    # # Ensure that the batch size is 1
+    # if feats.shape[0] != 1:
+    #     raise ValueError("Batch size must be 1")
     
     # Ensure that the dimensions are consistent
     if n_frames * H * W != feats.shape[1]:
         raise ValueError("The dimensions of the input features are inconsistent")
+
+    # expand first dimension (t)
+    feats = np.expand_dims(feats, axis=1)
     
     # Reshape the features using rearrange
-    return rearrange(feats, 'b (t h w) d -> b t h w d', t=n_frames, h=H, w=W)
+    return rearrange(feats, 'b n (t h w) d -> b (t n) h w d', t=n_frames, h=H, w=W)
 
 
 def rollout_attentions(att):
