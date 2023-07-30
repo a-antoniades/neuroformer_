@@ -1,0 +1,57 @@
+dropout:
+  attn: 0.2
+  embd: 0.2
+  pos: 0.2
+  resid: 0.2
+  temp: 0.2
+  b: 0.45
+  id: 0.35
+  im: 0.35
+
+block_size:
+  id: 4000
+  prev_id: 4000
+
+layers:
+  state_history: 1
+  state: 1
+  stimulus: 0
+  self_att: 1
+  modalities:
+      distance: 2
+
+sparse:
+  p: null
+  mask: false
+  topk: null
+  topk_frame: null
+  topk_id: null
+  topk_prev_id: null
+
+window:
+  frame: 0.2
+  curr: 0.05
+  prev: 0.25
+  behavior: 0.05
+
+predict: null
+
+# Rest of your parameters
+class_weights: null
+clip_emb: 1024
+clip_temp: 0.25
+contrastive: false
+conv_layer: true
+dt: 0.005
+epoch: 757
+freeze_weights: null
+kernel_size: [4, 5, 5]
+n_embd: 256
+n_embd_frames: 64
+n_head: 8
+pos_emb: false
+pretrain: false
+resnet_backbone: false
+start_prune: 30
+temp_emb: true
+vit_encoder: true

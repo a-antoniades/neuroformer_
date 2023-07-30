@@ -29,12 +29,14 @@ from omegaconf import OmegaConf
 import os
 parent_path = os.path.dirname(os.path.dirname(os.getcwd())) + "/"
 
-from utils import object_to_dict, save_yaml
+from utils import object_to_dict, save_yaml, all_device
 
 
 # from torch.nn.parallel import DistributedDataParallell as dist
 import torch.distributed as dist
 from torch.utils.data.distributed import DistributedSampler
+
+from utils import extract_latents
 
 
 
@@ -61,6 +63,7 @@ class TrainerConfig:
     dist = False
     save_every = 0
     loss_bprop = None
+    get_latents = False
 
     def __init__(self, **kwargs):
         for k, v in kwargs.items():
@@ -138,6 +141,20 @@ class Trainer:
         save_yaml(mconf, os.path.join(config_path, "mconf.yaml"))
         save_yaml(tconf, os.path.join(config_path, "tconf.yaml"))
         save_yaml(dconf, os.path.join(config_path, "dconf.yaml"))
+
+        if hasattr(raw_model, "tokenizer"):
+            with open(os.path.join(config_path, "tokenizer.pkl", "wb")) as f:
+                pickle.dump(raw_model.tokenizer, f)
+    
+    def save_latents(self, model, dataset, save_file):
+        print(f"Saving latents to {save_file}")
+        feats, latents = extract_latents(model, dataset)
+        embeddings = torch.stack(latents['id']).detach().cpu().numpy()
+        labels = np.stack(feats['behavior'])[:, :, 0, 0]
+        if not os.path.exists(save_file):
+            os.makedirs(save_file)
+        np.save(os.path.join(save_file, "embeddings.npy"), embeddings)
+        np.save(os.path.join(save_file, "labels.npy"), labels)
                     
     def plot_grad_flow(self, named_parameters):
         '''Plots the gradients flowing through different layers in the net during training.
@@ -194,10 +211,8 @@ class Trainer:
             pbar = tqdm(enumerate(loader), total=len(loader), disable=self.config.no_pbar) if is_train else enumerate(loader)
             for it, (x, y) in pbar:
                 # place data on the correct device
-                for key, value in x.items():
-                    x[key] = x[key].to(self.device)
-                for key, value in y.items():
-                    y[key] = y[key].to(self.device)
+                x = all_device(x, self.device)
+                y = all_device(y, self.device)
 
                 # forward the model
                 with torch.set_grad_enabled(is_train):
@@ -280,9 +295,11 @@ class Trainer:
                 logger.info('  '.join([f'{str(key)}_{str(split)}: {value:.5f}  ' for key, value in av_losses.items()]))
                 # logger.info('  '.join([f'{str(key)}_{str(split)}: {value:.5f}  ' for key, value in scores.items() if key in config.score_metrics]))
             
-                return total_losses.item(), scores
+                return total_losses.item(), av_losses, scores
 
         best_loss = float('inf')
+        best_decoder_loss = float('inf')
+        best_clip_loss = float('inf')
         best_f1 = 0
         self.tokens = 0 # counter used for learning rate decay
         for epoch in range(config.max_epochs):
@@ -290,9 +307,11 @@ class Trainer:
                 raw_model.config.epoch += 1
                 run_epoch('train')
             if self.test_dataset is not None:
-                test_loss, scores = run_epoch('test')
+                test_loss, av_losses, scores = run_epoch('test')
                 # if config.lr_decay:
                 #     scheduler.step(test_loss)
+            if self.config.get_latents:
+                self.save_latents(self.model, self.train_dataset, os.path.join(os.path.dirname(self.config.ckpt_path), 'latents', 'train', f"epoch_{epoch}"))
 
             # supports early stopping based on the test loss, or just save always if no test set is provided
             if self.test_dataset is None:
@@ -302,6 +321,18 @@ class Trainer:
                 if good_model:
                     best_loss = test_loss
                     self.save_checkpoint(test_loss)
+            if self.test_dataset is not None:
+                if 'clip' in av_losses.keys():
+                    good_model = av_losses['clip'] < best_clip_loss
+                    if good_model:
+                        best_clip_loss = av_losses['clip']
+                        self.save_checkpoint(av_losses['clip'], epoch="clip")
+                if 'id' in av_losses.keys():
+                    good_model = av_losses['id'] < best_decoder_loss
+                    if good_model:
+                        best_decoder_loss = av_losses['id']
+                        self.save_checkpoint(av_losses['id'], epoch="decoder")
+                
                 # F1_score = torch.tensor(scores['F1']).mean()
                 # if F1_score > best_f1:
                 #     self.save_checkpoint(scores['F1'], epoch=f"F1:{F1_score}_epoch:{epoch}")

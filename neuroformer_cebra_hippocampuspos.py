@@ -48,6 +48,7 @@ import skimage
 import skvideo.io
 from scipy.ndimage import gaussian_filter, uniform_filter
 
+
 parent_path = os.path.dirname(os.path.dirname(os.getcwd())) + "/"
 import argparse
 
@@ -58,7 +59,7 @@ def parse_args():
     parser.add_argument("--infer", action="store_true", default=False, help="Inference mode")    
     parser.add_argument("--finetune", action="store_true", default=False, help="Finetune")
     parser.add_argument("--pdata", type=float, default=None, help="Proportion of data to finetune on")
-    parser.add_argument("--dataset", type=str, default="first", help="Dataset")
+    parser.add_argument("--dataset", type=str, default="HippocampusPos", help="Dataset")
     parser.add_argument("--dist", action="store_true", default=False, help="Distrinuted training")
     parser.add_argument("--resume", type=str, default=None, help="Resume from checkpoint")
     parser.add_argument("--rand_perm", action="store_true", default=False, help="Randomly permute the ID column")
@@ -75,7 +76,7 @@ def parse_args():
     parser.add_argument("--past_state", action="store_true", default=False, help="Input past state")
     parser.add_argument("--visual", action="store_true", default=False, help="Visualize")
     parser.add_argument("--contrastive", action="store_true", default=False, help="Contrastive")
-    parser.add_argument("--clip_vars", nargs="+", default=None, help="Clip variables")
+    parser.add_argument("--clip_vars", nargs='+', default=None, help="Clip variables")
     parser.add_argument("--local_rank", type=int, default=0)
     parser.add_argument("--fuse_stim_behavior", action="store_true", default=False, help="Fuse stimulus and behavior")
     parser.add_argument("--mlp_only", action="store_true", default=False, help="MLP only")
@@ -92,21 +93,20 @@ def parse_args():
 try:
     shell = get_ipython().__class__.__name__
     print("Running in Jupyter notebook")
-    TRAIN = False
-    INFERENCE = True
-    DATASET = "medial"
+    TRAIN = True
+    INFERENCE = False
+    DATASET = "HippocampusPosCEBRA"  #"HippocampusPos"
     DIST = False
     DOWNSTREAM = False
-    # RESUME = "./models/tensorboard/visnav_medial/behavior_pred_exp/classification/ablations_1/finetuning_None_resumeFalse/behavior_before_stim_RESUMEFalse_paststateTrue_method_behavior_True_['speed']_predictbehaviorFalse_roundedFalsevisualTrue_contrastiveTrue_['id', 'frames', 'behavior_mean', 'behavior_mean']/CEBRA/sparse_f:None_id:None/w:0.05_wp:0.25/6_Cont:False_window:0.05_f_window:0.2_df:0.005_blocksize:100_conv_True_shuffle:True_batch:224_sparse_(None_None)_blocksz446_pos_emb:False_temp_emb:True_drop:0.35_dt:True_2.0_52_max0.005_(8, 8, 8)_8_256.pt"
-    RESUME = None
     RAND_PERM = False
-    MCONF = "./configs/visnav/predict_behavior/behavior_exp/medial/clip_encoder/mconf.yaml"
+    RESUME = None
+    MCONF = "./configs/cebra/HippocampusPos/mconf.yaml"
     FREEZE_MODEL = False
     TITLE = None
     SEED = 25
     BEHAVIOR = True
     PREDICT_BEHAVIOR = False
-    BEHAVIOR_VARS = ['speed']
+    BEHAVIOR_VARS = ['Position', 'Dir_Right', 'Dir_Left']
     ROUND_VARS = False
     PAST_STATE = True
     VISUAL = True
@@ -153,7 +153,6 @@ print(f" // PAST_STATE: {PAST_STATE} //")
 print(f" // PREDICT_BEHAVIOR: {PREDICT_BEHAVIOR} //")
 print(f" // BEHAVIOR: {BEHAVIOR} //")
 print(f" // FUSE_STIM_BEHAVIOR: {FUSE_STIM_BEHAVIOR} //")
-print(f" // CLIP_VARS: {CLIP_VARS} //")
 
 # set up logging
 import logging
@@ -167,20 +166,20 @@ logging.basicConfig(
 # %%
 from neuroformer.prepare_data import DataLinks
 
-ds = "LateralVRDataset"
-ds = "MedialVRDataset"
-ds = "VisNav_VR_Expt"
-data_dir = f"data/VisNav_VR_Expt/"
-DATA_POINTERS = getattr(DataLinks, ds)
 
-if not os.path.exists(data_dir):
-    print("Downloading data...")
-    import gdown
-    url = DATA_POINTERS['url']
-    gdown.download_folder(id=url, quiet=False, use_cookies=False, output=DATA_POINTERS['DIRECTORY'])
+DATA_POINTERS = getattr(DataLinks, DATASET)
 
+# if not os.path.exists(data_dir):
+#     print("Downloading data...")
+#     import gdown
+#     url = DATA_POINTERS['url']
+#     gdown.download_folder(id=url, quiet=False, use_cookies=False, output=DATA_POINTERS['DIRECTORY'])
 
+df = pd.read_csv(DATA_POINTERS['RESPONSE_PATH'])
+df_behavior = pd.read_csv(DATA_POINTERS['BEHAVIOR_PATH'])
 
+# %%
+print(df_behavior)
 
 # %%
 # load config files
@@ -203,38 +202,11 @@ mconf = OmegaConf.create(mconf)
 tconf = OmegaConf.create(tconf)
 dconf = OmegaConf.create(dconf)
 
-
-
-
-
-# %%
-import mat73
-
-# data_path = DATA_POINTERS['RESPONSE_PATH']
-if DATASET in ["first", "visnav"]:
-    data_path = "./data/VisNav_VR_Expt"
-elif DATASET == "medial":
-    data_path = "./data/VisNav_VR_Expt/MedialVRDataset/"
-elif DATASET == "lateral":
-    data_path = "./data/VisNav_VR_Expt/LateralVRDataset"
-
-print(f"Loading data from {data_path}")
-# stimulus = np.load(os.path.join(data_path, "stimulus.npy"), allow_pickle=True)
-# response = np.load(os.path.join(data_path, "response.npy"), allow_pickle=True)
-# trial_data = np.load(os.path.join(data_path, "trial_data.npy"), allow_pickle=True)
-data = mat73.loadmat(os.path.join(data_path, "experiment_data.mat"))['neuroformer']
-
-# data_response_path = "/data5/antonis/neuroformer/data/VisNav_VR_Expt/yiyi/experiment_data_selected.mat"
-# data_response = scipy.io.loadmat(data_response_path)
-# neurons_sel1 = "./data/VisNav_VR_Expt/yiyi/sel1.csv"
-# neurons_sel1 = pd.read_csv(neurons_sel1)
-# neurons_sel1 = np.array(neurons_sel1).flatten()
-
 # %%
 if INFERENCE or DOWNSTREAM or FINETUNE or TRAIN: 
     window = mconf.window
     window_prev = mconf.window_prev
-    frame_window = mconf.frame_window
+    frame_window = mconf.frame_window if hasattr(mconf, 'frame_window') else None
     window_behavior = mconf.window_behavior if hasattr(mconf, 'window_behavior') else None
     dt = mconf.dt
     dt_frames = mconf.dt_frames if hasattr(mconf, 'dt_frames') else 0.05
@@ -242,11 +214,11 @@ if INFERENCE or DOWNSTREAM or FINETUNE or TRAIN:
     dt_speed = mconf.dt_speed if hasattr(mconf, 'dt_speed') else 0.2
     intervals = None
 else:
-    window = 0.05
-    window_prev = 0.25
+    window = 0.025
+    window_prev = 0.1
     frame_window = window + window_prev
     window_behavior = window
-    dt = 0.005
+    dt = 0.0001
     dt_frames = 0.05
     dt_vars = 0.05
     dt_speed = 0.2
@@ -263,102 +235,50 @@ print(f"Common attributes: {common_attrs}")
 # behavior
 behavior = BEHAVIOR
 # behavior_vars = ['t', 'eyerad', 'phi', 'speed', 'th']
-behavior_vars = ['speed'] if BEHAVIOR_VARS is None else BEHAVIOR_VARS
+behavior_vars = ['locations', 'locations_left', 'locations_right'] if BEHAVIOR_VARS is None else BEHAVIOR_VARS
 n_behavior = len(behavior_vars)
 predict_behavior = PREDICT_BEHAVIOR
 # stimulus
-visual_stim = VISUAL
+visual_stim = None
 
 print(f" // using behavior vars: {BEHAVIOR_VARS} //")
-# %%
-from neuroformer.SpikeVidUtils import trial_df, get_df_visnav, make_intervals, set_trials
-
-stimulus = data['vid_sm']
-response = data['spiketimes']['spks']
-trial_data = data['trialsummary']
-# response = data_response['spiketime_sel2']['spks']
-
-print(data.keys())
-
-df = get_df_visnav(response, trial_data, dt_vars)
-# df = df[df['ID'].isin(neurons_sel1)].reset_index(drop=True)
-
-if behavior or predict_behavior is True:
-    df_behavior = pd.DataFrame({k: data[k] for k in behavior_vars + ['t']})
-    # rename t to time
-    df_behavior = df_behavior.rename(columns={'t': 'Time'}) if df_behavior is not None else None
-    df_behavior = set_trials(df_behavior, trial_data) 
-    df_behavior['Interval'] = make_intervals(df_behavior, window)
-    df_behavior['Interval_2'] = make_intervals(df_behavior, window_prev)
-
-    # prepare speed variables
-    if 'speed' in df_behavior.columns:
-        df_behavior['speed'] = df_behavior['speed'].apply(lambda x: round_n(x, dt_speed))
-        dt_range_speed = df_behavior['speed'].min(), df_behavior['speed'].max()
-        dt_range_speed = np.arange(dt_range_speed[0], dt_range_speed[1] + dt_speed, dt_speed)
-        n_behavior = len(dt_range_speed)
-        stoi_speed = { round_n(ch, dt_speed):i for i,ch in enumerate(dt_range_speed) }
-        itos_speed = { i:round_n(ch, dt_speed) for i,ch in enumerate(dt_range_speed) }
-    else:
-        n_behavior = None
-        stoi_speed = None
-        itos_speed = None
-        assert predict_behavior is False
-    
-    if ROUND_VARS:
-        print(f" // ROUNDING behavior vars to {dt} //")
-        dt_phi = 0.2
-        dt_th = 0.2
-        df_behavior['phi'] = df_behavior['phi'].apply(lambda x: round_n(x, dt_phi))
-        df_behavior['th'] = df_behavior['th'].apply(lambda x: round_n(x, dt_th))
-
-        # prepare phi variables
-        dt_range_phi = df_behavior['phi']
-        dt_range_phi = np.arange(dt_range_phi[0], dt_range_phi[1] + dt_phi, dt_phi)
-        stoi_phi = { round_n(ch, dt_phi):i for i,ch in enumerate(dt_range_phi) }
-        itos_phi = { i:round_n(ch, dt_phi) for i,ch in enumerate(dt_range_phi) }
-
-        # prepare th variables
-        dt_range_th =  df_behavior['th']
-        dt_range_th = np.arange(dt_range_th[0], dt_range_th[1] + dt_th, dt_th)
-        stoi_th = { round_n(ch, dt_th):i for i,ch in enumerate(dt_range_th) }
-        itos_th = { i:round_n(ch, dt_th) for i,ch in enumerate(dt_range_th) }
-
-    # assert (window_behavior) % dt_vars < 1e-5, "window + window_prev must be divisible by dt_vars"
-    # samples_per_behavior = int((window + window_prev) // dt_vars)
-    # behavior_block_size = int((window + window_prev) // dt_vars) * (len(df_behavior.columns) - 1)
-    samples_per_behavior = int(window_behavior // dt_vars)
-    behavior_block_size = samples_per_behavior * (len(df_behavior.columns) - 1)
-else:
-    behavior = False 
-    df_behavior = None
-    behavior_vars = None
-    behavior_block_size = 0
-    samples_per_behavior = 0
-    stoi_speed = None
-    itos_speed = None
-    dt_range_speed = None
-    n_behavior = None
-    stoi_phi = None
-    itos_phi = None
-    dt_range_phi = None
-    stoi_th = None
-    itos_th = None
-    dt_range_th = None
-
 
 # %%
-from neuroformer.SpikeVidUtils import make_intervals
+behavior = BEHAVIOR
+# df_behavior = None
+# behavior_vars = None
+# behavior_block_size = 0
+samples_per_behavior = 1
+stoi_speed = None
+itos_speed = None
+dt_range_speed = None
+n_behavior = None
+stoi_phi = None
+itos_phi = None
+dt_range_phi = None
+stoi_th = None
+itos_th = None
+dt_range_th = None
 
-df['Interval'] = make_intervals(df, window)
-df['real_interval'] = make_intervals(df, 0.05)
-df['Interval_2'] = make_intervals(df, window_prev)
+# %%
+# 1.175 in df_behavior['Interval'].unique()
+# 1.175 in df['Interval'].unique()
+
+# %%
+from neuroformer.SpikeVidUtils import make_intervals, round_n
+
+if behavior:
+    df_behavior['Interval'] = make_intervals(df_behavior, window=window)
+
+df['Interval'] = make_intervals(df, window, col='Time')
+df['Interval_2'] = make_intervals(df, window_prev, col='Time')
 df = df.reset_index(drop=True)
+
+df = df[df['Interval'].isin(df_behavior['Interval'].unique())]
 
 max_window = max(window, window_prev)
 dt_range = math.ceil(max_window / dt) + 1  # add first / last interval for SOS / EOS'
-n_dt = [round(dt * n, 2) for n in range(dt_range)] + ['EOS'] + ['PAD']
-
+n_dt = [round_n(dt * n, dt) for n in range(dt_range)] + ['EOS'] + ['PAD']
 
 # %%
 var_group = 'Interval'
@@ -372,8 +292,6 @@ print(f"Unique groups: {n_unique}")
 print(f"Top {top_p} groups: {top_k_groups}")
 print(f"Mean groups: {mean_groups}")
 
-
-
 # %%
 var_group = 'Interval_2'
 groups = df.groupby([var_group, 'Trial']).size()
@@ -386,26 +304,23 @@ print(f"Unique groups: {n_unique}")
 print(f"Top {top_p} groups: {top_k_groups}")
 print(f"Mean groups: {mean_groups}")
 
-
-
-
 # %%
 from neuroformer.SpikeVidUtils import SpikeTimeVidData2
 
 ## resnet3d feats
-n_frames = round(frame_window * 1/dt_frames)
+n_frames = None
 kernel_size = (n_frames, 5, 5)
 n_embd = 256
 n_embd_frames = 64
-frame_feats = stimulus
-frame_block_size = ((n_frames // kernel_size[0] * 30 * 100) // (n_embd_frames))
-frame_feats = torch.tensor(stimulus, dtype=torch.float32)
+frame_feats = None
+frame_block_size = 0
 conv_layer = True
 
 prev_id_block_size = 300
 id_block_size = 100   #
+behavior_block_size = len(behavior_vars)
 block_size = frame_block_size + id_block_size + prev_id_block_size
-frame_memory = frame_window // dt_frames
+frame_memory = None
 window = window
 
 neurons = sorted(list(set(df['ID'])))
@@ -420,17 +335,20 @@ itos = { i:ch for i,ch in enumerate(feat_encodings) }
 stoi_dt = { ch:i for i,ch in enumerate(n_dt) }
 itos_dt = { i:ch for i,ch in enumerate(n_dt) }
 
-
-
 # %%
 import random
 
-r_split = 0.8
-all_trials = sorted(df['Trial'].unique())
-train_trials = random.sample(all_trials, int(len(all_trials) * r_split))
+r_split = 0.95
+# all_trials = sorted(df['Trial'].unique())
+# train_trials = random.sample(all_trials, int(len(all_trials) * r_split))
 
-train_data = df[df['Trial'].isin(train_trials)]
-test_data = df[~df['Trial'].isin(train_trials)]
+# train_data = df[df['Trial'].isin(train_trials)]
+# test_data = df[~df['Trial'].isin(train_trials)]
+
+len_train = int(len(df) * r_split)
+train_data = df
+# train_data = df.iloc[:len_train].reset_index(drop=True)
+# test_data = df.iloc[len_train:].reset_index(drop=True)
 
 
 # %%
@@ -440,21 +358,28 @@ from neuroformer.SpikeVidUtils import SpikeTimeVidData2
 train_dataset = SpikeTimeVidData2(train_data, None, block_size, id_block_size, frame_block_size, prev_id_block_size, 
                                   window, dt, frame_memory, stoi, itos, neurons, stoi_dt, itos_dt, frame_feats,
                                   pred=False, window_prev=window_prev, frame_window=frame_window,
-                                  dt_frames=dt_frames, intervals=None, dataset='visnav',
+                                  dt_frames=dt_frames, intervals=None, dataset=DATASET,
                                   behavior=df_behavior, behavior_vars=behavior_vars, dt_vars=dt_vars,
                                   behavior_block_size=behavior_block_size, samples_per_behavior=samples_per_behavior,
                                   window_behavior=window_behavior, predict_behavior=predict_behavior,
                                   stoi_speed=stoi_speed, itos_speed=itos_speed, dt_speed=dt_speed) # stoi_phi=stoi_phi, itos_phi=itos_phi, 
                                   # dt_phi=dt_phi, stoi_th=stoi_th, itos_th=itos_th, dt_th=dt_th)
 
-test_dataset = train_dataset.copy(test_data)
+test_dataset = None
 
-print(f'train: {len(train_dataset)}, test: {len(test_dataset)}')
+print(f'train: {len(train_dataset)}')
+if test_dataset is not None:
+    print(f'test: {len(test_dataset)}')
 
 # %%
 loader = DataLoader(train_dataset, batch_size=2, shuffle=False, num_workers=4, pin_memory=True)
 iterable = iter(loader)
 
+# %%
+len(train_dataset)
+
+# %%
+train_dataset.t
 
 # %%
 x, y = next(iterable)
@@ -463,11 +388,12 @@ for k in x.keys():
     print(k, x[k].shape)
 for k in y.keys():
     print(f"y: {k}, {y[k].shape}")
+print(x['behavior_dt'])
 
 # %%
 layers = (mconf.n_state_layers, mconf.n_state_history_layers, mconf.n_stimulus_layers)   
 max_epochs = 750
-batch_size = round((32 * 10))
+batch_size = round((32 * 7))
 shuffle = True
 
 model_conf = GPTConfig(train_dataset.population_size, block_size,    # frame_block_size
@@ -495,7 +421,7 @@ model_conf = GPTConfig(train_dataset.population_size, block_size,    # frame_blo
                         fuse_stim_behavior=FUSE_STIM_BEHAVIOR, mlp_only=MLP_ONLY)  # 0.35
 
 # update_object(model_conf, mconf)
-model_conf.contrastive_vars = ['id', 'frames']
+model_conf.contrastive_vars = ['id', 'behavior_mean']
 
 if INFERENCE or MCONF is not None:
     update_object(model_conf, mconf)
@@ -536,8 +462,6 @@ if TRAIN or FINETUNE or INFERENCE:
 
 model = GPT(model_conf)
 
-features, logits, loss = model(x, y)
-
 if RESUME:
     print(f"// -- Resuming model -- //")
     model.load_state_dict(torch.load(RESUME, map_location='cpu'), strict=False)
@@ -549,13 +473,13 @@ title =  f'ablations_1/finetuning_{PDATA}_resume{RESUME != None}/behavior_before
 if not INFERENCE:
     while os.path.exists(f'./models/tensorboard/visnav_medial/{title}'):
         n += 1
-        title = f'cebra/RESUME{RESUME != None}_paststate{PAST_STATE}_method_behavior_{behavior}_{behavior_vars}_predictbehavior{PREDICT_BEHAVIOR}_visual{VISUAL}_contrastive{model_conf.contrastive}_{model_conf.contrastive_vars}'
+        title = f'cebra/cebra_data_no_dt/RESUME{RESUME != None}_paststate{PAST_STATE}_method_behavior_{behavior}_{behavior_vars}_predictbehavior{PREDICT_BEHAVIOR}_visual{VISUAL}_contrastive{model_conf.contrastive}_{model_conf.contrastive_vars}'
 if FINETUNE:        
     title = os.path.join(title, f'_{args.title}_{PDATA}')
 if TITLE is not None:
     title = title + f'_{TITLE}'
 # model_path = f"""./models/tensorboard/visnav_medial/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{window}_wp:{window_prev}/{6}_Cont:{mconf.contrastive}_window:{window}_f_window:{frame_window}_df:{dt}_blocksize:{id_block_size}_conv_{conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt""""
-model_path = f"""./models/tensorboard/visnav_{DATASET}/behavior_pred_exp/classification/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{window}_wp:{window_prev}/{6}_Cont:{mconf.contrastive}_window:{window}_f_window:{frame_window}_df:{dt}_blocksize:{id_block_size}_conv_{conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
+model_path = f"""./models/tensorboard/{DATASET}/behavior_pred_exp/classification/{title}/sparse_f:{mconf.sparse_topk_frame}_id:{mconf.sparse_topk_id}/w:{window}_wp:{window_prev}/{6}_Cont:{mconf.contrastive}_window:{window}_f_window:{frame_window}_df:{dt}_blocksize:{id_block_size}_conv_{conv_layer}_shuffle:{shuffle}_batch:{batch_size}_sparse_({mconf.sparse_topk_frame}_{mconf.sparse_topk_id})_blocksz{block_size}_pos_emb:{mconf.pos_emb}_temp_emb:{mconf.temp_emb}_drop:{mconf.id_drop}_dt:{shuffle}_2.0_{max(stoi_dt.values())}_max{dt}_{layers}_{mconf.n_head}_{mconf.n_embd}.pt"""
 
 # # %%
 # model.cpu()
@@ -564,7 +488,7 @@ model_path = f"""./models/tensorboard/visnav_{DATASET}/behavior_pred_exp/classif
 #     print(key, loss[key])
 
 
-# preds, features, loss = model(x, y)
+preds, features, loss = model(x, y)
 
 # %%
 print(F"DIST: {DIST}")
@@ -578,7 +502,12 @@ tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rat
                     id_block_size=train_dataset.id_block_size,
                     show_grads=False, plot_raster=False,
                     ckpt_path=model_path, no_pbar=False, 
-                    dist=DIST, save_every=0)
+                    dist=DIST, save_every=0, get_latents=True)
+
+
+"""
+extract latents
+"""
 
 if TRAIN:
     # trainer = Trainer(model, train_dataset, test_dataset, tconf, model_conf)
@@ -638,38 +567,248 @@ if TRAIN or FINETUNE:
 dir_name = os.path.dirname(model_path)
 
 # %%
-# get correlation between predicted and true speed
-if PREDICT_BEHAVIOR:
-    from neuroformer.utils import predict_behavior
-    chosen_trials = test_data['Trial'].unique()
-    trial_data = test_data[test_data['Trial'].isin(chosen_trials)]
-    trial_dataset = train_dataset.copy(trial_data)
-    sample_behavior = False
-    top_p = 0.75 if sample_behavior else 0
-    behavior_preds = predict_behavior(model, trial_dataset, itos_speed, 
-                                      sample=sample_behavior, top_p=top_p)
+# # get correlation between predicted and true speed
+# if PREDICT_BEHAVIOR:
+#     from neuroformer.utils import predict_behavior
+#     chosen_trials = test_data['Trial'].unique()
+#     trial_data = test_data[test_data['Trial'].isin(chosen_trials)]
+#     trial_dataset = train_dataset.copy(trial_data)
+#     sample_behavior = False
+#     top_p = 0.75 if sample_behavior else 0
+#     behavior_preds = predict_behavior(model, trial_dataset, itos_speed, 
+#                                       sample=sample_behavior, top_p=top_p)
 
-    from scipy.stats import pearsonr
-    r, p = pearsonr(behavior_preds['behavior'], behavior_preds['true'])
-    print(f"r: {r}, p: {p}")
-    behavior_preds.to_csv(os.path.join(dir_name, f'behavior_pred_sample_{sample_behavior}_{top_p}.csv'), index=False)
-    # plot hexplot of predicted vs true speed
-    # import seaborn as sns
-    # import matplotlib.pyplot as plt
-    # sns.set_theme(style="white", color_codes=True)
-    # g = sns.jointplot(x="behavior", y="true", data=behavior_preds, kind="hex")
-    # g.ax_joint.plot([0, 1], [0, 1], 'k--')
-    # plt.show()
+#     from scipy.stats import pearsonr
+#     r, p = pearsonr(behavior_preds['behavior'], behavior_preds['true'])
+#     print(f"r: {r}, p: {p}")
+#     behavior_preds.to_csv(os.path.join(dir_name, f'behavior_pred_sample_{sample_behavior}_{top_p}.csv'), index=False)
+#     # plot hexplot of predicted vs true speed
+#     # import seaborn as sns
+#     # import matplotlib.pyplot as plt
+#     # sns.set_theme(style="white", color_codes=True)
+#     # g = sns.jointplot(x="behavior", y="true", data=behavior_preds, kind="hex")
+#     # g.ax_joint.plot([0, 1], [0, 1], 'k--')
+#     # plt.show()
 
 # %%
-# # Extract latents ##
+# Extract latents ##
 
-# from neuroformer.utils import extract_latents
+from neuroformer.utils import extract_latents
 
-# chosen_trials = test_data['Trial'].unique()
-# trial_data = test_data[test_data['Trial'].isin(chosen_trials)]
-# trial_dataset = train_dataset.copy(trial_data)
-# latents = extract_latents(model, trial_dataset)
+# latent_trials = np.random.choice(train_data['Trial'].unique())
+latent_trials = train_data['Trial'].unique()
+latent_data = train_data[train_data['Trial'].isin(latent_trials)]
+latent_dataset = train_dataset.copy(latent_data)
+
+feats, latents = extract_latents(model, latent_dataset, res=dt_vars)
+
+# %%
+latents.keys()
+
+for key in latents.keys():
+    print(f"key: {len(latents[key])}")
+for key in feats.keys():
+    print(f"key: {len(feats[key])}")
+
+# %%
+df_behavior
+
+# %%
+from neuroformer.utils import all_device
+device = torch.cuda.current_device()
+x = all_device(x, device)
+y = all_device(y, device)
+preds, features, loss = model(x, y)
+
+# %%
+features['clip']['id'].shape
+features['clip']['behavior_mean'].shape
+
+# %%
+behavior_vars
+
+# %%
+print(feats.keys())
+print(behavior_vars)
+
+# %%
+def plot_hippocampus(ax, embedding, label, gray = False, idx_order = (0,1,2)):
+    l_ind = label[:,1] == 1
+    r_ind = label[:,2] == 1
+    
+    if not gray:
+        r_cmap = 'cool'
+        l_cmap = 'viridis'
+        r_c = label[r_ind, 0]
+        l_c = label[l_ind, 0]
+    else:
+        r_cmap = None
+        l_cmap = None
+        r_c = 'gray'
+        l_c = 'gray'
+    
+    idx1, idx2, idx3 = idx_order
+    r=ax.scatter(embedding [r_ind,idx1], 
+               embedding [r_ind,idx2], 
+               embedding [r_ind,idx3], 
+               c=r_c,
+               cmap=r_cmap, s=0.5)
+    l=ax.scatter(embedding [l_ind,idx1], 
+               embedding [l_ind,idx2], 
+               embedding [l_ind,idx3], 
+               c=l_c,
+               cmap=l_cmap, s=0.5)
+    
+    ax.grid(False)
+    ax.xaxis.pane.fill = False
+    ax.yaxis.pane.fill = False
+    ax.zaxis.pane.fill = False
+    ax.xaxis.pane.set_edgecolor('w')
+    ax.yaxis.pane.set_edgecolor('w')
+    ax.zaxis.pane.set_edgecolor('w')
+        
+    return ax
+
+# %%
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib import cm
+from neuroformer.visualize import set_plot_white
+
+IS_3D = False
+
+def plot_data(data, is_3d=True):
+    set_plot_white()
+
+    # Creating a color map based on the keys of the data
+    cmap = cm.get_cmap('viridis')  # Can choose different colormap here
+    norm = plt.Normalize(min(data.keys()), max(data.keys()))  # Normalize speed values
+
+    fig = plt.figure(figsize=(10, 10))
+    
+    if is_3d:
+        ax = fig.add_subplot(111, projection='3d')
+        ax.set_zlabel('Z')
+    else:
+        ax = fig.add_subplot(111)
+    
+    # Iterating through the dictionary
+    for speed in data.keys():
+        speed_data = torch.stack(data[speed], dim=0)
+        # Convert list of vectors to a numpy array
+        vectors = np.array(speed_data)
+        
+        if is_3d:
+            ax.scatter(vectors[:, 0], vectors[:, 1], vectors[:, 2], color=cmap(norm(speed)))
+        else:
+            ax.scatter(vectors[:, 0], vectors[:, 1], color=cmap(norm(speed)))
+
+    # Setting labels
+    ax.set_xlabel('X')
+    ax.set_ylabel('Y')
+
+    # show colorbar
+    sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+    plt.colorbar(sm)
+    plt.title('Latent Space, Alignment (Color = Speed)', fontsize=20)
+
+
+plot_data(latents['id'], is_3d=IS_3D)
+save_pth = "./plots/dim_reduction"
+# plt.savefig(os.path.join(save_pth, '2D_speed_neurons.png'))
+# plt.savefig(os.path.join(save_pth, '2D_speed_neurons.pdf'))
+
+# %%
+def plot_hippocampus(ax, embedding, label, gray = False, idx_order = (0,1,2)):
+    r_ind = label[:,1] == 1
+    l_ind = label[:,2] == 1
+    
+    if not gray:
+        r_cmap = 'cool'
+        l_cmap = 'viridis'
+        r_c = label[r_ind, 0]
+        l_c = label[l_ind, 0]
+    else:
+        r_cmap = None
+        l_cmap = None
+        r_c = 'gray'
+        l_c = 'gray'
+    
+    idx1, idx2, idx3 = idx_order
+    r=ax.scatter(embedding [r_ind,idx1], 
+               embedding [r_ind,idx2], 
+               embedding [r_ind,idx3], 
+               c=r_c,
+               cmap=r_cmap, s=0.5)
+    l=ax.scatter(embedding [l_ind,idx1], 
+               embedding [l_ind,idx2], 
+               embedding [l_ind,idx3], 
+               c=l_c,
+               cmap=l_cmap, s=0.5)
+    
+    ax.grid(False)
+    ax.xaxis.pane.fill = False
+    ax.yaxis.pane.fill = False
+    ax.zaxis.pane.fill = False
+    ax.xaxis.pane.set_edgecolor('w')
+    ax.yaxis.pane.set_edgecolor('w')
+    ax.zaxis.pane.set_edgecolor('w')
+        
+    return ax
+
+# %%
+def cartesian_to_spherical(cartesian_coords):
+    if cartesian_coords.shape[1] == 2:  # Handle 2D input
+        x, y = cartesian_coords.T
+        r = np.sqrt(x**2 + y**2)
+        theta = np.arctan2(y, x)
+        return np.stack((r, theta), axis=-1)  # Shape will be (N, 2)
+    elif cartesian_coords.shape[1] == 3:  # Handle 3D input
+        z, y, x = cartesian_coords.T
+        r = np.sqrt(x**2 + y**2 + z**2)
+        theta = np.arctan2(y, x)
+        phi = np.arccos(z / r)
+        return np.stack((r, theta, phi), axis=-1)  # Shape will be (N, 3)
+    else:
+        raise ValueError("Input shape is not supported. It should be (N, 2) or (N, 3).")
+
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+import numpy as np
+from matplotlib import cm
+from neuroformer.visualize import set_plot_white
+
+set_plot_white()
+
+# Your dictionary. This is a simplified example
+data = latents['behavior_mean']
+
+# Creating a color map based on the keys of the data
+cmap = cm.get_cmap('viridis')  # Can choose different colormap here
+norm = plt.Normalize(min(data.keys()), max(data.keys()))  # Normalize speed values
+
+fig = plt.figure(figsize=(10, 10))
+if IS_3D:
+        ax = fig.add_subplot(111, projection='3d')
+        ax.set_zlabel('Z')
+else:
+    ax = fig.add_subplot(111)
+
+# Iterating through the dictionary
+for speed in data.keys():
+    speed_data = torch.stack(data[speed], dim=0)
+    speed_data = cartesian_to_spherical(speed_data)
+    # Convert list of vectors to a numpy array
+    vectors = np.array(speed_data)
+    if vectors.shape[1] == 2:
+        ax.scatter(vectors[:, 0], vectors[:, 1], color=cmap(norm(speed)))
+    elif vectors.shape[1] == 3:
+        ax.scatter(vectors[:, 0], vectors[:, 1], vectors[:, 2], color=cmap(norm(speed)))
+
+# Show colorbar
+sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+plt.colorbar(sm)
+
 
 # %%
 from neuroformer.utils import predict_raster_recursive_time_auto, process_predictions
@@ -816,8 +955,16 @@ total_scores['pred'] = pred_scores
 print(f"model: {title}")
 
 
+
+
+
+
+
 # %%
 iterable = iter(test_dataset)
+
+
+
 
 # %%
 # while x['trial'] < 4:

@@ -691,20 +691,24 @@ def predict_beam_search(model, loader, stoi, frame_end=0):
 #     return behavior_preds
 
 @torch.no_grad()
-def predict_behavior(model, dataset, itos, sample=False, top_k=0, top_p=0):
+def predict_modality(model, dataset, modality, block_type='modalities', sample=False, top_k=0, top_p=0):
     device = torch.cuda.current_device() if torch.cuda.is_available() else "cpu"
+    tokenizer = model.tokenizer
+    itos = model.tokenizer.itos[modality]
+    block_type_modality = f'{block_type}_{modality}_value'
     
     model.eval()
     model.to(device)
     
-    loader = DataLoader(dataset, batch_size=64, shuffle=False, pin_memory=False)
+    loader = DataLoader(dataset, batch_size=4, shuffle=False, pin_memory=False)
     pbar = tqdm(enumerate(loader), total=len(loader))
     
-    behavior_preds = []
+    modality_preds = []
     intervals = []
     trials = []
-    behavior_true = []
+    modality_true = []
     for it, (x, y) in pbar:
+        print(it)
         x = all_device(x, device)
         y = all_device(y, device)
         logits, features, loss = model(x, y)
@@ -714,8 +718,8 @@ def predict_behavior(model, dataset, itos, sample=False, top_k=0, top_p=0):
         loss = all_device(loss, 'cpu')
         
         if top_k or top_p != 0:
-            logits['behavior'] = top_k_top_p_filtering(logits['behavior'], top_k=top_k, top_p=top_p)
-        probs = F.softmax(logits['behavior'], dim=-1)
+            logits[modality] = top_k_top_p_filtering(logits[modality], top_k=top_k, top_p=top_p)
+        probs = F.softmax(logits[modality], dim=-1)
         if sample:
             ix = torch.multinomial(probs, 1).flatten()
         else:
@@ -724,31 +728,34 @@ def predict_behavior(model, dataset, itos, sample=False, top_k=0, top_p=0):
         ix_itos = [itos[int(i)] for i in ix]
         interval = x['interval'].flatten().tolist()
         trial = x['trial'].flatten().tolist()
-        y_behavior = [itos[int(i)] for i in y['behavior']]
-        behavior_preds.extend(ix_itos)
+        y_modality = tokenizer.decode(y[block_type][modality]['value'], modality)
+        modality_preds.extend(ix_itos)
         intervals.extend(interval)
         trials.extend(trial)
-        behavior_true.extend(y_behavior)
+        modality_true.extend(y_modality)
+
+        if it > 10:
+            break
     
-    # make behavior preds, intervals etc into dataframe
-    behavior_preds = pd.DataFrame(behavior_preds)
-    behavior_preds.columns = ['behavior']
-    behavior_preds['interval'] = intervals
-    behavior_preds['trial'] = trials
-    behavior_preds['true'] = behavior_true
+    # make modality preds, intervals etc into dataframe
+    modality_preds = pd.DataFrame(modality_preds)
+    modality_preds.columns = [block_type_modality]
+    modality_preds['interval'] = intervals
+    modality_preds['trial'] = trials
+    modality_preds['true'] = modality_true
 
     # make cum interval
-    behavior_preds['cum_interval'] = behavior_preds['interval'].copy()
+    modality_preds['cum_interval'] = modality_preds['interval'].copy()
     prev_trial = None
-    for trial in behavior_preds['trial'].unique():
+    for trial in modality_preds['trial'].unique():
         if prev_trial is None:
             prev_trial = trial
             continue
         else:
-            max_interval = behavior_preds[behavior_preds['trial'] == prev_trial]['interval'].max()
-            behavior_preds.loc[behavior_preds['trial'] >= trial, 'cum_interval'] += max_interval
+            max_interval = modality_preds[modality_preds['trial'] == prev_trial]['interval'].max()
+            modality_preds.loc[modality_preds['trial'] >= trial, 'cum_interval'] += max_interval
 
-    return behavior_preds
+    return modality_preds
 
 @torch.no_grad()
 def extract_latents(model, dataset):

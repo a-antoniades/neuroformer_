@@ -50,6 +50,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     # parser.add_argument("--infer", action="store_true", help="Inference mode")
     parser.add_argument("--train", action="store_true", default=False, help="Train mode")
+    parser.add_argument("--dist", action="store_true", default=False, help="Distributed mode")
     parser.add_argument("--seed", type=int, default=25, help="Random seed")
     parser.add_argument("--resume", type=str, default=None, help="Resume from checkpoint")
     parser.add_argument("--rand_perm", action="store_true", default=False, help="Randomly permute the ID column")
@@ -59,7 +60,7 @@ def parse_args():
     parser.add_argument("--downstream", action="store_true", default=False, help="Downstream task")
     parser.add_argument("--freeze_model", action="store_true", default=False, help="Freeze model")
     parser.add_argument("--title", type=str, default=None)
-    parser.add_argument("--dataset", type=str, default="Combo3_V1AL")
+    parser.add_argument("--dataset", type=str, default="Combo3_SimNeu3D")
     parser.add_argument("--behavior", action="store_true", default=False, help="Behavior task")
     parser.add_argument("--pred_behavior", action="store_true", default=False, help="Predict behavior")
     parser.add_argument("--past_state", action="store_true", default=False, help="Input past state")
@@ -75,18 +76,19 @@ print(f"running_jupyter: {running_jupyter()}")
 if running_jupyter(): # or __name__ == "__main__":
     print("Running in Jupyter")
     INFERENCE = True
+    DIST = False
     SEED = 25
     DOWNSTREAM = False
     TITLE = None
-    RESUME = "./models/tensorboard/Combo3_V1AL/inference_test/no_clip/sparse_f:None_id:None/w:0.1_wp:0.25/Cont:True_window:0.1_f_window:0.1_df:0.01_blocksize:55_conv_True_shuffle:True_batch:128_sparse_(None_None)_blocksz110_pos_emb:False_temp_emb:True_drop:0.35_dt:True_2.0_27_max0.01_(4, 4, 4)_4_256.pt"
+    RESUME = None
     # RESUME = "./models/tensorboard/Combo3_V1AL/inference_test/ablations_2/69/RESUMEFalse_paststateTrue_visualTrue_contrastiveFalse/sparse_f:None_id:None/w:0.1_wp:0.25/Cont:True_window:0.1_f_window:0.1_df:0.01_blocksize:55_conv_True_shuffle:True_batch:160_sparse_(None_None)_blocksz110_pos_emb:False_temp_emb:True_drop:0.35_dt:True_2.0_27_max0.01_(8, 8, 8)_8_256.pt"
     RAND_PERM = False
-    MCONF = "./models/tensorboard/Combo3_V1AL/inference_test/no_clip/sparse_f:None_id:None/w:0.1_wp:0.25/mconf.yaml"
+    MCONF = None
     EOS_LOSS = False
     NO_EOS_DT = False
     FREEZE_MODEL = False
     TITLE = None
-    DATASET = "Combo3_V1AL"
+    DATASET = "Combo3_SimNeu3D"
     BEHAVIOR = False
     PREDICT_BEHAVIOR = False
     VISUAL = True
@@ -100,6 +102,7 @@ else:
     print("Running in terminal")
     args = parse_args()
     INFERENCE = not args.train
+    DIST = args.dist
     SEED = args.seed
     DOWNSTREAM = args.downstream
     TITLE = args.title
@@ -128,6 +131,7 @@ print(f"VISUAL: {VISUAL}")
 print(f"PAST_STATE: {PAST_STATE}")
 
 
+
 # %%
 """ 
 
@@ -140,35 +144,29 @@ DOWNLOAD DATA URL = https://drive.google.com/drive/folders/1jNvA4f-epdpRmeG9s2E-
 
 """
 
-if DATASET == "Combo3_V1AL":
-    RESPONSE_PATH = "./data/Combo3_V1AL/Combo3_V1AL_response.csv"
-    STIMULUS_PATH = "./data/Combo3_V1AL/Combo3_V1AL_stimulus.pt"
+from neuroformer.prepare_data import DataLinks
 
-if not os.path.exists(RESPONSE_PATH):
+ds = DATASET
+
+DATA_POINTERS = getattr(DataLinks, ds)
+DATA_DIR = DATA_POINTERS['DIRECTORY']
+RESPONSE_PATH = DATA_POINTERS['RESPONSE_PATH']
+STIMULUS_PATH = DATA_POINTERS['STIMULUS_PATH']
+data_dir = f"./data/{ds}/"
+
+if not os.path.exists(DATA_DIR):
     print("Downloading data...")
-    url = "https://drive.google.com/drive/folders/1jNvA4f-epdpRmeG9s2E-2Sfo-pwYbjeY?usp=share_link"
-    gdown.download_folder(id=url, quiet=False, use_cookies=False, output=os.path.dirname(RESPONSE_PATH))
-else:
-    from neuroformer.prepare_data import DataLinks
-    DataLinkDS = getattr(DataLinks, DATASET)
-    url = DataLinkDS['url']
-    RESPONSE_PATH = DataLinkDS['RESPONSE_PATH']
-    STIMULUS_PATH = DataLinkDS['STIMULUS_PATH']
-    # gdown.download_folder(id=url)
+    import gdown
+    url = DATA_POINTERS['url']
+    gdown.download_folder(id=url, quiet=False, use_cookies=False, output=DATA_POINTERS['DIRECTORY'])
 
 
 df = pd.read_csv(RESPONSE_PATH)
 video_stack = torch.load(STIMULUS_PATH)
-stimulus = video_stack[:, :, 0]
+stimulus = video_stack[0, :, 0]
 
-
-# %%
-print(video_stack.shape)
-
-fig, ax = plt.subplots(1, 3, figsize=(15, 5))
-for i in range(3):
-    ax[i].imshow(video_stack[i, 1, 0].permute(0, 1))
-
+print(f"VIDEO STACK SHAPE: {video_stack.shape}")
+print(f"STIMULUS SHAPE: {stimulus.shape}")
 
 # %%
 # load config files
@@ -180,7 +178,7 @@ if MCONF is not None:
 elif RESUME is not None:
     base_path = os.path.dirname(RESUME)
 else:
-    base_path = "./models/tensorboard/V1_AL/downstream/learnt_temporal_embeddings/sparse_f:None_id:None/w:0.05_wp:0.25"
+    base_path = "./configs/Combo3_V1AL/kernel_size/wave_emb/01second-noselfatt/01second-noselfatt_small/"
     
 
 with open(os.path.join(base_path, 'mconf.yaml'), 'r') as stream:
@@ -205,6 +203,7 @@ common_attrs = check_common_attrs(mconf, tconf, dconf)
 print(f"Common attributes: {common_attrs}")
 
 
+
 # %%
 
 if INFERENCE or mconf:
@@ -218,9 +217,9 @@ if INFERENCE or mconf:
     dt_speed = mconf.dt_speed if hasattr(mconf, 'dt_speed') else 0.2
     intervals = None
 else:
-    frame_window = 0.25
+    frame_window = 0.5
     window = 0.05
-    window_prev = 0.25
+    window_prev = None
     window_behavior = window
     dt = 0.01
     dt_frames = 0.05
@@ -231,6 +230,7 @@ else:
 # randomly permute 'id' column
 if RAND_PERM:
     df['ID'] = df['ID'].sample(frac=1, random_state=25).reset_index(drop=True)
+
 
 
 # %%
@@ -244,6 +244,7 @@ n_behavior = len(behavior_vars)
 predict_behavior = PREDICT_BEHAVIOR
 # stimulus
 visual_stim = VISUAL
+
 
 
 
@@ -289,6 +290,7 @@ else:
 
 
 
+
 # %%
 
 df['Interval'] = make_intervals(df, window)
@@ -300,6 +302,7 @@ df = df.reset_index(drop=True)
 if RAND_PERM:
     print('// randomly permuting ID column //')
     df['ID'] = df['ID'].sample(frac=1, random_state=25).reset_index(drop=True)
+
 
 # %%
 ## resnet3d feats
@@ -315,8 +318,8 @@ frame_block_size = 0
 frame_feats = torch.tensor(stimulus, dtype=torch.float32)
 conv_layer = True
 
-prev_id_block_size = 55
-id_block_size = 55   #
+prev_id_block_size = 20
+id_block_size = 20   #
 block_size = frame_block_size + id_block_size + prev_id_block_size
 frame_memory = frame_window // dt_frames
 window = window
@@ -324,6 +327,18 @@ window = window
 neurons = sorted(list(set(df['ID'])))
 max_window = max(window, window_prev)
 stoi, itos, stoi_dt, itos_dt = tokenizer(neurons, max_window, dt, NO_EOS_DT)
+
+
+# %%
+# # %%
+# var_group = 'Interval'
+# int_trials = df.groupby([var_group, 'Trial']).size()
+# print(int_trials.mean())
+# # df.groupby(['Interval', 'Trial']).agg(['nunique'])
+# n_unique = len(df.groupby([var_group, 'Trial']).size())
+# df.groupby([var_group, 'Trial']).size().nlargest(int(0.1 * n_unique))
+# # df.groupby(['Interval_2', 'Trial']).size().mean()
+
 
 # %%
 import random
@@ -362,7 +377,6 @@ if CLASS_WEIGHTS:
 else:
     class_weights = None
 
-
 # %%
 from neuroformer.SpikeVidUtils import SpikeTimeVidData2
 
@@ -383,12 +397,11 @@ finetune_dataset = train_dataset.copy(finetune_data, resample_data=False)
     
 print(f'train: {len(train_dataset)}, test: {len(test_dataset)}')
 
-
 # %%
 
 layers = (mconf.n_state_layers, mconf.n_state_history_layers, mconf.n_stimulus_layers)   
-max_epochs = 250
-batch_size = round((32 * 4))
+max_epochs = 1000
+batch_size = round((32 * 6))
 shuffle = True
 
 model_conf = GPTConfig(train_dataset.population_size, block_size,    # frame_block_size
@@ -401,10 +414,10 @@ model_conf = GPTConfig(train_dataset.population_size, block_size,    # frame_blo
                         sparse_topk_frame=None, sparse_topk_id=None, sparse_topk_prev_id=None,
                         n_dt=len(stoi_dt.keys()),
                         pretrain=False,
-                        n_state_layers=4, n_state_history_layers=2,
+                        n_state_layers=8, n_state_history_layers=0,
                         n_stimulus_layers=8, self_att_layers=0,
                         n_behavior_layers=0, predict_behavior=predict_behavior, n_behavior=n_behavior,
-                        n_head=4, n_embd=n_embd, 
+                        n_head=8, n_embd=n_embd, 
                         contrastive=mconf.contrastive, clip_emb=1024, clip_temp=mconf.clip_temp,
                         conv_layer=conv_layer, kernel_size=kernel_size, stride_size=stride_size, padding_size=padding_size,
                         temp_emb=mconf.temp_emb, pos_emb=False,
@@ -436,10 +449,13 @@ if not INFERENCE:
 
 model = GPT(model_conf)
 
+# %%
+loader = DataLoader(train_dataset, batch_size=2, shuffle=False, num_workers=4, pin_memory=True)
+iterable = iter(loader)
+
 
 # %%
-loader = DataLoader(train_dataset, batch_size=1, shuffle=False, num_workers=4, pin_memory=True)
-iterable = iter(loader)
+train_dataset.frame_feats.shape
 
 # %%
 x, y = next(iterable)
@@ -459,9 +475,9 @@ model_path = f"""./models/tensorboard/{DATASET}/{TITLE}/sparse_f:{mconf.sparse_t
 
 
 
+
 # %%
 features, preds, loss = model(x, y)
-
 
 # %%
 
@@ -514,6 +530,7 @@ if DOWNSTREAM:
 
 print(f"MODEL_PATH ---->: {model_path}")
 
+
 # %%
 tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rate=1e-4, 
                     num_workers=4, lr_decay=True, patience=3, warmup_tokens=8e4, 
@@ -525,7 +542,7 @@ tconf = TrainerConfig(max_epochs=max_epochs, batch_size=batch_size, learning_rat
                     id_block_size=train_dataset.id_block_size,
                     show_grads=False, plot_raster=False,
                     ckpt_path=model_path, no_pbar=False, 
-                    dist=False, save_every=20, loss_bprop=loss_bprop)
+                    dist=DIST, save_every=20, loss_bprop=loss_bprop)
 
 if not INFERENCE:
     if DOWNSTREAM:
@@ -546,6 +563,7 @@ else:
         model_path = glob.glob(os.path.join(base_path, '**.pt'), recursive=True)[0]
     print(f"Loading model from {model_path}")
     model.load_state_dict(torch.load(model_path, map_location='cpu'), strict=False)
+
 
 
 # %%
@@ -569,17 +587,21 @@ else:
 
 
 
+
 # %%
 x, y = next(iterable)
 for k in x.keys():
     print(k, x[k].shape)
 
 
+
 # %%
 df[(df['Interval'] == 0.2) & (df['Trial'] == 1)]
 
+
 # %%
 len(test_data['Trial'].unique())
+
 
 # %%
 from neuroformer.utils import predict_raster_recursive_time_auto, process_predictions
@@ -657,6 +679,7 @@ save_path = os.path.join(dir_name, F"predictions_{title}.csv")
 # df_pred.to_csv(os.path.join(dir_name, F'df_pred_.csv'))
 # df_true.to_csv(os.path.join(dir_name, F'df_true_.csv'))
 
+
 # %%
 # def process_trial(model, train_dataset, df, stoi, itos_dt, itos, window, window_prev, top_p, top_p_t, temp, temp_t, trial, true_past):
 #     print(f"-- Processing Trial: {trial} --")
@@ -728,6 +751,7 @@ save_path = os.path.join(dir_name, F"predictions_{title}.csv")
 #                                                top_p=top_p, top_p_t=top_p_t, temp=temp, temp_t=temp_t, true_past=true_past, parallel=PARALLEL)
 
 
+
 # %%
 """
 
@@ -789,6 +813,7 @@ neurons = df['ID'].unique()
 top_corr_pred = calc_corr_psth(rates_pred, rates_1, neurons=neurons)
 top_corr_real = calc_corr_psth(rates_1, rates_2, neurons=neurons)
 top_corr_real_2 = calc_corr_psth(rates_1, rates_3, neurons=neurons)
+
 
 
 
@@ -970,8 +995,10 @@ np.save(os.path.join(base_path, 'preds_mean.npy'), preds_mean)
 
 
 
+
 # %%
 iterable = iter(test_dataset)
+
 
 
 # %%
@@ -1021,4 +1048,8 @@ df[(df[t_var] > float(x[int_var][0]) - tdiff) & (df[t_var] <= float(x['cid'][1] 
 # print(f"trial: {x['trial']}, pid: {x['pid']}, cid: {x['cid']}")
 
 
+
 # %%
+
+
+

@@ -1,5 +1,7 @@
 import pickle
 import numpy as np
+import random
+import pandas as pd
 import collections
 from sympy import Q
 from torch.utils import data
@@ -21,6 +23,9 @@ from torchvision import transforms
 from skimage import io
 
 import copy
+
+from utils import get_attr, round_n
+
 
 def trial_df(data):
     """
@@ -166,7 +171,6 @@ def set_trials(df, trials):
     assert np.all(df['Trial'] != -1), 'Some trials were not assigned'
     return df
 
-
 def get_df_visnav(data, trials=None, dt_vars=None):
     """
     # data: Number of neurons (N,)
@@ -217,17 +221,15 @@ def get_df_visnav(data, trials=None, dt_vars=None):
 
     return df
 
+def trim_trial(df, video_stack):
+    fps = 20
+    for stimulus in video_stack.keys():
+        max_time = video_stack[stimulus].shape[1] / fps
+        df.drop(df[(df['Stimulus'] == stimulus) & (df['Time'] > max_time)].index, inplace=True)
+        df.drop(df[(df['Stimulus'] == stimulus) & (df['Time'] < 0)].index, inplace=True)
 
-    def trim_trial(df, video_stack):
-        fps = 20
-        for stimulus in video_stack.keys():
-            max_time = video_stack[stimulus].shape[1] / fps
-            df.drop(df[(df['Stimulus'] == stimulus) & (df['Time'] > max_time)].index, inplace=True)
-            df.drop(df[(df['Stimulus'] == stimulus) & (df['Time'] < 0)].index, inplace=True)
-        return df
-    
-    df = df.reset_index(drop=True)
-    df = trim_trial(df, video_stack).reset_index(drop=True)
+    # df = df.reset_index(drop=True)
+    # df = trim_trial(df, video_stack).reset_index(drop=True)
     return df
 
 
@@ -359,7 +361,7 @@ def get_frame_idx(t, Tf):
     # Tf:
     video 1/f (s)
     """
-    idx = math.ceil(t / Tf)
+    idx = round(t / Tf)
     return idx if idx > 0 else 0
 
 def get_interval_idx(idx, Tf):
@@ -529,7 +531,11 @@ def pad_tensor(x, length, pad_value=0):
     """
     pad tensor along last dim
     """
-    n_pad = length - x.shape[-1]
+    try:
+        n_pad = length - x.shape[-1]
+    except:
+        print(f"error, x.shape: {x}, length: {length}")
+        raise ValueError
     if n_pad < 0:
         return x[..., -length:]
     else:
@@ -538,17 +544,27 @@ def pad_tensor(x, length, pad_value=0):
         pad_tensor = torch.zeros(pad, dtype=x.dtype, device=x.device)
         return torch.cat([x, pad_tensor], dim=-1)
     
-def get_var(data, interval, variable=None, trial=None):
+def get_var(data, interval, variable_name, trial=None, dt=None):
     """
     Returns interval[0] >= data < interval[1]
     """
-    if trial is not None:
-        data = data[data['Trial'] == trial]
-    if variable is not None:
-        data = data[variable]
-    data = data[(data['Interval'] > interval[0]) & 
-                    (data['Interval'] <= interval[1])]
+    if isinstance(data, pd.DataFrame):
+        if trial is not None:
+            data = data[data['Trial'] == trial]
+        data = data[(data['Interval'] > interval[0]) & 
+                        (data['Interval'] <= interval[1])]
+    elif isinstance(data, np.ndarray):
+        assert dt is not None
+        idx0, idx1 = get_frame_idx(interval[0], dt), get_frame_idx(interval[1], dt)
+        variable = data[idx0:idx1]
+        time = np.arange(interval[0], interval[1], dt)
+        data = {
+            'Time': time,
+            variable_name: variable,
+            'Interval': interval[0]
+        }
     return data
+    
 
 def round_n(x, base):
     return round(base * (round(float(x)/base)), 6)
@@ -571,7 +587,60 @@ def resample_groups(dataframe, extra_samples_factor):
     # Return the expanded_sampled_groups DataFrame
     return expanded_sampled_groups
 
-def tokenizer(neurons, max_window, dt, no_eos_dt=False):
+def split_data(df, r_split=0.8, r_split_ft=0.1, n_trial=None):
+    """
+    Splits the given DataFrame into training, testing, finetuning and small data subsets.
+    
+    Parameters:
+        df (pd.DataFrame): Input DataFrame.
+        r_split (float): Ratio for splitting into training set.
+        r_split_ft (float): Ratio for splitting into fine-tuning set within the training set.
+        n_trial (list): List of trial numbers to be used in calculations.
+        
+    Returns:
+        train_data (pd.DataFrame): Training data subset.
+        test_data (pd.DataFrame): Testing data subset.
+        finetune_data (pd.DataFrame): Fine-tuning data subset.
+        small_data (pd.DataFrame): Small data subset.
+    """
+    # Check if n_trial is provided, else set default
+    if n_trial is None:
+        n_trial = [2, 8, 14, 19]
+
+    # Randomly sample trials for training set
+    all_trials = sorted(df['Trial'].unique())
+    train_trials = random.sample(all_trials, int(len(all_trials) * r_split))
+
+    # Split into training and testing data
+    train_data = df[df['Trial'].isin(train_trials)]
+    test_data = df[~df['Trial'].isin(train_trials)]
+
+    # Select fine-tuning trials
+    finetune_trials = train_trials[:int(len(train_trials) * r_split_ft)]
+    finetune_data = df[df['Trial'].isin(finetune_trials)]
+
+    # Further processing to get train_data, test_data, and small_data
+    n = []
+    for n_stim in range(df['Trial'].max() // 20):
+        for n_t in n_trial:
+            trial = (n_stim + 1) * 20 - (n_t)
+            n.append(trial)
+    train_data = df[~df['Trial'].isin(n)].reset_index(drop=True)
+    test_data = df[df['Trial'].isin(n)].reset_index(drop=True)
+    small_data = df[df['Trial'].isin([5])].reset_index(drop=True)
+    
+    return train_data, test_data, finetune_data, small_data, n_trial
+
+# Example usage:
+# train_data, test_data, finetune_data, small_data = split_data(df, r_split=0.8, r_split_ft=0.1)
+
+def split_data_by_interval(intervals, r_split=0.8, r_split_ft=0.1):
+    train_intervals = np.random.choice(intervals, int(len(intervals) * r_split))
+    test_intervals = np.array([i for i in intervals if i not in train_intervals])
+    finetune_intervals = np.array(train_intervals[:int(len(train_intervals) * r_split_ft)])
+    return train_intervals, test_intervals, finetune_intervals
+
+def build_tokenizer(neurons, max_window, dt, no_eos_dt=False):
     feat_encodings = neurons + ['SOS'] + ['EOS'] + ['PAD']
     stoi = { ch:i for i,ch in enumerate(feat_encodings) }
     itos = { i:ch for i,ch in enumerate(feat_encodings) }
@@ -589,9 +658,53 @@ def tokenizer(neurons, max_window, dt, no_eos_dt=False):
     stoi_dt = { ch:i for i,ch in enumerate(n_dt) }
     itos_dt = { i:ch for i,ch in enumerate(n_dt) }
     return stoi, itos, stoi_dt, itos_dt
+
+class Tokenizer:
+    def __init__(self, token_types, max_window=None, dt=None, no_eos_dt=False):
+        self.stoi = {}
+        self.itos = {}
+        self.resolution = {}
+        self.settings = {}
+        
+        # Build stoi and itos for each token type
+        for token_type, settings in token_types.items():
+            self.settings[token_type] = settings
+            tokens = settings['tokens']
+            feat_encodings = tokens + ['SOS'] + ['EOS'] + ['PAD']
+            stoi = {ch: i for i, ch in enumerate(feat_encodings)}
+            itos = {i: ch for i, ch in enumerate(feat_encodings)}
+            
+            self.stoi[token_type] = stoi
+            self.itos[token_type] = itos
+
+            n_tokens = len(list(stoi.keys()))
+            print(f'{token_type} vocab size: {n_tokens}')
+            setattr(self, f'{token_type}_vocab_size', n_tokens)
+            if 'resolution' in settings:
+                self.resolution[token_type] = settings['resolution']
+        
+    def encode(self, x, token_type):
+        if 'resolution' in self.settings[token_type]:
+            x_rounded = [round_n(float(n), self.resolution[token_type]) for n in x]
+        encoded_seq = [self.stoi[token_type][s] for s in x_rounded]
+        if isinstance(x, torch.Tensor):
+            return torch.tensor(encoded_seq, dtype=torch.long)
+        elif isinstance(x, np.ndarray):
+            return np.array(encoded_seq, dtype=np.long)
+        else:
+            return encoded_seq
+
+    def decode(self, x, token_type):
+        decoded_seq = [self.itos[token_type][float(s)] for s in x]
+        if isinstance(x, torch.Tensor):
+            return torch.tensor(decoded_seq)
+        elif isinstance(x, np.ndarray):
+            return np.array(decoded_seq)
+        else:
+            return decoded_seq
     
 # dataloader class
-class SpikeTimeVidData2(Dataset):
+class NFDataloader(Dataset):
         """
         # data: 
         0 col: Time
@@ -607,81 +720,77 @@ class SpikeTimeVidData2(Dataset):
         and vice-versa.
         """
 
-        def __init__(self, data, frames, block_size, id_block_size, frame_block_size, id_prev_block_size, window, dt, frame_memory, 
-                     stoi, itos, neurons, stoi_dt=None, itos_dt=None, frame_feats=None, pred=False, data_dict=None, window_prev=None, 
-                     dataset=None, intervals=None, behavior=None, predict_behavior=False, **kwargs):
-                                
-                self.stoi = stoi
-                self.itos = itos
-                self.stoi_dt = stoi_dt
-                self.itos_dt = itos_dt
+        def __init__(self, spikes_dict, tokenizer, frame_feats, dataset=None, intervals=None, 
+                    modalities=None, predict_behavior=False, **kwargs):
+        
+            self.tokenizer = tokenizer
+            self.stoi = tokenizer.stoi['ID']
+            self.itos = tokenizer.itos['ID']
+            self.stoi_dt = tokenizer.stoi['dt']
+            self.itos_dt = tokenizer.itos['dt']
 
-                self.dt = dt
-                self.dt_max = max(list(stoi_dt.values()))
-                                
-                self.frame_block_size = frame_block_size
-                self.block_size = block_size
-                self.id_prev_block_size = id_prev_block_size
-                self.id_block_size = id_block_size
-                
-                assert self.id_block_size > 0
-                # assert self.frame_block_size + self.id_block_size + self.prev_id_block_size == self.block_size
-                
-                self.frame_memory = frame_memory
-                self.data = data.reset_index(drop=True)
-                self.data_dict = None
-                self.intervals = intervals
-                self.frame_feats = frame_feats
-                self.behavior_feats = behavior
+            # Access the needed variables from spikes_dict
+            self.dt = spikes_dict["dt"]
+            self.dt_max = max(list(self.tokenizer.stoi['dt'].values()))
 
-                self.population_size = len([*stoi.keys()])
-                self.id_population_size = len([*stoi.keys()])
-                self.dt_population_size = len([*stoi_dt.keys()])
-                # print the pop, id and dt sizes
-                print("Population Size: ", self.population_size)
-                print("ID Population Size: ", self.id_population_size)
-                print("DT Population Size: ", self.dt_population_size)
-                self.dataset = dataset
+            self.frame_block_size = spikes_dict["frame_block_size"]
+            self.id_prev_block_size = spikes_dict["prev_id_block_size"]
+            self.id_block_size = spikes_dict["id_block_size"]
 
-                # keep track of which interval we are and how many neurons remain
-                # (i.e did not fit in block)
-                # self.t = self.data['Interval'].unique()
-                self.window = window        # interval window (prediction)
-                self.window_prev = window if window_prev is None else window_prev
-                # assert self.window_prev % self.window == 0, "window_prev must be a multiple of window"
-                self.frame_window = 1.0
-                self.min_interval = window + window_prev
-                print(f"Min Interval: {self.min_interval}")
-                self.min_trial = data['Trial'].min()
-                self.resample_data = False
+            assert self.id_block_size > 0
 
-                # calculate intervals on init
-                self.set_intervals(data)
+            self.window = spikes_dict["window"]
+            self.window_prev = spikes_dict["window_prev"] if spikes_dict["window_prev"] is not None else self.window
+            self.frame_window = 1.0
+            self.min_interval = self.window + self.window_prev if dataset not in ['LRN'] else 0
+            print(f"Min Interval: {self.min_interval}")
 
-                self.idx = 0
-                self.window = window        # interval window (prediction)
-                self.window_prev = window if window_prev is None else window_prev
-                self.interval = 0           # our current interval                
-                self.pred = pred
+            self.data = spikes_dict
+            self.data_dict = None
+            self.intervals = spikes_dict["Interval"]
+            # keep only intervals > window + window_prev
+            print("Intervals: ", len(self.intervals))
+            print("Window: ", self.window)
+            print("Window Prev: ", self.window_prev)
+            self.intervals = self.intervals[self.intervals > self.window + self.window_prev]
+            self.frame_feats = frame_feats
+            self.modalities = modalities
 
-                self.dt_frames = None
-                self.behavior_vars = None
-                self.predict_behavior = predict_behavior
+            self.population_size = len([*self.tokenizer.stoi['ID'].keys()])
+            self.id_population_size = len([*self.tokenizer.stoi['ID'].keys()])
+            self.dt_population_size = len([*self.tokenizer.stoi['dt'].keys()])
+            print("Population Size: ", self.population_size)
+            print("ID Population Size: ", self.id_population_size)
+            print("DT Population Size: ", self.dt_population_size)
+            self.dataset = dataset
 
-                for k, v in kwargs.items():
-                    setattr(self, k, v)
+            if isinstance(self.data, pd.DataFrame):
+                self.min_trial = self.data['Trial'].min()
+            self.resample_data = False
+
+            # calculate intervals on init
+            self.set_intervals(self.data)
+
+            self.idx = 0
+            self.interval = 0
+            self.dt_frames = None
+            self.predict_behavior = predict_behavior
+
+            for k, v in kwargs.items():
+                setattr(self, k, v)
 
 
         def __len__(self):
                 return len(self.t)
 
-        def set_intervals(self, data):
-            self.data = data.reset_index(drop=True)
-            self.min_trial = data['Trial'].min()
-    
+        def set_intervals(self, data=None):
+            if data is not None:
+                self.data = data
             if self.intervals is not None:
-                print(f"Using smooth intervals")
+                print(f"Using explicitly passed intervals")
                 self.t = self.intervals
+                # remove any intervals < window + window_prev
+                self.t = self.t[self.t > self.window + self.window_prev]
             elif self.resample_data:
                 self.t = resample_groups(self.data, 10)
             else:
@@ -690,13 +799,13 @@ class SpikeTimeVidData2(Dataset):
                 elif self.dataset == 'combo_v2':
                     self.t = self.data.drop_duplicates(subset=['Interval', 'Trial', 'Stimulus'])
 
-                if self.dataset == 'LRN':
-                    # self.t = self.t[self.t['Interval'] >= self.min_interval].reset_index(drop=True)
-                    self.t = self.t[~((self.t['Trial'] == self.min_trial) & (self.t['Interval'] <= self.min_interval))].reset_index(drop=True)
-                # elif self.dataset == 'LRN':
+                if self.dataset != 'LRN':
+                    self.t = self.t[self.t['Interval'] >= self.min_interval].reset_index(drop=True)
+                elif self.dataset == 'LRN':
                     # for LRN dataset the current trial continuous from the previous one
-                    # self.t[self.t['Trial'] == self.min_trial] = self.t[self.t['Trial'] == self.min_trial][self.t[self.t['Trial'] == self.min_trial]['Interval'] >= self.min_interval]
-                    # self.t = self.t.dropna().reset_index(drop=True)
+                    self.t[self.t['Trial'] == self.min_trial] = self.t[self.t['Trial'] == self.min_trial][self.t[self.t['Trial'] == self.min_trial]['Interval'] >= self.min_interval]
+                    self.t = self.t.dropna().reset_index(drop=True)
+                
 
         def copy(self, data, t=None, **kwargs):
             """return new class with everything the same except data,
@@ -710,8 +819,6 @@ class SpikeTimeVidData2(Dataset):
                 new.intervals = t
             new.set_intervals(data)
             return new
-
-        # return round(base * float(x)/base)
 
         def calc_intervals(self, interval):
             prev_int = round_n(interval - self.window, self.dt)
@@ -752,34 +859,40 @@ class SpikeTimeVidData2(Dataset):
             # prev_id_interval = (data[data['Trial'] == trial - 1]['Time'].max(), prev_id_interval[1])
             return prev_id_data, prev_id_interval
         
-        def get_behavior(self, data, interval, variables=None, trial=None):
+        def get_behavior(self, data, interval, variable_name=None, trial=None, dt=None, tokenizer=None):
             """
             Returns interval[0] >= data < interval[1]
             """
-            data = get_var(data, interval, trial=trial)
-            variables = data.columns if variables is None else variables
-            behavior = torch.tensor(np.array(data[variables]), 
-                                    dtype=torch.float32).transpose(0, 1)
+            data = get_var(data, interval, variable_name=variable_name, trial=trial, dt=dt)
+            behavior = torch.tensor(np.array(data[variable_name]), 
+                                    dtype=torch.float32)
             if len(data) > 0:
                 behavior_dt = torch.tensor(np.array(data['Time']) - np.array(data['Interval']), dtype=torch.float32)
             else:
                 behavior_dt = torch.tensor([0], dtype=torch.float32)
+            
+            # if there is a tokenizer, use it
+            if tokenizer is not None:
+                behavior = tokenizer.encode(behavior, variable_name)
+
             # pad
-            behavior = pad_tensor(behavior, self.samples_per_behavior, self.stoi['PAD'])
-            behavior_dt = pad_tensor(behavior_dt, self.samples_per_behavior, self.stoi_dt['PAD'])
+            n_expected_samples = int((interval[1] - interval[0]) / self.dt)
+            behavior = pad_tensor(behavior, n_expected_samples, self.stoi['PAD'])
+            behavior_dt = pad_tensor(behavior_dt, n_expected_samples, self.stoi_dt['PAD'])
             return behavior.unsqueeze(-1), behavior_dt
 
         def get_interval(self, interval, trial, block_size, data=None, data_dict=None, n_stim=None, pad=True):
-                """
-                Returns interval[0] >= data < interval[1]
-                chunk = ID
-                dt_chunk = dt
-                pad_n
-                """
-                data = self.data if data is None else data
+            """
+            Returns interval[0] >= data < interval[1]
+            chunk = ID
+            dt_chunk = dt
+            pad_n
+            """
+            data = self.data if data is None else data
+            if isinstance(data, pd.DataFrame):
                 if self.data_dict is None:
                     if interval[0] < 0 and \
-                       self.dataset in ['LRN', 'vinav']:
+                    self.dataset in ['LRN', 'vinav']:
                         data, id_interval = self.get_data_prev_trial(trial, interval)
                     else:
                         data = data[data['Trial'] == trial]
@@ -787,13 +900,50 @@ class SpikeTimeVidData2(Dataset):
                                         (data['Time'] < interval[1])][-(block_size - 2):]
                         if n_stim is not None:
                             data = data[data['Stimulus'] == n_stim]
+            elif isinstance(data, dict):
+                # array = spikes per: (Neuron, Interval)
+                neuron_array = data['ID']
+                interval_array = data['Interval']
+                # assert idx_0 -> idx_1 is a continuous interval
+                # assert (idx_1 - idx_0) == (interval[1] - interval[0]) / self.dt, "interval is not continuous"
+                idx_0 = get_frame_idx(interval[0], self.dt)
+                idx_1 = get_frame_idx(interval[1], self.dt)
+                neuron_array = neuron_array[:, idx_0:idx_1]
+                time_array = np.array([i * self.dt for i in range(idx_0, idx_1)])
+                if len(neuron_array.shape) == 1:
+                    # second dimension (interval) has to exist
+                    neuron_array = neuron_array.reshape(-1, 1)
+                
+                assert len(neuron_array.shape) == 2
+                assert neuron_array.shape[-1] == time_array.shape[-1], f"neuron_array.shape: {neuron_array.shape}, \
+                                                                    time_array.shape: {time_array.shape}"
+                # now add all firings and timings
+                neuron_firings = []
+                neuron_timings = []
+
+                # time_array = (n_intervals)
+                # neuron_array = (n_neurons, n_intervals)
+                for idx, time in enumerate(time_array):
+                    # assert(len(neuron_array[:, idx]) == len(time_array)), f"neuron_array[:, idx]: {neuron_array[:, idx]}, \
+                    #                                                   time: {time_array}"
+                    neuron_array_time = neuron_array[:, idx]
+                    for neuron, spikes in enumerate(neuron_array_time):
+                        spikes = round(spikes) # just in case we didn't round before
+                        neuron_firings += [neuron] * spikes
+                        neuron_timings += [time] * spikes
+                        assert len(neuron_firings) == len(neuron_timings), f"len neuron_firings: {len(neuron_firings)}, \
+                                                                            len neuron_timings: {len(neuron_timings)}"
+                data = {
+                    'ID': neuron_firings,
+                    'Time': np.array(neuron_timings),
+                    'Interval': np.array(neuron_timings)
+                }
                 # else:
                 #     data = self.data_dict[trial]
                 #     if interval[1] in data:
                 #         data = data[interval[1]]
                 #     else:
                 #         data = {'Time': np.array([]), 'ID': np.array([])}
-
                 chunk = data['ID'][-(block_size - 2):]
                 dix = [self.stoi[s] for s in chunk]
                 # trial_token = self.stoi['Trial ' + str(int(trial))]
@@ -841,8 +991,8 @@ class SpikeTimeVidData2(Dataset):
                     # if 'real_interval' in self.data.columns:
                     #     t['real_interval'] = interval_[0].astype(float)
                     t['Interval'] = interval_
-                    t['Trial'] = interval_[2].astype(int) if self.dataset != 'visnav' else 0
-                    t['Stimulus'] = torch.zeros(1, dtype=torch.long) if self.dataset == 'LRN' else None
+                    t['Trial'] = interval_[2].astype(int) if self.dataset not in ['LRN', 'Distance-Coding'] else 0
+                    t['Stimulus'] = torch.zeros(1, dtype=torch.long) if self.dataset not in ['LRN', 'Distance-Coding'] else None
 
                 x = collections.defaultdict(list)
                 y = collections.defaultdict(list)
@@ -853,10 +1003,11 @@ class SpikeTimeVidData2(Dataset):
                 prev_id_interval, current_id_interval = self.calc_intervals(t['Interval'])
                 
                 ## PREV ##
-                id_prev, dt_prev, pad_prev = self.get_interval(prev_id_interval, t['Trial'], self.id_prev_block_size, n_stim)
-                x['id_prev'] = torch.tensor(id_prev[:-1], dtype=torch.long)
-                x['dt_prev'] = torch.tensor(dt_prev[:-1], dtype=torch.float) # + 0.5
-                x['pad_prev'] = torch.tensor(pad_prev, dtype=torch.long)
+                if self.window_prev > 0:
+                    id_prev, dt_prev, pad_prev = self.get_interval(prev_id_interval, t['Trial'], self.id_prev_block_size, n_stim)
+                    x['id_prev'] = torch.tensor(id_prev[:-1], dtype=torch.long)
+                    x['dt_prev'] = torch.tensor(dt_prev[:-1], dtype=torch.float) # + 0.5
+                    x['pad_prev'] = torch.tensor(pad_prev, dtype=torch.long)
                 
                 ## CURRENT ##
                 idn, dt, pad = self.get_interval(current_id_interval, t['Trial'], self.id_block_size, n_stim)
@@ -870,22 +1021,27 @@ class SpikeTimeVidData2(Dataset):
                 x['trial'] = torch.tensor(t['Trial'], dtype=torch.long)
 
                 ## BEHAVIOR ##
-                if self.behavior_feats is not None:
-                    # check if self.window_behavior exists
-                    if hasattr(self, 'window_behavior') and self.window_behavior is not None:
-                        behavior_interval = (current_id_interval[1] - self.window_behavior, current_id_interval[1]) 
-                    else:
-                        behavior_interval = (prev_id_interval[0], current_id_interval[1])
-                    behavior, behavior_dt = self.get_behavior(self.behavior_feats, behavior_interval, 
-                                                              variables=self.behavior_vars, trial=t['Trial'])
-                    if self.predict_behavior:
-                        # pick only current_state behavior
-                        # TODO: implement for more than just 0.05 curr window
-                        y['behavior'], y['behavior_dt'] = behavior[:, -1], behavior_dt[-1]
-                        y['behavior'] = torch.tensor([self.stoi_speed[round_n(float(i), self.dt_speed)] for i in y['behavior']], dtype=torch.long)
-                        # y['behavior'], y['behavior_dt'] = behavior, behavior_dt
-                    else:
-                        x['behavior'], x['behavior_dt'] = behavior, behavior_dt
+                if self.modalities is not None:
+                    x['modalities'] = collections.defaultdict(dict)
+                    for modality_type, modality in self.modalities.items():
+                        for variable_name, variable in modality.items():
+                            # check if self.window_behavior exists
+                            if 'window' in variable:
+                                var_interval = (current_id_interval[1] - self.window_behavior, current_id_interval[1]) 
+                            else:
+                                var_interval = (current_id_interval[0], current_id_interval[1])
+                            value, dt = self.get_behavior(variable['data'], var_interval, 
+                                                        variable_name=variable_name, trial=t['Trial'], dt=variable['dt'],
+                                                        tokenizer=self.tokenizer)
+                            if variable['predict'] is True:
+                                # TODO: implement for more than just 0.05 curr window
+                                # pick only current_state behavior
+                                if 'modalities' not in y.keys():
+                                    y['modalities'] = collections.defaultdict(dict)
+                                y['modalities'][variable_name]['value'], y['modalities'][variable_name]['dt'] = value[:, -1], dt[-1]
+                            else:
+                                x['modalities'][variable_name]['value'] = value
+                                x['modalities'][variable_name]['dt'] = dt
                 
                 # for backbone:
                 ## TODO: IMPLEMENT THIS DATASET BY DATASET
@@ -899,6 +1055,7 @@ class SpikeTimeVidData2(Dataset):
                 #             n_stim = int(t['Trial'] // 200) - 1
                 #     elif self.frame_feats.shape[0] == 1:
                 #         n_stim = 0
+
                 if self.dataset == "Combo3_V1AL":
                     if t['Trial'] <= 20: n_stim = 0
                     elif t['Trial'] <= 40: n_stim = 1
@@ -953,7 +1110,6 @@ class SpikeTimeVidData2(Dataset):
                 x['pid'] = torch.tensor(prev_id_interval)
 
                 return x, y
-
 
 # # video encodings
 # frame_idx = math.ceil((t['Interval'] / self.window) - 1)    # get last 1 second of frames
