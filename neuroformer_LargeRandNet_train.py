@@ -88,7 +88,7 @@ set_seed(n_seed)
 
 import yaml
 
-base_path = "./configs/LRN/final/supp_materials"
+base_path = "./configs/LRN/final/supp_materials/window_2_18"
 
 with open(os.path.join(base_path, 'mconf.yaml'), 'r') as stream:
     mconf = yaml.full_load(stream)
@@ -106,8 +106,6 @@ from omegaconf import OmegaConf
 mconf = OmegaConf.create(mconf)
 tconf = OmegaConf.create(tconf)
 dconf = OmegaConf.create(dconf)
-
-
 
 # %%
 mconf.dataset
@@ -161,7 +159,7 @@ n_embd_frames = mconf.n_embd_frames
 prev_id_block_size = mconf.prev_id_block_size    # math.ceil(frame_block_size * (1 - p_window))
 id_block_size = mconf.id_block_size           # math.ceil(frame_block_size * p_window)
 block_size = frame_block_size + id_block_size + prev_id_block_size # frame_block_size * 2  # small window for faster training
-frame_memory = dconf.frame_memory   # how many frames back does model see
+frame_memory = int(frame_window * dt_frames)   # how many frames back does model see
 
 neurons = sorted(list(set(df['ID'])))
 id_stoi = { ch:i for i,ch in enumerate(neurons) }
@@ -233,7 +231,7 @@ model_conf = GPTConfig(train_dataset.population_size, block_size,    # frame_blo
                         window=window, window_prev=window_prev, frame_window=frame_window, dt=dt,
                         n_embd_frames=n_embd_frames, dataset=None,
                         ignore_index_id=stoi['PAD'], ignore_index_dt=stoi_dt['PAD'],
-                        p_reduce=200)
+                        p_reduce=p_reduce, save_every=100)
 
 for k, v in mconf.__dict__.items():
     # if not hasattr(mconf, k):
@@ -245,8 +243,8 @@ model = GPT(mconf)
 
 # %%
 layers = (mconf.n_state_layers, mconf.n_state_history_layers, mconf.n_stimulus_layers)
-max_epochs = 300
-batch_size = round((32 * 2))
+max_epochs = 1000
+batch_size = round((32 * 3))
 shuffle = tconf.shuffle
 
 weighted = True if mconf.class_weights is not None else False

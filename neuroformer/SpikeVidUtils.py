@@ -610,7 +610,7 @@ class SpikeTimeVidData2(Dataset):
                 self.window_prev = window if window_prev is None else window_prev
                 # assert self.window_prev % self.window == 0, "window_prev must be a multiple of window"
                 self.frame_window = 1.0
-                self.min_interval = window + window_prev if dataset not in ['LRN'] else 0
+                self.min_interval = window + window_prev
                 print(f"Min Interval: {self.min_interval}")
                 self.min_trial = data['Trial'].min()
 
@@ -636,6 +636,7 @@ class SpikeTimeVidData2(Dataset):
 
         def set_intervals(self, data):
             self.data = data.reset_index(drop=True)
+            self.min_trial = data['Trial'].min()
     
             if self.intervals is not None:
                 print(f"Using smooth intervals")
@@ -646,12 +647,13 @@ class SpikeTimeVidData2(Dataset):
                 elif self.dataset == 'combo_v2':
                     self.t = self.data.drop_duplicates(subset=['Interval', 'Trial', 'Stimulus'])
 
-                if self.dataset != 'LRN':
-                    self.t = self.t[self.t['Interval'] >= self.min_interval].reset_index(drop=True)
-                elif self.dataset == 'LRN':
+                if self.dataset == 'LRN':
+                    # self.t = self.t[self.t['Interval'] >= self.min_interval].reset_index(drop=True)
+                    self.t = self.t[~((self.t['Trial'] == self.min_trial) & (self.t['Interval'] <= self.min_interval))].reset_index(drop=True)
+                # elif self.dataset == 'LRN':
                     # for LRN dataset the current trial continuous from the previous one
-                    self.t[self.t['Trial'] == self.min_trial] = self.t[self.t['Trial'] == self.min_trial][self.t[self.t['Trial'] == self.min_trial]['Interval'] >= self.min_interval]
-                    self.t = self.t.dropna().reset_index(drop=True)
+                    # self.t[self.t['Trial'] == self.min_trial] = self.t[self.t['Trial'] == self.min_trial][self.t[self.t['Trial'] == self.min_trial]['Interval'] >= self.min_interval]
+                    # self.t = self.t.dropna().reset_index(drop=True)
 
         def copy(self, data, t=None):
             """return new class with everything the same except data,
