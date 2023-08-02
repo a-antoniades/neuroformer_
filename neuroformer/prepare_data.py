@@ -66,6 +66,10 @@ class DataLinks:
         "RESPONSE_PATH" : "./data/NaturalMovie/stimulus/docuMovie.pt",
         "STIMULUS_PATH" : "./data/NaturalMovie/stimulus/docuMovie.pt"
     }
+    NaturalStim_SimNeu3D = {
+        "url" : "https://drive.google.com/drive/folders/1jgYBERZpXdbAP-E5xcSAHsWSa95Z9IFe?usp=sharing",
+        "DIRECTORY" : "./data/NaturalStim_SimNeu3D",
+    }
     HippocampusPos = {
         "url": "https://drive.google.com/drive/folders/15VDz6r8y8-nFpAKPcdGtK6nBtMCOQKQA?usp=share_link",
         "DIRECTORY": "./data/cebra/hippocampus_pos",
