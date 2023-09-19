@@ -987,9 +987,6 @@ class NFDataloader(Dataset):
                     # (curr_interva, real_interval, trial)
                     interval_ = self.t[idx]
                     t = dict()
-                    # t['Interval'] = interval_[0].astype(float)
-                    # if 'real_interval' in self.data.columns:
-                    #     t['real_interval'] = interval_[0].astype(float)
                     t['Interval'] = interval_
                     t['Trial'] = interval_[2].astype(int) if self.dataset not in ['LRN', 'Distance-Coding'] else 0
                     t['Stimulus'] = torch.zeros(1, dtype=torch.long) if self.dataset not in ['LRN', 'Distance-Coding'] else None
