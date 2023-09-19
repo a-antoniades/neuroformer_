@@ -457,6 +457,9 @@ def round_n(x, base):
     return round(base * (round(float(x)/base)), 2)
         # return round(base * float(x)/base)
 
+def round_n_arr(x, base):
+    return np.round(base * np.round(x / base), 2)
+
 def get_interval(data, stoi, stoi_dt, dt, interval, trial, block_size, data_dict=None, n_stim=None, pad=True):
     """
     Returns interval[0] >= data < interval[1]
@@ -640,6 +643,10 @@ def split_data_by_interval(intervals, r_split=0.8, r_split_ft=0.1):
     finetune_intervals = np.array(train_intervals[:int(len(train_intervals) * r_split_ft)])
     return train_intervals, test_intervals, finetune_intervals
 
+def get_data_by_interval(data, intervals, dt):
+    interval_idx = [get_frame_idx(interval, dt) for interval in intervals]
+    return data[..., interval_idx] 
+
 def build_tokenizer(neurons, max_window, dt, no_eos_dt=False):
     feat_encodings = neurons + ['SOS'] + ['EOS'] + ['PAD']
     stoi = { ch:i for i,ch in enumerate(feat_encodings) }
@@ -668,31 +675,43 @@ class Tokenizer:
         
         # Build stoi and itos for each token type
         for token_type, settings in token_types.items():
+            print(settings)
             self.settings[token_type] = settings
-            tokens = settings['tokens']
-            feat_encodings = tokens + ['SOS'] + ['EOS'] + ['PAD']
+            token_values = sorted(settings['tokens'])
+            if 'resolution' in settings:
+                # token_values = [round_n(float(n), settings['resolution']) for n in token_values]
+                token_values = np.arange(min(settings['tokens']), max(settings['tokens']) + settings['resolution'], settings['resolution'])
+                token_values = [round_n(float(n), settings['resolution']) for n in token_values]
+            feat_encodings = token_values + ['SOS'] + ['EOS'] + ['PAD']
             stoi = {ch: i for i, ch in enumerate(feat_encodings)}
             itos = {i: ch for i, ch in enumerate(feat_encodings)}
             
             self.stoi[token_type] = stoi
             self.itos[token_type] = itos
 
-            n_tokens = len(list(stoi.keys()))
+            n_tokens = len(self.stoi[token_type])
             print(f'{token_type} vocab size: {n_tokens}')
             setattr(self, f'{token_type}_vocab_size', n_tokens)
             if 'resolution' in settings:
                 self.resolution[token_type] = settings['resolution']
         
     def encode(self, x, token_type):
+        x_type = type(x)
+        x = np.array(x)
         if 'resolution' in self.settings[token_type]:
-            x_rounded = [round_n(float(n), self.resolution[token_type]) for n in x]
-        encoded_seq = [self.stoi[token_type][s] for s in x_rounded]
-        if isinstance(x, torch.Tensor):
-            return torch.tensor(encoded_seq, dtype=torch.long)
-        elif isinstance(x, np.ndarray):
-            return np.array(encoded_seq, dtype=np.long)
+            # x_rounded = [round_n(float(n), self.resolution[token_type]) for n in x]
+            # x = round_n_arr(x, self.resolution[token_type])
+            encoded_seq = [self.stoi[token_type][round_n(s, self.resolution[token_type])] for s in x]
         else:
-            return encoded_seq
+            encoded_seq = [self.stoi[token_type][s] for s in x]
+        if x_type == torch.Tensor:
+            return torch.tensor(encoded_seq, dtype=torch.long)
+        elif x_type == np.ndarray:
+            return np.array(encoded_seq, dtype=np.int64)
+        elif x_type == list:
+            return list(encoded_seq)
+        else:
+            raise ValueError(f'Invalid input type: {x_type}')
 
     def decode(self, x, token_type):
         decoded_seq = [self.itos[token_type][float(s)] for s in x]
@@ -702,6 +721,9 @@ class Tokenizer:
             return np.array(decoded_seq)
         else:
             return decoded_seq
+        
+def truncate_to_resolution(val, resolution):
+    return np.floor(val / resolution) * resolution
     
 # dataloader class
 class NFDataloader(Dataset):
@@ -720,8 +742,8 @@ class NFDataloader(Dataset):
         and vice-versa.
         """
 
-        def __init__(self, spikes_dict, tokenizer, frame_feats, dataset=None, intervals=None, 
-                    modalities=None, predict_behavior=False, **kwargs):
+        def __init__(self, spikes_dict, tokenizer, config, dataset=None, frames=None, 
+                     intervals=None, modalities=None, predict_behavior=False, **kwargs):
         
             self.tokenizer = tokenizer
             self.stoi = tokenizer.stoi['ID']
@@ -747,13 +769,13 @@ class NFDataloader(Dataset):
 
             self.data = spikes_dict
             self.data_dict = None
-            self.intervals = spikes_dict["Interval"]
+            self.frames = frames
+            self.intervals = intervals
             # keep only intervals > window + window_prev
             print("Intervals: ", len(self.intervals))
             print("Window: ", self.window)
             print("Window Prev: ", self.window_prev)
             self.intervals = self.intervals[self.intervals > self.window + self.window_prev]
-            self.frame_feats = frame_feats
             self.modalities = modalities
 
             self.population_size = len([*self.tokenizer.stoi['ID'].keys()])
@@ -769,43 +791,32 @@ class NFDataloader(Dataset):
             self.resample_data = False
 
             # calculate intervals on init
-            self.set_intervals(self.data)
+            self.set_intervals()
 
             self.idx = 0
             self.interval = 0
             self.dt_frames = None
             self.predict_behavior = predict_behavior
 
+            self.config = config
+
             for k, v in kwargs.items():
                 setattr(self, k, v)
-
+            
+            for k, v in spikes_dict.items():
+                setattr(self, k, v)
 
         def __len__(self):
                 return len(self.t)
 
         def set_intervals(self, data=None):
-            if data is not None:
-                self.data = data
             if self.intervals is not None:
                 print(f"Using explicitly passed intervals")
                 self.t = self.intervals
                 # remove any intervals < window + window_prev
                 self.t = self.t[self.t > self.window + self.window_prev]
-            elif self.resample_data:
-                self.t = resample_groups(self.data, 10)
             else:
-                if self.dataset != 'combo_v2':
-                    self.t = self.data.drop_duplicates(subset=['Interval', 'Trial']) # .sample(frac=1).reset_index(drop=True) # interval-trial unique pairs
-                elif self.dataset == 'combo_v2':
-                    self.t = self.data.drop_duplicates(subset=['Interval', 'Trial', 'Stimulus'])
-
-                if self.dataset != 'LRN':
-                    self.t = self.t[self.t['Interval'] >= self.min_interval].reset_index(drop=True)
-                elif self.dataset == 'LRN':
-                    # for LRN dataset the current trial continuous from the previous one
-                    self.t[self.t['Trial'] == self.min_trial] = self.t[self.t['Trial'] == self.min_trial][self.t[self.t['Trial'] == self.min_trial]['Interval'] >= self.min_interval]
-                    self.t = self.t.dropna().reset_index(drop=True)
-                
+                raise NotImplementedError("No intervals passed")
 
         def copy(self, data, t=None, **kwargs):
             """return new class with everything the same except data,
@@ -872,13 +883,15 @@ class NFDataloader(Dataset):
                 behavior_dt = torch.tensor([0], dtype=torch.float32)
             
             # if there is a tokenizer, use it
+            # if variable_name in tokenizer.stoi.keys():
             if tokenizer is not None:
                 behavior = tokenizer.encode(behavior, variable_name)
 
             # pad
-            n_expected_samples = int((interval[1] - interval[0]) / self.dt)
+            n_expected_samples = int((interval[1] - interval[0]) / dt)
             behavior = pad_tensor(behavior, n_expected_samples, self.stoi['PAD'])
             behavior_dt = pad_tensor(behavior_dt, n_expected_samples, self.stoi_dt['PAD'])
+            assert len(behavior) == len(behavior_dt)
             return behavior.unsqueeze(-1), behavior_dt
 
         def get_interval(self, interval, trial, block_size, data=None, data_dict=None, n_stim=None, pad=True):
@@ -888,7 +901,7 @@ class NFDataloader(Dataset):
             dt_chunk = dt
             pad_n
             """
-            data = self.data if data is None else data
+            data = self.data
             if isinstance(data, pd.DataFrame):
                 if self.data_dict is None:
                     if interval[0] < 0 and \
@@ -945,7 +958,7 @@ class NFDataloader(Dataset):
                 #     else:
                 #         data = {'Time': np.array([]), 'ID': np.array([])}
                 chunk = data['ID'][-(block_size - 2):]
-                dix = [self.stoi[s] for s in chunk]
+                dix = self.tokenizer.encode(chunk, 'ID')
                 # trial_token = self.stoi['Trial ' + str(int(trial))]
                 dix = ([self.stoi['SOS']] + dix + [self.stoi['EOS']])[-block_size:]
                 # dix = ([trial_token] + dix + [self.stoi['EOS']])[-block_size:]
@@ -954,7 +967,7 @@ class NFDataloader(Dataset):
 
                 # print(data['Time'], "int", interval[0])
                 dt_chunk = (data['Time'] - (interval[0])) if interval[0] > 0 else data['Time']
-                dt_chunk = [self.stoi_dt[round_n(dt, self.dt)] for dt in dt_chunk]
+                dt_chunk = list(self.tokenizer.encode(dt_chunk, 'dt'))
 
                 if 'EOS' in self.stoi_dt.keys():
                     eos_token = self.stoi_dt['EOS']
@@ -988,7 +1001,7 @@ class NFDataloader(Dataset):
                     interval_ = self.t[idx]
                     t = dict()
                     t['Interval'] = interval_
-                    t['Trial'] = interval_[2].astype(int) if self.dataset not in ['LRN', 'Distance-Coding'] else 0
+                    t['Trial'] = interval_[2].astype(int) if self.dataset not in ['LRN', 'Distance-Coding', 'lateral', 'medial'] else 0
                     t['Stimulus'] = torch.zeros(1, dtype=torch.long) if self.dataset not in ['LRN', 'Distance-Coding'] else None
 
                 x = collections.defaultdict(list)
@@ -1001,13 +1014,13 @@ class NFDataloader(Dataset):
                 
                 ## PREV ##
                 if self.window_prev > 0:
-                    id_prev, dt_prev, pad_prev = self.get_interval(prev_id_interval, t['Trial'], self.id_prev_block_size, n_stim)
+                    id_prev, dt_prev, pad_prev = self.get_interval(prev_id_interval, t['Trial'], self.id_prev_block_size)
                     x['id_prev'] = torch.tensor(id_prev[:-1], dtype=torch.long)
                     x['dt_prev'] = torch.tensor(dt_prev[:-1], dtype=torch.float) # + 0.5
                     x['pad_prev'] = torch.tensor(pad_prev, dtype=torch.long)
                 
                 ## CURRENT ##
-                idn, dt, pad = self.get_interval(current_id_interval, t['Trial'], self.id_block_size, n_stim)
+                idn, dt, pad = self.get_interval(current_id_interval, t['Trial'], self.id_block_size)
                 x['id'] = torch.tensor(idn[:-1], dtype=torch.long)
                 x['dt'] = torch.tensor(dt[:-1], dtype=torch.float) # + 1
                 x['pad'] = torch.tensor(pad, dtype=torch.long) # to attend eos
@@ -1029,7 +1042,7 @@ class NFDataloader(Dataset):
                                 var_interval = (current_id_interval[0], current_id_interval[1])
                             value, dt = self.get_behavior(variable['data'], var_interval, 
                                                         variable_name=variable_name, trial=t['Trial'], dt=variable['dt'],
-                                                        tokenizer=self.tokenizer)
+                                                        tokenizer=self.tokenizer if variable['objective'] == 'classification' else None)
                             if variable['predict'] is True:
                                 # TODO: implement for more than just 0.05 curr window
                                 # pick only current_state behavior
@@ -1040,30 +1053,11 @@ class NFDataloader(Dataset):
                                 x['modalities'][variable_name]['value'] = value
                                 x['modalities'][variable_name]['dt'] = dt
                 
-                # for backbone:
-                ## TODO: IMPLEMENT THIS DATASET BY DATASET
-                # if self.frame_feats is not None:
-                #     if isinstance(self.frame_feats, dict):
-                #         n_stim = int(t['Stimulus'])
-                #     elif len(self.frame_feats) == 8:
-                #         if self.t['Trial'].max() <= 8:
-                #             n_stim = int(t['Trial'])
-                #         else:
-                #             n_stim = int(t['Trial'] // 200) - 1
-                #     elif self.frame_feats.shape[0] == 1:
-                #         n_stim = 0
-
-                if self.dataset == "Combo3_V1AL":
-                    if t['Trial'] <= 20: n_stim = 0
-                    elif t['Trial'] <= 40: n_stim = 1
-                    elif t['Trial'] <= 60: n_stim = 2
-                elif self.dataset == "NaturalStim":
-                    n_stim = t['Trial']
-
 
                 #     elif self.dataset == 'combo_v2':
                 #         n_stim = n_stim
-                if self.frame_feats is not None:
+                if self.frames is not None:
+                    frame_feats = self.frames['feats']
                     # t['Interval'] += self.window
                     dt_frames = self.dt_frames if self.dt_frames is not None else 1/20
                     frame_interval = t['Interval'] if 'raw_interval' not in t else t['raw_interval']
@@ -1073,35 +1067,10 @@ class NFDataloader(Dataset):
                     frame_window = self.frame_window
                     n_frames = math.ceil(int(1/dt_frames) * frame_window)
                     frame_idx = frame_idx if frame_idx >= n_frames else n_frames
-                    f_b = n_frames
                     # f_f = n_frames - f_b
-                    frame_feats_stim = self.frame_feats[n_stim] if n_stim is not None else self.frame_feats
-                    frame_idx = min(frame_idx, frame_feats_stim.shape[0])
-                    # frame_idx = frame_idx if frame_idx < frame_feats_stim.shape[1] else frame_feats_stim.shape[1]
+                    frame_idx = min(frame_idx, frame_feats.shape[0])
                     f_diff = frame_idx - n_frames
-                    if f_diff < 0:
-                        f_b = frame_idx
-                    if self.dataset == 'LIF2':
-                        frame_idx = frame_idx - 1
-                        x['frames'] = frame_feats_stim[:, frame_idx].type(torch.float32)
-                        x['frames'] = x['frames'].repeat(1, 1).transpose(0, 1)
-                    elif self.dataset == 'visnav':
-                        offset = 0
-                        f_idx_0 = max(0, frame_idx - f_b - offset)
-                        f_idx_1 = f_idx_0 + f_b
-                        x['frames'] = frame_feats_stim[f_idx_0:f_idx_1].type(torch.float32).unsqueeze(0)
-                    else:
-                        f_idx_0 = max(0, frame_idx - f_b)
-                        # f_idx_1 = min(f_idx_0 + f_b, frame_feats_stim.shape[1])
-                        f_idx_1 = f_idx_0 + f_b
-                        assert f_idx_1 - f_idx_0 == n_frames, f"f_idx_1 {f_idx_1} - f_idx_0 {f_idx_0} != n_frames {n_frames}"
-                        x['frames'] = frame_feats_stim[f_idx_0:f_idx_1].type(torch.float32).unsqueeze(0)
-                    # else:
-                    #     x['frames'] = frame_feats_stim[:, :, frame_idx - f_b:frame_idx].type(torch.float32)
-
-                    if n_stim is not None:
-                        x['stimulus'] = torch.tensor(n_stim, dtype=torch.long)
-                    x['f_idx'] = torch.tensor([f_idx_0, f_idx_1])
+                    x['frames'] = self.frames['callback'](frame_feats, frame_idx, n_frames)
 
                 x['cid'] = torch.tensor(current_id_interval)
                 x['pid'] = torch.tensor(prev_id_interval)
@@ -1110,7 +1079,7 @@ class NFDataloader(Dataset):
 
 # # video encodings
 # frame_idx = math.ceil((t['Interval'] / self.window) - 1)    # get last 1 second of frames
-# frame_idx = len(self.frame_feats) - 1 if frame_idx >= len(self.frame_feats) else frame_idx
+# frame_idx = len(self.Frames) - 1 if frame_idx >= len(self.frame_feats) else frame_idx
 # if self.frames is not None:
 #     frames = self.frames[frame_idx]
 #     fdix = [self.stoi[s] for s in frames]

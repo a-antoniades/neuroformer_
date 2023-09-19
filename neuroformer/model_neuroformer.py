@@ -1098,7 +1098,8 @@ class GPT(nn.Module):
             if self.config.contrastive:
                 clip_id_feats = []
                 for B, P in enumerate(pad):
-                    clip_id_feats.append(features['id'][B, t - P + 1])
+                    # clip_id_feats.append(features['id'][B, t - P + 1])
+                    clip_id_feats.append(features['id'][B, t - P])
                 clip_id_feats = torch.stack(clip_id_feats)
                 # n = 2
                 # loss['clip'] = self.clip(features['frames'][:, 0], features['id'][:, -1]) * (1 / n) 
@@ -1107,7 +1108,7 @@ class GPT(nn.Module):
 
                 # feed in x (last layer representation)
                 feat_contra_id = x.mean(dim=1) # features['id'].mean(dim=1)
-                if hasattr(self.config, 'contrastive_vars'):
+                if hasattr(self.config, 'contrastive_vars') and self.config.contrastive_vars is not None:
                     for variable in self.config.contrastive_vars:
                         # mean pool all sequence
                         if variable == 'id':

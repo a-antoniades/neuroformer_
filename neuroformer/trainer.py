@@ -37,6 +37,7 @@ import torch.distributed as dist
 from torch.utils.data.distributed import DistributedSampler
 
 from utils import extract_latents
+from utils_2 import get_attr
 
 
 
@@ -64,6 +65,7 @@ class TrainerConfig:
     save_every = 0
     loss_bprop = None
     get_latents = False
+    use_wanb = False
 
     def __init__(self, **kwargs):
         for k, v in kwargs.items():
@@ -97,7 +99,7 @@ class Trainer:
             # self.model = torch.nn.DataParallel(self.model).to(self.device)
             # self.criterion = self.criterion.to(self.device)
 
-            if config.dist:
+            if 'RANK' in os.environ and 'WORLD_SIZE' in os.environ:
                 rank = int(os.environ["RANK"])
                 world_size = int(os.environ['WORLD_SIZE'])
                 local_rank = int(os.environ['LOCAL_RANK'])
@@ -120,32 +122,38 @@ class Trainer:
                 self.model = self.model.to(self.device)
                 # self.model = torch.nn.DataParallel(self.model)
 
-        self.writer.add_scalar(f"model/no_parameters", sum(p.numel() for p in model.parameters())) 
+        self.writer.add_scalar(f"model/no_parameters", sum(p.numel() for p in model.parameters()))
+        if config.use_wanb:
+            import wandb
+            wandb.init(project="neuroformer", entity="neuroformer_test")
+            wandb.watch(self.model) 
 
     def save_checkpoint(self, loss, epoch=None):
         # DataParallel wrappers keep raw model object in .module attribute
         raw_model = self.model.module if hasattr(self.model, "module") else self.model
+        if os.path.exists(self.config.ckpt_path) is False:
+            os.makedirs(self.config.ckpt_path)
         if epoch is not None:
-            save_pth = os.path.join(self.config.ckpt_path[:-3], f"_epoch_{epoch}.pt")
+            save_pth = os.path.join(self.config.ckpt_path, f"_epoch_{epoch}.pt")
             logger.info("saving %s", save_pth)
             torch.save(raw_model.state_dict(), save_pth)
         else:
+            save_pth = os.path.join(self.config.ckpt_path, f"model.pt")
             logger.info("saving %s", self.config.ckpt_path)
-            torch.save(raw_model.state_dict(), self.config.ckpt_path)
+            torch.save(raw_model.state_dict(), save_pth)
         
         mconf = object_to_dict(self.mconf)
         tconf = object_to_dict(self.config)
         dconf = object_to_dict(self.train_dataset)
 
-        config_path = os.path.dirname(self.config.ckpt_path)
-        save_yaml(mconf, os.path.join(config_path, "mconf.yaml"))
-        save_yaml(tconf, os.path.join(config_path, "tconf.yaml"))
-        save_yaml(dconf, os.path.join(config_path, "dconf.yaml"))
+        save_yaml(mconf, os.path.join(self.config.ckpt_path, "mconf.yaml"))
+        save_yaml(tconf, os.path.join(self.config.ckpt_path, "tconf.yaml"))
+        save_yaml(dconf, os.path.join(self.config.ckpt_path, "dconf.yaml"))
 
         if hasattr(raw_model, "tokenizer"):
-            with open(os.path.join(config_path, "tokenizer.pkl", "wb")) as f:
+            with open(os.path.join(self.config.ckpt_path, "tokenizer.pkl"), 'wb') as f:
                 pickle.dump(raw_model.tokenizer, f)
-    
+
     def save_latents(self, model, dataset, save_file):
         print(f"Saving latents to {save_file}")
         feats, latents = extract_latents(model, dataset)
@@ -210,6 +218,7 @@ class Trainer:
             losses = collections.defaultdict(list)
             pbar = tqdm(enumerate(loader), total=len(loader), disable=self.config.no_pbar) if is_train else enumerate(loader)
             for it, (x, y) in pbar:
+
                 # place data on the correct device
                 x = all_device(x, self.device)
                 y = all_device(y, self.device)
@@ -262,6 +271,13 @@ class Trainer:
                     lr = config.learning_rate * lr_mult
                     for param_group in optimizer.param_groups:
                         param_group['lr'] = lr
+
+                    # Wandb logging if specified
+                    if config.use_wandb:
+                        for loss_name, loss_value in loss.items():
+                            wandb.log({f"Loss/{split}_{str(loss_name)}": loss_value})
+                        for score in config.score_metrics:
+                            wandb.log({f"Score/{split}_{str(score)}": preds[score].mean()})
                 
                 # if it % 100 == 0:
                 #     self.save_checkpoint(it, np.array(scores['F1']).mean())
@@ -307,7 +323,12 @@ class Trainer:
                 raw_model.config.epoch += 1
                 run_epoch('train')
             if self.test_dataset is not None:
-                test_loss, av_losses, scores = run_epoch('test')
+                if epoch > get_attr(self, 'min_eval_epoch', 0) and \
+                    (epoch % get_attr(self, 'eval_every', 1) == 0 or epoch == config.max_epochs - 1):
+                    test_loss, av_losses, scores = run_epoch('test')
+                else:
+                    self.save_checkpoint(epoch)
+                    continue
                 # if config.lr_decay:
                 #     scheduler.step(test_loss)
             if self.config.get_latents:
@@ -332,6 +353,11 @@ class Trainer:
                     if good_model:
                         best_decoder_loss = av_losses['id']
                         self.save_checkpoint(av_losses['id'], epoch="decoder")
+                if 'speed' in av_losses.keys():
+                    good_model = av_losses['speed'] < best_decoder_loss
+                    if good_model:
+                        best_decoder_loss = av_losses['speed']
+                        self.save_checkpoint(av_losses['speed'], epoch="speed")
                 
                 # F1_score = torch.tensor(scores['F1']).mean()
                 # if F1_score > best_f1:

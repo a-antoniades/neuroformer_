@@ -56,11 +56,17 @@ def calc_corr_psth(rates1, rates2, neurons=None):
         rates1 = {k: v for k, v in rates1.items() if k in neurons}
         rates2 = {k: v for k, v in rates2.items() if k in neurons}
     pearson_r = dict()
+    pearson_p = dict()
     for id in list((set(rates1.keys()) & set(rates2.keys()))):
-        pearson_r[id] = stats.pearsonr(rates1[id], rates2[id])[0]
-    # pearson_r = dict(sorted(pearson_r.items(), reverse=True, key=lambda item: item[1]))
-    pearson_r = pd.DataFrame(pearson_r, index=['pearson_r']).T.sort_values(by=['pearson_r'], ascending=False)
-    return pearson_r
+        r, p = stats.pearsonr(rates1[id], rates2[id])  # Note: I've swapped r and p as the function returns r first
+        pearson_r[id] = r
+        pearson_p[id] = p
+        
+    combined_df = pd.DataFrame({'pearson_r': pearson_r, 'pearson_p': pearson_p}).sort_values(by=['pearson_r'], ascending=False)
+    
+    return combined_df
+
+
 
 def get_rates_trial(df, intervals):
     intervals = np.array(intervals)
