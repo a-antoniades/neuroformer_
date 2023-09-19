@@ -164,3 +164,4 @@ training/*.ipynb
 **/benchmarks
 **/_rebuttal
 **/results
+**/results/finetune
