@@ -161,4 +161,6 @@ training/*.ipynb
 **/a_yiyi
 **/image_detectors
 **/datasets
-
+**/benchmarks
+**/_rebuttal
+**/results

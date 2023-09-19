@@ -155,9 +155,13 @@ def save_yaml(obj, filename):
     with open(filename, 'w') as outfile:
         yaml.dump(obj, outfile)
 
-def save_object(obj, filename):
-    with open(filename, 'wb') as outp:  # Overwrites any existing file.
-        pickle.dump(obj, outp, pickle.HIGHEST_PROTOCOL)
+def save_yaml(data, filename):
+    # Create the directory if it doesn't exist
+    os.makedirs(os.path.dirname(filename), exist_ok=True)
+    
+    with open(filename, 'w') as outfile:
+        yaml.dump(data, outfile, default_flow_style=False)
+
 
 def set_model_attributes(mconf):
     for a in dir(mconf):

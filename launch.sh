@@ -1,5 +1,39 @@
-# train with multiple GPUs
-CUDA_VISIBLE_DEVICES=1,2,3 torchrun --nproc_per_node=3 V1_AL.py
-CUDA_VISIBLE_DEVICES=1,2,3,6 torchrun --nproc_per_node=5 natmovie.py
-CUDA_VISIBLE_DEVICES=1,2,3,4 torchrun --nproc_per_node=4 natmovie.py
-kill -9 `netstat -nltp | grep python | cut -d/ -f 1 | awk '{print $NF}'`
+CUDA_VISIBLE_DEVICES=5 python neuroformer_Visnav_NF_1.5.py --dataset medial --seed 69
+CUDA_VISIBLE_DEVICES=6 python neuroformer_Visnav_NF_1.5.py --dataset medial --seed 25
+CUDA_VISIBLE_DEVICES=7 python neuroformer_Visnav_NF_1.5.py --dataset medial --seed 420
+
+
+CUDA_VISIBLE_DEVICES=2 python neuroformer_Visnav_NF_1.5.py --dataset medial --seed 69
+CUDA_VISIBLE_DEVICES=3 python neuroformer_Visnav_NF_1.5.py --dataset lateral --seed 25
+CUDA_VISIBLE_DEVICES=4 python neuroformer_Visnav_NF_1.5.py --dataset lateral --seed 420
+
+export CUDA_VISIBLE_DEVICES=7 
+python neuroformer_Visnav_NF_1.5.py \
+       --dataset medial \
+       --seed 69 \
+       --config ./configs/NF_1.5/VisNav_VR_Expt/mlp_only/mconf.yaml
+
+export CUDA_VISIBLE_DEVICES=6 
+python neuroformer_Visnav_NF_1.5.py \
+       --dataset medial \
+       --seed 25 \
+       --config ./configs/NF_1.5/VisNav_VR_Expt/gru2_only_cls/mconf.yaml
+
+export CUDA_VISIBLE_DEVICES=6 
+python neuroformer_Visnav_NF_1.5.py \
+       --dataset lateral \
+       --seed 25 \
+       --config ./configs/NF_1.5/VisNav_VR_Expt/gru2_only_cls/mconf.yaml
+
+export CUDA_VISIBLE_DEVICES=5 
+python neuroformer_Visnav_NF_1.5.py \
+       --dataset medial \
+       --seed 69 \
+       --config ./configs/NF_1.5/VisNav_VR_Expt/gru2_only/mconf.yaml
+
+
+
+    
+
+
+

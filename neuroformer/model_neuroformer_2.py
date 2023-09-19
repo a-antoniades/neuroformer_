@@ -34,6 +34,7 @@ from modules import (PositionalEmbedding, PositionalEncoding2D,
                      TemporalEmbedding, LearntTemporalEmbedding,
                      contrastive_loss, clip_loss, topk_metrics)
 import collections
+from utils_2 import get_attr
 
 logger = logging.getLogger(__name__)
 
@@ -635,11 +636,10 @@ class BlockSequential(nn.Sequential):
 class CLIP(nn.Module):
     def __init__ (self, config, loss):
         super().__init__()
-        self.temp = config.clip_temp
-        clip_embd = config.clip_embd if hasattr(config, 'clip_embd') else config.n_embd
+        self.temp = config.contrastive.clip_temp
+        clip_embd = config.contrastive.clip_embd if hasattr(config, 'clip_embd') else config.n_embd
         self.proj = nn.Linear(config.n_embd, clip_embd, bias=False)
         self.loss = loss
-        print(config.frame_block_size * config.n_embd)
 
     def forward(self, features):
 
@@ -818,6 +818,125 @@ class MultimodalTransformer(nn.Module):
             x = mod(x, x, x, mask)
         return x
 
+class NF_GRU(nn.Module):
+    def __init__(self, config, num_layers=3):
+        super().__init__()
+        self.config = config
+        self.num_layers = num_layers
+        self.grus = nn.ModuleList([nn.GRU(config.n_embd, config.n_embd, batch_first=True) for _ in range(num_layers)])
+        logger.info(f"NF_GRU: no. params: {sum(p.numel() for p in self.parameters())}")
+
+    def forward(self, x, h_0=None):
+        if h_0 is None:
+            h_0 = torch.zeros(self.num_layers, x.size(0), self.config.n_embd).to(x.device)
+        else:
+            # No need to unsqueeze h_0 or concatenate it with a tensor of zeros.
+            # Just ensure that it has the right shape (num_layers, batch_size, n_embd).
+            h_0 = h_0.transpose(0, 1).contiguous()
+
+        h_t = []
+        for i, gru in enumerate(self.grus):
+            x, h = gru(x, h_0[i].unsqueeze(0))
+            h_t.append(h)
+        h_t = torch.cat(h_t, dim=0)
+        return x, h_t
+
+class Tapered_GRU(nn.Module):
+    def __init__(self, config, num_layers=3, taper_factor=0.5):
+        super().__init__()
+        self.config = config
+        self.num_layers = num_layers
+        self.taper_factor = taper_factor
+        self.grus = nn.ModuleList()
+
+        n_embd = config.n_embd
+        for _ in range(num_layers):
+            self.grus.append(nn.GRU(n_embd, int(n_embd * (1 - self.taper_factor)), batch_first=True))
+            n_embd = int(n_embd * (1 - self.taper_factor))  # update for next layer
+
+        logger.info(f"Tapered_GRU: no. params: {sum(p.numel() for p in self.parameters())}")
+
+    def forward(self, x, h_0=None):
+        if h_0 is None:
+            h_0 = torch.zeros(self.num_layers, x.size(0), self.config.n_embd).to(x.device)
+        else:
+            h_0 = h_0.transpose(0, 1).contiguous()
+
+        h_t = []
+        for i, gru in enumerate(self.grus):
+            x, h = gru(x, h_0[i].unsqueeze(0))
+            h_t.append(h)
+            if i != len(self.grus) - 1:  # don't apply on last layer
+                x = F.interpolate(x, scale_factor=self.taper_factor, mode='nearest')
+        h_t = torch.cat(h_t, dim=0)
+        return x, h_t
+    
+
+import torch.nn.utils.rnn as rnn_utils
+
+class LayerNormGRUCell(nn.Module):
+    def __init__(self, input_size, hidden_size):
+        super().__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.gru_cell = nn.GRUCell(input_size, hidden_size)
+        self.ln = nn.LayerNorm(hidden_size)
+
+    def forward(self, x, h):
+        h_next = self.gru_cell(x, h)
+        h_next = self.ln(h_next)
+        return h_next
+
+class ImprovedGRU(nn.Module):
+    def __init__(self, config, num_layers=3):
+        super().__init__()
+        self.config = config
+        self.num_layers = num_layers
+        self.tanh = nn.Tanh()
+        self.dropout = nn.Dropout(0.1)
+        self.grus = nn.ModuleList(
+            [nn.GRU(config.n_embd, config.n_embd, batch_first=True, bidirectional=True)
+             for _ in range(num_layers)]
+        )
+        self.linear_layers = nn.ModuleList(
+            [nn.Linear(config.n_embd * 2, config.n_embd) for _ in range(num_layers)]
+        )
+        self.layer_norms = nn.ModuleList([nn.LayerNorm(config.n_embd) for _ in range(num_layers)])
+        logger.info(f"NF_GRU: no. params: {sum(p.numel() for p in self.parameters())}")
+
+    def forward(self, x, h_0=None):
+        if h_0 is None:
+            h_0 = torch.zeros(2*self.num_layers, x.size(0), self.config.n_embd).to(x.device)
+        else:
+            h_0 = h_0.transpose(0, 1).contiguous()
+
+        h_t = []
+        for i, (gru, linear, layer_norm) in enumerate(zip(self.grus, self.linear_layers, self.layer_norms)):
+            x, h = gru(x, h_0[2*i:2*(i+1)].contiguous())
+            x = linear(x)
+            x = layer_norm(x)
+            if i != self.num_layers - 1:  # apply dropout to all but the last layer
+                x = self.dropout(x)
+            h_t.append(h)
+
+        h_t = torch.cat(h_t, dim=0)
+
+        if self.num_layers > 1:
+            x = self.tanh(x)
+
+        return x, h_t
+
+
+
+
+
+    def _layer_forward(self, x, h, gru_cell, tapering_weights):
+        outputs = []
+        seq_len = x.size(1)
+        for t in range(seq_len):
+            h = gru_cell(x[:, t, :] * tapering_weights[t], h)
+            outputs.append(h)
+        return torch.stack(outputs, dim=1), h
 
 
 class GPT(nn.Module):
@@ -836,7 +955,7 @@ class GPT(nn.Module):
         self.dt_vocab_size = tokenizer.dt_vocab_size
 
         # -- Input Embedding Stem -- #        self.n_embd = config.n_embd
-        self.tok_emb = nn.Embedding(config.id_vocab_size, config.n_embd)
+        self.tok_emb = nn.Embedding(self.id_vocab_size, config.n_embd)
         if config.pos_emb:
             self.pos_emb = nn.Parameter(torch.zeros(1, config.block_size.id, config.n_embd))
             self.pos_emb_prev = nn.Parameter(torch.zeros(1, config.prev_block_size.id, config.n_embd))
@@ -857,11 +976,12 @@ class GPT(nn.Module):
                 setattr(self, f"temp_emb_{name}", TemporalEmbedding(config.n_embd, config.dropout.id))
             
         # Setup projection heads for all the modalities to be predicted
-        # TODO: support regression objective
         for modality in config.predict.modalities.__dict__.keys():
             settings = getattr(config.predict.modalities, modality)
-            with_bias = settings.objective == 'regression' # only use bias for regression
-            setattr(self, f"head_{modality}", nn.Linear(config.n_embd, settings.n_classes, bias=with_bias))
+            if settings.objective == 'regression':
+                setattr(self, f"head_{modality}", nn.Linear(config.n_embd, 1, bias=True))
+            if settings.objective == 'classification':
+                setattr(self, f"head_{modality}", nn.Linear(config.n_embd, settings.n_classes, bias=False))
 
         # TODO: add learnt frame embedding
         # frame embeddings
@@ -880,8 +1000,8 @@ class GPT(nn.Module):
         # -- Visual Backbone -- #
         if hasattr(config.layers, 'stimulus'): 
             if config.layers.stimulus > 0:
-                if config.resnet_backbone is False:
-                    self.video_encoder = VideoEncoder(config)
+                if get_attr(config.frame_encoder, 'resnet_backbone', False) is False:
+                    self.video_encoder = VideoEncoder(config.frame_encoder)
                 else:
                     self.video_encoder = Resnet3DBackbone()
                     print("Using Resnet Backbone")
@@ -890,8 +1010,8 @@ class GPT(nn.Module):
         self.feature_encoder = FeatureEncoder(config)
 
         # -- Multimodal Transformer -- #
-        if config.contrastive:
-            self.contrastive_loss = contrastive_loss if not config.clip_loss else clip_loss
+        if config.contrastive.contrastive:
+            self.contrastive_loss = contrastive_loss if not get_attr(config.contrastive, 'clip_loss', False) else clip_loss
             self.clip = CLIP(config, loss=self.contrastive_loss)
         self.neural_visual_transformer = MultimodalTransformer(config)
        
@@ -908,7 +1028,22 @@ class GPT(nn.Module):
         if config.class_weights is not None:
             for key in config.class_weights.keys():
                 print(f"registering class weights for {key}")
-                self.register_buffer(f"class_weights_{key}", config.class_weights[key])  
+                self.register_buffer(f"class_weights_{key}", config.class_weights[key])
+        
+        # -- GRU, MLP experiments -- #
+        num_layers = 5  # define the number of layers you need
+        if config.mlp_only:
+            self.mlp = nn.Sequential(*[ProjectNorm(config.n_embd, config.n_embd) for _ in range(num_layers)])
+            # print no. parameters:
+            logger.info("number of parameters: %e", sum(p.numel() for p in self.parameters()))
+        elif config.gru_only:
+            self.gru = NF_GRU(config)
+        # elif config.gru_tapered:
+            # self.gru = Tapered_GRU(config)
+        elif get_attr(config, "gru2_only"):
+            self.gru = ImprovedGRU(config)
+            # print no. parameters:
+            logger.info("number of parameters: %e", sum(p.numel() for p in self.parameters()))
         
         logger.info("number of parameters: %e", sum(p.numel() for p in self.parameters()))
 
@@ -1011,7 +1146,10 @@ class GPT(nn.Module):
         idx = x['id']
         dtx = x['dt']
         dtx_prev = x['dt_prev']
-        frames = self.video_encoder(x['frames']) if 'frames' in x else None
+        if hasattr(self, 'video_encoder'):
+            frames = self.video_encoder(x['frames']) if 'frames' in x else None
+        else:
+            frames = None
         pad = x['pad']
         features = dict()
 
@@ -1033,7 +1171,7 @@ class GPT(nn.Module):
         token_embeddings = self.id_drop(self.tok_emb(idx) + id_temporal_embeddings + id_position_embeddings) # each index maps to a (learnable) vector
 
         # Extract image features and add time embeddings
-        if 'frames' in x:
+        if 'frames' in x and frames is not None:
             frame_embeddings = frames    # self.tok_emb(frames)
             im_3d_embeddings = self.frame_3d_emb(frames)
             frame_embeddings = frames + im_3d_embeddings
@@ -1112,10 +1250,17 @@ class GPT(nn.Module):
     def forward(self, x, targets=None):
         idx = x['id']
         pad = x['pad']
+        B, t = idx.size()
         
         features, pad = self.process_features(x)
         if get_attr(self.config, 'mlp_only', False):
             x = features['id']
+        elif get_attr(self.config, 'gru_only', False):
+            x, _ = self.gru(features['id'], features['id_prev'])
+        # elif get_attr(self.config, 'gru_tapered', False):
+            # x, _ = self.gru(features['id'], features['id_prev'])
+        elif get_attr(self.config, 'gru2_only', False):
+            x, _ = self.gru(features['id'], features['id_prev'])
         else:
             x = self.neural_visual_transformer(features)
         id_logits = self.head_id(x)
@@ -1161,9 +1306,9 @@ class GPT(nn.Module):
 
             # TODO: fix the ambiguity with block_type / modality
             # iterate over modalities required for prediction
-            if get_attr(self.config.predict, 'modalities') is not None:
+            if get_attr(self.config, 'predict', None) is not None:
                 x_mean = x.mean(dim=1)
-                for modality, settings in self.config.predict.modalities.__dict__.items():
+                for modality, settings in self.config.predict.__dict__.items():
                     if modality in targets['modalities'].keys():
                         modality_projection = getattr(self, f'head_{modality}')(x_mean)
                         modality_target = targets['modalities'][modality]['value']
@@ -1174,20 +1319,19 @@ class GPT(nn.Module):
                         loss[f'{modality}'] = loss_modality
                         preds[f'{modality}'] = modality_projection 
             
-            if self.config.contrastive:
+            if self.config.contrastive.contrastive:
                 clip_id_feats = []
                 for B, P in enumerate(pad):
-                    clip_id_feats.append(features['id'][B, t - P + 1])
+                    clip_id_feats.append(features['id'][B, t - P])
                 clip_id_feats = torch.stack(clip_id_feats)
                 # n = 2
                 # loss['clip'] = self.clip(features['frames'][:, 0], features['id'][:, -1]) * (1 / n) 
                 # loss['clip'] = self.clip(features['frames'][:, 0], clip_id_feats) * (1 / n)
                 feats_clip = dict()
-
                 # feed in x (last layer representation)
                 feat_contra_id = x.mean(dim=1) # features['id'].mean(dim=1)
-                if hasattr(self.config, 'contrastive_vars'):
-                    for variable in self.config.contrastive_vars:
+                if hasattr(self.config.contrastive, 'vars'):
+                    for variable in self.config.contrastive.vars:
                         # mean pool all sequence
                         if variable == 'id':
                             feats_clip['id'] = feat_contra_id

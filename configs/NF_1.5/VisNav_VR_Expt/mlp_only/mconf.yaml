@@ -17,7 +17,7 @@ block_size:
 layers:
   state_history: 8
   state: 8
-  stimulus: 8
+  stimulus: 0
   self_att: 8
   modalities:
     n_behavior: 25
@@ -59,9 +59,8 @@ resolution:
   frames: 0.05
 
 # GRU, MLP experiments
-mlp_only: false
+mlp_only: true
 gru_only: false
-gru2_only: false
 
 # Rest of your parameters
 class_weights: null

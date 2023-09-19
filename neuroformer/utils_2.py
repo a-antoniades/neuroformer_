@@ -1,4 +1,5 @@
 import glob
+from types import SimpleNamespace
 import os
 import logging
 import pickle
@@ -30,6 +31,22 @@ def set_seed(seed):
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
+
+def recursive_print(x, keys=None):
+    if keys is None:
+        keys = []
+        
+    if isinstance(x, dict):
+        for key, value in x.items():
+            recursive_print(value, keys + [str(key)])
+    elif isinstance(x, (list, tuple)):
+        for idx, value in enumerate(x):
+            recursive_print(value, keys + [str(idx)])
+    elif isinstance(x, torch.Tensor):
+        print("_".join(keys), x.shape, x.dtype)
+    else:
+        print("_".join(keys), type(x))
+
 
 def get_attr(obj, name, default=None):
     if isinstance(obj, dict):
@@ -118,6 +135,29 @@ def update_object(obj1, obj2):
             # print(f"Setting {attr_name} to {attr_value}")
             setattr(obj1, attr_name, attr_value)
 
+def load_config(file_path):
+    with open(file_path, 'r') as stream:
+        try:
+            return dict_to_object(yaml.safe_load(stream))
+        except yaml.YAMLError as exc:
+            print(exc)
+
+def dict_to_object(d):
+    if isinstance(d, dict):
+        return SimpleNamespace(**{k: dict_to_object(v) for k, v in d.items()})
+    else:
+        return d
+
+def object_to_dict(o):
+    if isinstance(o, dict):
+        return {k: object_to_dict(v) for k, v in o.items()}
+    elif isinstance(o, SimpleNamespace):
+        return {k: object_to_dict(v) for k, v in vars(o).items()}
+    elif isinstance(o, list):
+        return [object_to_dict(v) for v in o]
+    else:
+        return o
+    
 def df_to_dict(df):
     d = {k: f.groupby('Interval').apply(lambda x: {'Time': np.array(x['Time']), 'ID': np.array(x['ID'])}).to_dict()
         for k, f in df.groupby('Trial')}
@@ -140,14 +180,14 @@ def print_full(df, length=None):
     pd.reset_option('display.max_rows')
     torch.set_printoptions(threshold=1e3)
 
-def object_to_dict(obj):
-    d = dict()
-    d_types = [int, float, str, bool, tuple, type(None)]
-    for a in dir(obj):
-        if not a.startswith('__'):
-            if type(getattr(obj, a)) in d_types:
-                d[a] = getattr(obj, a)
-    return d
+# def object_to_dict(obj):
+#     d = dict()
+#     d_types = [int, float, str, bool, tuple, type(None)]
+#     for a in dir(obj):
+#         if not a.startswith('__'):
+#             if type(getattr(obj, a)) in d_types:
+#                 d[a] = getattr(obj, a)
+#     return d
 
     # return {a: getattr(obj, a) for a in dir(obj) if not a.startswith('__')}
 
@@ -691,10 +731,9 @@ def predict_beam_search(model, loader, stoi, frame_end=0):
 #     return behavior_preds
 
 @torch.no_grad()
-def predict_modality(model, dataset, modality, block_type='modalities', sample=False, top_k=0, top_p=0):
+def predict_modality(model, dataset, modality, block_type='modalities', objective='classification', sample=False, top_k=0, top_p=0):
     device = torch.cuda.current_device() if torch.cuda.is_available() else "cpu"
     tokenizer = model.tokenizer
-    itos = model.tokenizer.itos[modality]
     block_type_modality = f'{block_type}_{modality}_value'
     
     model.eval()
@@ -708,7 +747,6 @@ def predict_modality(model, dataset, modality, block_type='modalities', sample=F
     trials = []
     modality_true = []
     for it, (x, y) in pbar:
-        print(it)
         x = all_device(x, device)
         y = all_device(y, device)
         logits, features, loss = model(x, y)
@@ -717,27 +755,30 @@ def predict_modality(model, dataset, modality, block_type='modalities', sample=F
         features = all_device(features, 'cpu')
         loss = all_device(loss, 'cpu')
         
-        if top_k or top_p != 0:
-            logits[modality] = top_k_top_p_filtering(logits[modality], top_k=top_k, top_p=top_p)
-        probs = F.softmax(logits[modality], dim=-1)
-        if sample:
-            ix = torch.multinomial(probs, 1).flatten()
-        else:
-            ix = torch.argmax(probs, dim=-1).flatten()
+        if objective == 'classification':
+            if top_k or top_p != 0:
+                logits[modality] = top_k_top_p_filtering(logits[modality], top_k=top_k, top_p=top_p)
+            probs = F.softmax(logits[modality], dim=-1)
+            if sample:
+                ix = torch.multinomial(probs, 1).flatten()
+            else:
+                ix = torch.argmax(probs, dim=-1).flatten()
         
-        ix_itos = [itos[int(i)] for i in ix]
+            ix_itos = tokenizer.decode(ix, modality)
+            y_modality = tokenizer.decode(y[block_type][modality]['value'], modality)
+        elif objective == 'regression':
+            ix = logits[modality].flatten()
+            ix_itos = ix
+            y_modality = y[block_type][modality]['value'].flatten()
+        
         interval = x['interval'].flatten().tolist()
         trial = x['trial'].flatten().tolist()
-        y_modality = tokenizer.decode(y[block_type][modality]['value'], modality)
-        modality_preds.extend(ix_itos)
+        modality_preds.extend([float(ix_t) for ix_t in ix_itos])
         intervals.extend(interval)
         trials.extend(trial)
-        modality_true.extend(y_modality)
+        modality_true.extend([float(y_t) for y_t in y_modality])
 
-        if it > 10:
-            break
-    
-    # make modality preds, intervals etc into dataframe
+    # make modality preds, intervals etc into dataframe=
     modality_preds = pd.DataFrame(modality_preds)
     modality_preds.columns = [block_type_modality]
     modality_preds['interval'] = intervals
@@ -935,6 +976,8 @@ def check_common_attrs(*objects):
     return common_attrs
 
 def update_config(config, modalities, tokenizer, x=None, y=None, default_layer_size=4):
+    if isinstance(config, SimpleNamespace):
+        config = object_to_dict(config)
     # Ensure 'block_size' and 'layers' are in config
     if 'block_size' not in config:
         config['block_size'] = {}
@@ -957,7 +1000,7 @@ def update_config(config, modalities, tokenizer, x=None, y=None, default_layer_s
                 if get_attr(tokenizer.stoi, modality) is not None:
                     # if tokenizer, classification objective
                     config['predict']['modalities'][new_key] = {
-                                        'objective': 'classification',
+                                        'objective': values['objective'],
                                         'n_classes': len(tokenizer.stoi[modality])
                     }
                 else:
@@ -967,7 +1010,8 @@ def update_config(config, modalities, tokenizer, x=None, y=None, default_layer_s
                                         'n_classes': 1
                     }
 
-
+    if isinstance(config, dict):
+        config = dict_to_object(config)
     return config
 
 # # precision_score = collections.defaultdict(list)
@@ -1061,3 +1105,32 @@ def update_config(config, modalities, tokenizer, x=None, y=None, default_layer_s
 #         cv2.line(image, (0, j * step_y), (width, j * step_y), color, thickness)
 
 #     return image
+
+
+
+# def bin_spikes(data, dt):
+#     # Compute the maximum time across all spike times
+#     max_time = max(neuron[0].max() for neuron in data if neuron[0].size != 0)
+
+#     # Compute the number of intervals
+#     N_intervals = int(np.ceil(max_time / dt))
+
+#     # Create a 2D matrix of zeros
+#     N_Neurons = len(data)
+#     spike_matrix = np.zeros((N_Neurons, N_intervals))
+
+#     # Iterate over the neurons and their spike times
+#     for i, neuron in enumerate(data):
+#         # Remove NaN values
+#         spike_times = neuron[0][~np.isnan(neuron[0])]
+#         # Iterate over the spike times
+#         for spike_time in spike_times:
+#             # Compute the interval index for the spike time
+#             interval_index = int(spike_time // dt)
+
+#             # Increment the spike count for the neuron and interval
+#             spike_matrix[i, interval_index] += 1
+
+#     return spike_matrix
+
+# spikerates = bin_spikes(response, 0.1)

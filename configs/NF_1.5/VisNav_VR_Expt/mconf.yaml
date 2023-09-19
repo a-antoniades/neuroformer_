@@ -12,7 +12,7 @@ block_size:
   behavior: 15
   frame: 446
   id: 100
-  prev_id: 300
+  prev_id: 100
 
 layers:
   state_history: 8
@@ -60,8 +60,7 @@ resolution:
 
 # GRU, MLP experiments
 mlp_only: false
-gru_only: false
-gru2_only: false
+gru_only: true
 
 # Rest of your parameters
 class_weights: null
