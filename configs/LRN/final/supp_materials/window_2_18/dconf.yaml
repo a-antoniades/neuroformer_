@@ -1,0 +1,15 @@
+_is_protocol: false
+block_size: 1150
+data_dict: null
+dataset: LRN
+dt: 0.1
+dt_frames: 0.1
+frame_window: 10
+frames: null
+idx: 0
+interval: 0
+population_size: 1003
+pred: false
+size: 851234
+window: 0.5
+window_prev: 9.5

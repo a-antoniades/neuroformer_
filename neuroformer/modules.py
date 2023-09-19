@@ -296,7 +296,7 @@ class LearntTemporalEmbedding(nn.Module):
     Project B x T x 1 time sequence to
             B x T x C
     """
-    def __init__(self, block_sz, n_embd, p_drop=0.2):
+    def __init__(self, n_embd, p_drop=0.2):
         super().__init__()
         self.temp_emb = nn.Sequential(
             nn.Linear(1, n_embd // 2),

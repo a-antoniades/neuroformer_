@@ -38,6 +38,17 @@ import collections
 logger = logging.getLogger(__name__)
 
 
+def get_attr(obj, name, default=None):
+    if isinstance(obj, dict):
+        if name in obj:
+            return obj[name]
+        else:
+            return default
+    elif hasattr(obj, name):
+        return getattr(obj, name)
+    else:
+        return default
+
 def convert_weights(model: nn.Module):
     """Convert applicable model parameters to fp16"""
 
@@ -102,7 +113,7 @@ class GPTConfig:
     eos_loss = False
 
     def __init__(self, vocab_size, block_size, **kwargs):
-        self.vocab_size = vocab_size
+        self.id_vocab_size = vocab_size
         self.block_size = block_size
         for k, v in kwargs.items():
             if isinstance(v, omegaconf.dictconfig.DictConfig):
@@ -131,7 +142,7 @@ class neuralGPTConfig:
     sparse_topk = None
 
     def __init__(self, vocab_size, block_size, **kwargs):
-        self.vocab_size = vocab_size
+        self.id_vocab_size = vocab_size
         self.block_size = block_size
         for k, v in kwargs.items():
             setattr(self, k, v)
@@ -248,7 +259,7 @@ class ViTEncoder(nn.Module):
         # features.append(x)
         return x
 
-class MultiheadfAttention(nn.Module):
+class MultiheadAttention(nn.Module):
     """
     A vanilla multi-head masked self-attention layer with a projection at the end.
     
@@ -265,14 +276,14 @@ class MultiheadfAttention(nn.Module):
         self.key = nn.Linear(kv_embd, config.n_embd)
         self.value = nn.Linear(kv_embd, config.n_embd)
         # regularization
-        self.attn_drop = nn.Dropout(config.attn_pdrop)
-        self.resid_drop = nn.Dropout(config.resid_pdrop)
+        self.attn_drop = nn.Dropout(config.dropout.attn)
+        self.resid_drop = nn.Dropout(config.dropout.resid)
         # output projection
         self.proj = nn.Linear(config.n_embd, config.n_embd)
 
-        # self.register_buffer("mask", self.build_mask(config.id_block_size))  
+        # self.register_buffer("mask", self.build_mask(config.block_size.id))  
         self.n_head = config.n_head
-        self.sparse_topk = config.sparse_topk if sparse_topk is None else sparse_topk
+        self.sparse_topk = config.sparse.topk if sparse_topk is None else sparse_topk
 
         self.att = None
         self.T = config.block_size
@@ -564,12 +575,12 @@ class Block(nn.Module):
         super().__init__()
         self.ln1 = nn.LayerNorm(config.n_embd)
         self.ln2 = nn.LayerNorm(config.n_embd)
-        self.attn = MultiheadfAttention(config, kv_embd, sparse_topk)
+        self.attn = MultiheadAttention(config, kv_embd, sparse_topk)
         self.mlp = nn.Sequential(
             nn.Linear(config.n_embd, 4 * config.n_embd),
             nn.GELU(),
             nn.Linear(4 * config.n_embd, config.n_embd),
-            nn.Dropout(config.resid_pdrop),
+            nn.Dropout(config.dropout.resid),
         )
         self.ln_f = nn.LayerNorm(config.n_embd)
 
@@ -587,6 +598,7 @@ class BlockSequential(nn.Sequential):
         for module in self._modules.values():
             x = module(q, k, v, mask, pad, dtx)
         return x
+
 
 # def contrastive_loss(image_features, neural_features, temp=0.5):
 
@@ -649,7 +661,40 @@ class FeatureEncoder(nn.Module):
             self.frame_state_blocks = _get_clones(Block(config, sparse_topk=config.sparse_topk_frame), config.n_stimulus_layers)
         else:
             self.frame_state_blocks = None
-        self.register_buffer("mask", self.build_mask(config.id_block_size))  
+        self.register_buffer("mask", self.build_mask(config.block_size.id))  
+    
+    def build_mask(self, block_size):
+        mask = torch.tril(torch.ones((block_size, block_size)),
+                                     ).view(1, 1, block_size, block_size)
+        return mask
+    
+    def forward(self, neural, visual):
+        for mod in self.neural_state_blocks:
+            neural = mod(neural, neural, neural, self.mask)
+        if self.frame_state_blocks is not None:
+            for mod in self.frame_state_blocks:
+                visual = mod(visual, visual, visual)
+
+            
+        features = dict()
+        features['id'] = neural
+        features['frames'] = visual
+        
+        return features
+        
+
+import torch.nn as nn
+
+class FeatureEncoder(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.config = config
+        self.neural_state_blocks = _get_clones(Block(config, sparse_topk=config.sparse.topk_id), config.layers.state)
+        if config.vit_encoder:
+            self.frame_state_blocks = _get_clones(Block(config, sparse_topk=config.sparse.topk_frame), config.layers.stimulus)
+        else:
+            self.frame_state_blocks = None
+        self.register_buffer("mask", self.build_mask(config.block_size.id))  
     
     def build_mask(self, block_size):
         mask = torch.tril(torch.ones((block_size, block_size)),
@@ -668,29 +713,46 @@ class FeatureEncoder(nn.Module):
         features['frames'] = visual
         
         return features
-        
 
 class MultimodalTransformer(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.config = config
-        # self.neural_state_block = nn.Sequential(*[Block(config, sparse_topk=config.sparse_topk_id) for _ in range(config.n_state_layers)])
-        # self.neural_state_history_block = nn.Sequential(*[Block(config, sparse_topk=config.sparse_topk_id) for _ in range(config.n_state_history_layers)])
-        # self.neural_state_history_self_attention = BlockSequential(*[Block(config) for _ in range(config.n_state_layers)])
-        # self.neural_state_stimulus = BlockSequential(*[Block(config, sparse_topk=config.sparse_topk_frame) for _ in range(config.n_stimulus_layers)])
 
-        # self.frame_encoder = _get_clones(Block(config, sparse_topk=config.sparse_topk_id), 4)
-        self.neural_state_blocks = _get_clones(Block(config, sparse_topk=config.sparse_topk_id), config.n_state_layers)
-        self.neural_state_history_blocks = _get_clones(Block(config, sparse_topk=config.sparse_topk_id), config.n_state_history_layers)
-        self.neural_state_history_self_attention = _get_clones(Block(config, sparse_topk=config.sparse_topk_id), config.self_att_layers)
-        self.neural_state_stimulus_blocks =  _get_clones(Block(config, sparse_topk=config.sparse_topk_frame), config.n_stimulus_layers)
-        self.neural_state_behavior_blocks = _get_clones(Block(config), config.n_behavior_layers)
-        # self.output_att = _get_clones(Block(config, sparse_topk=config.sparse_topk_id), 1)
+        # Get modalities from config
+        modalities_layers = config.layers.modalities
+
+        # Initialize dictionary to hold modalities and their corresponding blocks
+        self.modalities_blocks = {}
+
+        # Iterate over all modalities in config
+        for modality in config.layers.modalities.__dict__.keys():
+            
+            # Get number of layers and block size for this modality
+            n_layers = getattr(modalities_layers, modality)
+            
+            # Initialize blocks for this modality
+            self.modalities_blocks[modality] = nn.ModuleList(
+                [_get_clones(Block(self.config), n_layers) for _ in range(n_layers)]
+            )
+        
+        # initialize the standard (id) and special (frame) blocks
+        self.neural_state_blocks = _get_clones(Block(config, 
+                                                     sparse_topk=get_attr(config.sparse, 'topk_id')), 
+                                                     config.layers.state)
+        self.neural_state_history_blocks = _get_clones(Block(config,
+                                                                sparse_topk=get_attr(config.sparse, 'topk_id')), 
+                                                                config.layers.state_history)
+        self.neural_state_stimulus_blocks = _get_clones(Block(config, 
+                                                              sparse_topk=get_attr(config.sparse, 'topk_frame')), 
+                                                              config.layers.stimulus)
 
         self.ln_f = nn.LayerNorm(config.n_embd)
         self.epoch = 0
 
-        self.register_buffer("mask", self.build_mask(config.id_block_size))            
+        # Assuming 'id' modality is always present
+        self.register_buffer("mask", self.build_mask(config.block_size.id))
+
     
     def build_mask(self, block_size):
         mask = torch.tril(torch.ones((block_size, block_size)),
@@ -726,34 +788,34 @@ class MultimodalTransformer(nn.Module):
         """
         self.epoch += 1/48
         if self.epoch == 10: print(self.epoch)
-        if self.config.sparse_mask and self.epoch >= 10 and self.training:
+        if self.config.sparse.mask and self.epoch >= 10 and self.training:
             p = 0.4 / (1 + np.exp( -self.epoch / 10))
-            mask = self.generate_sparse_mask(p, self.config.id_block_size)   # self.config.p_sparse
-            # logger.info(f"p_sparse = {p}")
+            mask = self.generate_sparse_mask(p, self.config.block_size.id)
         else:
             mask = self.mask
 
         neural_state = features['id']
         neural_history = features['id_prev']
-        stimulus = features['frames']
+        modalities = get_attr(features, 'modalities', [])
         
-        x = neural_state
-        y = neural_history
-
+        # state history
+        x = features['id']
         for mod in self.neural_state_history_blocks:
             x = mod(x, neural_history, neural_history)
-        for mod in self.neural_state_history_self_attention:
-            x = mod(x, x, x, mask)
-        if hasattr(self.config, 'n_behavior_layers') and self.config.n_behavior_layers > 0:
-            if 'behavior' in features:
-                behavior = features['behavior']
-                for mod in self.neural_state_behavior_blocks:
-                    x = mod(x, behavior, behavior)
+        # stimulus
         for mod in self.neural_state_stimulus_blocks:
-            x = mod(x, stimulus, stimulus)
+            if 'frames' in features:
+                x = mod(x, features['frames'], features['frames'])
+        # For each modality and corresponding block
+        for modality, blocks in self.modalities_blocks.items():
+            if modality in modalities:
+                modality_feature = features[modality]
+                # Process feature through each block in the modality
+                for block in blocks:
+                    x = block(x, modality_feature, modality_feature)
+        # masked self-attention
         for mod in self.neural_state_blocks:
             x = mod(x, x, x, mask)
-        # x = self.output_att[0](x, x, x, mask)
         return x
 
 
@@ -761,7 +823,7 @@ class MultimodalTransformer(nn.Module):
 class GPT(nn.Module):
     """ the full GPT language model, with a context size of block_size """
 
-    def __init__(self, config):
+    def __init__(self, config, tokenizer):
         super().__init__()
 
         self.device = 'cpu'
@@ -769,23 +831,37 @@ class GPT(nn.Module):
             self.device = torch.cuda.current_device()
 
         self.config = config
+        self.tokenizer = tokenizer
+        self.id_vocab_size = tokenizer.ID_vocab_size
+        self.dt_vocab_size = tokenizer.dt_vocab_size
+
         # -- Input Embedding Stem -- #        self.n_embd = config.n_embd
         self.tok_emb = nn.Embedding(config.id_vocab_size, config.n_embd)
         if config.pos_emb:
-            self.pos_emb = nn.Parameter(torch.zeros(1, config.id_block_size, config.n_embd))
-            self.pos_emb_prev = nn.Parameter(torch.zeros(1, config.prev_id_block_size, config.n_embd))
+            self.pos_emb = nn.Parameter(torch.zeros(1, config.block_size.id, config.n_embd))
+            self.pos_emb_prev = nn.Parameter(torch.zeros(1, config.prev_block_size.id, config.n_embd))
         if config.temp_emb:
             """ Choose between learned or sinusoidal temporal embeddings"""
             if hasattr(config, 'wave_emb') and config.wave_emb:
-                self.temp_emb = TemporalEmbedding(config.n_embd, config.id_drop)
-                self.temp_emb_prev = TemporalEmbedding(config.n_embd, config.id_drop)
+                self.temp_emb = TemporalEmbedding(config.n_embd, config.dropout.id)
+                self.temp_emb_prev = TemporalEmbedding(config.n_embd, config.dropout.id)
             else:
                 self.temp_emb = LearntTemporalEmbedding(config.n_embd)
                 self.temp_emb_prev = LearntTemporalEmbedding(config.n_embd)
-        if hasattr(config, 'n_behavior_layers') and config.n_behavior_layers > 0:
-            self.mlp_behavior = ProjectNorm(1, config.n_embd)
-            self.pos_emb_behavior = PositionalEncoding2D(config.n_embd)
-            self.temp_emb_behavior = LearntTemporalEmbedding(config.n_embd)
+
+        # Iterate over all modalities in config for cross-attention module
+        for name, feature in config.layers.modalities.__dict__.items():
+            if getattr(config.layers.modalities, name) > 0:
+                setattr(self, f"mlp_{name}", ProjectNorm(1, config.n_embd))
+                setattr(self, f"pos_emb_{name}", PositionalEncoding2D(config.n_embd))
+                setattr(self, f"temp_emb_{name}", TemporalEmbedding(config.n_embd, config.dropout.id))
+            
+        # Setup projection heads for all the modalities to be predicted
+        # TODO: support regression objective
+        for modality in config.predict.modalities.__dict__.keys():
+            settings = getattr(config.predict.modalities, modality)
+            with_bias = settings.objective == 'regression' # only use bias for regression
+            setattr(self, f"head_{modality}", nn.Linear(config.n_embd, settings.n_classes, bias=with_bias))
 
         # TODO: add learnt frame embedding
         # frame embeddings
@@ -797,17 +873,18 @@ class GPT(nn.Module):
         # self.register_buffer("frame_temp_emb_seq", frame_temp_emb)
         # self.temp_emb_frames = TemporalEmbedding(config.n_embd, config.pos_pdrop, position=self.frame_temp_emb_seq)
         self.frame_3d_emb = PositionalEncoding3D(config.n_embd)
-        self.id_drop = nn.Dropout(config.id_drop)
-        self.im_drop = nn.Dropout(config.im_drop)
-        self.drop = nn.Dropout(config.embd_pdrop)
+        self.id_drop = nn.Dropout(config.dropout.id)
+        self.im_drop = nn.Dropout(config.dropout.im)
+        self.drop = nn.Dropout(config.dropout.embd)
 
         # -- Visual Backbone -- #
-        if config.n_stimulus_layers > 0:
-            if config.resnet_backbone is False:
-                self.video_encoder = VideoEncoder(config)
-            else:
-                self.video_encoder = Resnet3DBackbone()
-                print("Using Resnet Backbone")
+        if hasattr(config.layers, 'stimulus'): 
+            if config.layers.stimulus > 0:
+                if config.resnet_backbone is False:
+                    self.video_encoder = VideoEncoder(config)
+                else:
+                    self.video_encoder = Resnet3DBackbone()
+                    print("Using Resnet Backbone")
 
         # -- feature encoder -- # 
         self.feature_encoder = FeatureEncoder(config)
@@ -818,12 +895,12 @@ class GPT(nn.Module):
             self.clip = CLIP(config, loss=self.contrastive_loss)
         self.neural_visual_transformer = MultimodalTransformer(config)
        
-        ## -- ID, dt, Logit Projections -- ##
-        print(config.n_embd, config.n_dt)
-        self.head_id = nn.Linear(config.n_embd, config.vocab_size, bias=False)  # ProjectNorm(config.n_embd, config.vocab_size)
-        self.head_dt = nn.Linear(config.n_embd, config.n_dt, bias=False)        # ProjectNorm(config.n_embd, config.n_dt)
-        if self.config.predict_behavior:
-            self.head_behavior = nn.Linear(config.n_embd, config.n_behavior, bias=False)
+        # -- ID, dt, Logit Projections -- #
+        print(config.n_embd, self.dt_vocab_size)
+        self.head_id = nn.Linear(config.n_embd, len(self.tokenizer.stoi['ID'].keys()), bias=False)  
+        self.head_dt = nn.Linear(config.n_embd, len(self.tokenizer.stoi['dt'].keys()), bias=False)      
+        # if self.config.predict_behavior:
+        #     self.head_behavior = nn.Linear(config.n_embd, config.n_behavior, bias=False)
 
         self.block_size = config.block_size
         self.apply(self._init_weights)
@@ -912,7 +989,22 @@ class GPT(nn.Module):
         
         
         return optimizer
-    
+
+    def process_modality(self, name, feature):
+        modality_emb = getattr(self, f"mlp_{name}")(feature['value'])
+        if modality_emb.dim() < 4:
+            modality_emb = modality_emb.unsqueeze(-2)
+        modality_pos_emb = getattr(self, f"pos_emb_{name}")(modality_emb)
+        modality_temp_emb = getattr(self, f"temp_emb_{name}")(feature['dt'].float()) if self.config.temp_emb and 'dt' in feature else 0
+        n_vars = feature['value'].size(1)
+        # we have n vars, for which we have time
+        modality_temp_emb = modality_temp_emb.repeat(1, n_vars, 1)
+        modality_emb = rearrange(modality_emb, 'b t c e -> b (t c) e')
+        # average over time for contrastive learning
+        modality_pos_emb = rearrange(modality_pos_emb, 'b t c e -> b (t c) e') if self.config.pos_emb else 0
+        modality_emb = self.id_drop(modality_emb + modality_pos_emb + modality_temp_emb)
+        return modality_emb
+
     def process_features(self, x):
         # batch, block_size, feature
         p_idx = x['id_prev']
@@ -957,21 +1049,9 @@ class GPT(nn.Module):
         token_embeddings, frame_embeddings = features['id'], features['frames']
         features = dict()
 
-        if 'behavior' in x:
-            behavior_emb = self.mlp_behavior(x['behavior'])
-            behavior_pos_emb = self.pos_emb_behavior(behavior_emb)
-            behavior_temp_emb = self.temp_emb_behavior(x['behavior_dt'].float()) if self.config.temp_emb else 0
-            n_vars = x['behavior'].size(1)
-            if behavior_emb.ndim < 4:
-                behavior_emb = behavior_emb.unsqueeze(-2)
-            # we have n vars, for which we have time
-            behavior_temp_emb = behavior_temp_emb.repeat(1, n_vars, 1)
-            behavior_emb = rearrange(behavior_emb, 'b t c e -> b (t c) e')
-            # average over time for contrastive learning
-            behavior_pos_emb = rearrange(behavior_pos_emb, 'b t c e -> b (t c) e')
-            behavior_emb = self.id_drop(behavior_emb + behavior_pos_emb + behavior_temp_emb)
-            features['behavior_mean'] = behavior_emb.mean(dim=1)
-            features['behavior'] = behavior_emb
+        for name, feature in x['modalities'].items():
+            features[name] = self.process_modality(name, feature)
+            features[f'{name}_mean'] = features[name].mean(dim=1)
         
         # Tidy up
         features['id_prev'] = prev_token_embeddings
@@ -1032,26 +1112,21 @@ class GPT(nn.Module):
     def forward(self, x, targets=None):
         idx = x['id']
         pad = x['pad']
-
-        b, t = idx.size()
-        tf = self.config.frame_block_size
-        # assert t + tf == self.config.block_size, f"{tf} {t}"
-        # assert t <= self.block_size, "Cannot forward, model block size is exhausted"
         
         features, pad = self.process_features(x)
-        if self.config.mlp_only:
+        if get_attr(self.config, 'mlp_only', False):
             x = features['id']
         else:
             x = self.neural_visual_transformer(features)
         id_logits = self.head_id(x)
         dt_logits = self.head_dt(x)    # (B, T_id, 1)
-        if self.config.predict_behavior:
+        if get_attr(self.config, 'predict_behavior', False):
             behavior_logits = self.predict_var(x)
 
         # if targets, calculate loss
         # calculate loss on logits up to padding token for each batch
         loss = None
-        preds = dict()
+        preds = collections.defaultdict(dict)
         loss_frames = 0
         loss_id = []
         loss_time = []
@@ -1059,6 +1134,7 @@ class GPT(nn.Module):
         recall = []
         F1 = []
         probs_id = []
+        logits_modalities = {}
         torch.cuda.empty_cache()
         if targets is not None:
             loss = collections.defaultdict(float)
@@ -1066,34 +1142,37 @@ class GPT(nn.Module):
 
             
             ## separate ids and dts into the neural data and eos tokens
-            eos_id_tok = self.config.ignore_index_id - 1
-            eos_dt_tok = self.config.ignore_index_dt - 1
+            eos_id_tok = self.tokenizer.stoi['ID']['EOS']
+            eos_dt_tok = self.tokenizer.stoi['dt']['EOS']
             eos_id_logits, eos_dt_logits, \
             id_logits_no_eos, dt_logits_no_eos, \
             targets = self.separate_eos_tokens(eos_id_tok, eos_dt_tok, 
                                                targets, id_logits, 
                                                dt_logits)
 
-
             if self.config.class_weights is not None:
                 loss_id = F.cross_entropy(id_logits.view(-1, id_logits.size(-1)), targets['id'].view(-1),
                                           gnore_index=self.config.ignore_index_id, weight=self.class_weights_id)
                 loss_time = F.cross_entropy(dt_logits.view(-1, dt_logits.size(-1)), targets['dt'].view(-1), 
                                           ignore_index=self.config.ignore_index_dt, weight=self.class_weights_dt)
-            elif self.config.eos_loss:
-                loss_id =  F.cross_entropy(id_logits_no_eos.view(-1, id_logits.size(-1)), targets['id_'].view(-1), ignore_index=self.config.ignore_index_id) 
-                loss_time = F.cross_entropy(dt_logits_no_eos.view(-1, dt_logits.size(-1)), targets['dt_'].view(-1), ignore_index=self.config.ignore_index_dt)
-                loss_id_eos = F.cross_entropy(eos_id_logits.view(-1, eos_id_logits.size(-1)), targets['id_eos'].view(-1), ignore_index=self.config.ignore_index_id)
-                loss_time_eos = F.cross_entropy(eos_dt_logits.view(-1, eos_dt_logits.size(-1)), targets['dt_eos'].view(-1), ignore_index=self.config.ignore_index_dt)
-                loss['eos_id'] = ((1 / 8) * loss_id_eos) * (1 - 1 / n)
-                loss['eos_dt'] = ((1 / 8) * loss_time_eos) * (1 - 1 / n)
             else:
-                loss_id =  F.cross_entropy(id_logits.view(-1, id_logits.size(-1)), targets['id'].view(-1), ignore_index=self.config.ignore_index_id) 
-                loss_time = F.cross_entropy(dt_logits.view(-1, dt_logits.size(-1)), targets['dt'].view(-1), ignore_index=self.config.ignore_index_dt)
+                loss_id =  F.cross_entropy(id_logits.view(-1, id_logits.size(-1)), targets['id'].view(-1), ignore_index=self.tokenizer.stoi['ID']['PAD']) 
+                loss_time = F.cross_entropy(dt_logits.view(-1, dt_logits.size(-1)), targets['dt'].view(-1), ignore_index=self.tokenizer.stoi['dt']['PAD'])
 
-            if self.config.predict_behavior and 'behavior' in targets:
-                # loss_behavior = F.mse_loss(behavior_logits, targets['behavior'].view(b, -1))
-                loss_behavior = F.cross_entropy(behavior_logits.view(-1, behavior_logits.size(-1)), targets['behavior'].view(-1))
+            # TODO: fix the ambiguity with block_type / modality
+            # iterate over modalities required for prediction
+            if get_attr(self.config.predict, 'modalities') is not None:
+                x_mean = x.mean(dim=1)
+                for modality, settings in self.config.predict.modalities.__dict__.items():
+                    if modality in targets['modalities'].keys():
+                        modality_projection = getattr(self, f'head_{modality}')(x_mean)
+                        modality_target = targets['modalities'][modality]['value']
+                        if settings.objective == 'regression':
+                            loss_modality = F.mse_loss(modality_projection, modality_target.view(B, -1))
+                        elif settings.objective == 'classification':
+                            loss_modality = F.cross_entropy(modality_projection.view(-1, modality_projection.size(-1)), modality_target.view(-1))
+                        loss[f'{modality}'] = loss_modality
+                        preds[f'{modality}'] = modality_projection 
             
             if self.config.contrastive:
                 clip_id_feats = []
@@ -1130,9 +1209,7 @@ class GPT(nn.Module):
             loss['id'] = ((4 / 5) * loss_id) * (1 - 1 / n)   # sum(loss_id) / (b * 2)   # / len(loss_id)
             loss['time'] = ((1 / 5) * loss_time) * (1 - 1 / n)
 
-            if self.config.predict_behavior and 'behavior' in targets:
-                loss['behavior'] = ((1 / 4) * loss_behavior) * (1 - 1 / n)
-                preds['behavior'] = behavior_logits
+            t = targets['id'].size(1)
             for B, P in enumerate(pad):                
                 id_targets = targets['id'][B, :t - P - 1] # don't include EOS.
                 id_logits_ = id_logits[B, :t - P - 1]         
@@ -1142,9 +1219,9 @@ class GPT(nn.Module):
                     _, ix_top_k = torch.topk(probs_neurons, k=1, dim=-1)
                     pred_neurons = ix_top_k.detach().flatten()
                     true_neurons = id_targets.detach().flatten()
-                    precision_score = torchmetrics.functional.precision(true_neurons, pred_neurons, task='multiclass', num_classes=self.config.vocab_size).to(self.device)
-                    recall_score = torchmetrics.functional.recall(true_neurons, pred_neurons, task='multiclass', num_classes=self.config.vocab_size).to(self.device)
-                    F1_score = torchmetrics.functional.f1_score(true_neurons, pred_neurons, task='multiclass', num_classes=self.config.vocab_size).to(self.device)
+                    precision_score = torchmetrics.functional.precision(true_neurons, pred_neurons, task='multiclass', num_classes=self.id_vocab_size).to(self.device)
+                    recall_score = torchmetrics.functional.recall(true_neurons, pred_neurons, task='multiclass', num_classes=self.id_vocab_size).to(self.device)
+                    F1_score = torchmetrics.functional.f1_score(true_neurons, pred_neurons, task='multiclass', num_classes=self.id_vocab_size).to(self.device)
 
                     probs_id.append(probs_neurons)
                     if (precision, recall, F1) is not None:

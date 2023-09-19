@@ -29,7 +29,7 @@ from omegaconf import OmegaConf
 import os
 parent_path = os.path.dirname(os.path.dirname(os.getcwd())) + "/"
 
-from utils import object_to_dict, save_yaml
+from utils import object_to_dict, save_yaml, all_device
 
 
 # from torch.nn.parallel import DistributedDataParallell as dist
@@ -141,6 +141,10 @@ class Trainer:
         save_yaml(mconf, os.path.join(config_path, "mconf.yaml"))
         save_yaml(tconf, os.path.join(config_path, "tconf.yaml"))
         save_yaml(dconf, os.path.join(config_path, "dconf.yaml"))
+
+        if hasattr(raw_model, "tokenizer"):
+            with open(os.path.join(config_path, "tokenizer.pkl", "wb")) as f:
+                pickle.dump(raw_model.tokenizer, f)
     
     def save_latents(self, model, dataset, save_file):
         print(f"Saving latents to {save_file}")
@@ -207,10 +211,8 @@ class Trainer:
             pbar = tqdm(enumerate(loader), total=len(loader), disable=self.config.no_pbar) if is_train else enumerate(loader)
             for it, (x, y) in pbar:
                 # place data on the correct device
-                for key, value in x.items():
-                    x[key] = x[key].to(self.device)
-                for key, value in y.items():
-                    y[key] = y[key].to(self.device)
+                x = all_device(x, self.device)
+                y = all_device(y, self.device)
 
                 # forward the model
                 with torch.set_grad_enabled(is_train):
