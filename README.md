@@ -1,6 +1,10 @@
 # Neuroformer
 
+![Model Architecture](images/_7fef7456-b2dd-4ef4-bc00-2a15d401e51b.jpg)
+
 ### A GPT based multi-modal, multi-task transformer model for pretraining and downstream inference involving brain data.
+
+
 
 ![Model Architecture](images/model_arch_2_5.jpg)
 
