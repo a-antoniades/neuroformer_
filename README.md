@@ -1,7 +1,5 @@
-<div style="display: flex; align-items: center;">
-    <img src="images/_7fef7456-b2dd-4ef4-bc00-2a15d401e51b.jpg" alt="Model Architecture" width="200px"/>
-    <h1>Neuroformer</h1>
-</div>
+# Neuroformer 
+<img src="images/_7fef7456-b2dd-4ef4-bc00-2a15d401e51b.jpg" alt="Model Architecture" width="25%"/>
 
 
 <!-- ![Model Architecture](images/_7fef7456-b2dd-4ef4-bc00-2a15d401e51b.jpg) -->
