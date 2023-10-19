@@ -1,0 +1,18 @@
+method: grid
+metric:
+  goal: minimize
+  name: Loss/test_speed
+parameters:
+  window_prev:
+    values:
+    - 0.1
+    - 0.2
+    - 0.3
+    - 0.4
+    - 0.5
+    - 0.6
+    - 0.7
+    - 0.8
+    - 0.9
+    - 1.0
+program: neuroformer_Visnav_NF_1.5.py

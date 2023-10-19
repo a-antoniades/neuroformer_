@@ -12,7 +12,7 @@ block_size:
   behavior: 15
   frame: 446
   id: 100
-  prev_id: 700
+  prev_id: 100
 
 layers:
   state_history: 6
@@ -34,8 +34,15 @@ sparse:
 window:
   frame: null
   curr: 0.05
-  prev: 0.05
+  prev: 0.15
   speed: 0.05
+
+# modalities = {
+#     'all': 
+#             {'speed': 
+#                 {'data': speed, 'dt': config.window.speed, 'predict': True, 'objective': config.predict.speed.objective}
+#             },
+# }
 
 modalities:
   behavior:
@@ -50,13 +57,15 @@ modalities:
       phi:
         data: phi
         dt: 0.05
-        predict: true
-        objective: regression
+        predict: false
+        objective: null
       th:
         data: th
         dt: 0.05
-        predict: true
-        objective: regression
+        predict: false
+        objective: null
+
+predict: null
 
 frame_encoder:
   conv_layer: true
@@ -93,3 +102,6 @@ pretrain: false
 temp_emb: true
 vit_encoder: true
 ingore_index_pad: true
+
+# selection of the data
+selection: sel1

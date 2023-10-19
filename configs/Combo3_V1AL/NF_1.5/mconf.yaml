@@ -12,7 +12,7 @@ block_size:
   behavior: 15
   frame: 446
   id: 100
-  prev_id: 700
+  prev_id: 100
 
 layers:
   state_history: 6
@@ -34,47 +34,27 @@ sparse:
 window:
   frame: null
   curr: 0.05
-  prev: 0.05
-  speed: 0.05
+  prev: 0.15
 
-modalities:
-  behavior:
-    n_layers: 4
-    window: 0.05
-    variables:
-      speed:
-        data: speed
-        dt: 0.05
-        predict: false
-        objective: regression
-      phi:
-        data: phi
-        dt: 0.05
-        predict: true
-        objective: regression
-      th:
-        data: th
-        dt: 0.05
-        predict: true
-        objective: regression
+predict: null
 
 frame_encoder:
   conv_layer: true
-  kernel_size: [4, 5, 5]
+  kernel_size: [3, 8, 8]
+  stride_size: [3, 4, 4]
   n_embd: 256
   n_embd_frames: 64
   resnet_backbone: false
 
 contrastive:
   contrastive: false
-  vars: ['id', 'frames', 'speed']
+  vars: ['id', 'frames']
   clip_embd: 1024
   clip_temp: 0.5
 
 # resolution for predictions
 resolution:
   dt: 0.01
-  speed: 0.2
   frames: 0.05
 
 # GRU, MLP experiments
@@ -93,3 +73,6 @@ pretrain: false
 temp_emb: true
 vit_encoder: true
 ingore_index_pad: true
+
+# selection of the data
+selection: sel1

@@ -1,0 +1,91 @@
+block_size:
+  behavior: 15
+  frame: 446
+  id: 100
+  prev_id: 700
+class_weights: null
+contrastive:
+  clip_embd: 1024
+  clip_temp: 0.5
+  contrastive: false
+  vars:
+  - id
+  - frames
+  - speed
+dropout:
+  attn: 0.2
+  b: 0.45
+  embd: 0.2
+  id: 0.35
+  im: 0.35
+  pos: 0.2
+  resid: 0.2
+  temp: 0.2
+epoch: 757
+frame_encoder:
+  conv_layer: true
+  kernel_size:
+  - 4
+  - 5
+  - 5
+  n_embd: 256
+  n_embd_frames: 64
+  resnet_backbone: false
+freeze_weights: null
+gru2_only: false
+gru_only: false
+ingore_index_pad: true
+layers:
+  behavior: 6
+  modalities:
+    n_behavior: 25
+  self_att: 6
+  state: 6
+  state_history: 6
+  stimulus: 6
+mlp_only: false
+modalities:
+  behavior:
+    n_layers: 4
+    variables:
+      phi:
+        data: phi
+        dt: 0.05
+        objective: null
+        predict: false
+      speed:
+        data: speed
+        dt: 0.05
+        objective: regression
+        predict: true
+      th:
+        data: th
+        dt: 0.05
+        objective: null
+        predict: false
+    window: 0.05
+n_embd: 256
+n_head: 8
+pos_emb: true
+predict: null
+pretrain: false
+resolution:
+  dt: 0.005
+  frames: 0.05
+  speed: 0.2
+sparse:
+  mask: false
+  p: null
+  topk: null
+  topk_frame: null
+  topk_id: null
+  topk_prev_id: null
+start_prune: 30
+temp_emb: true
+vit_encoder: true
+vocab_size: 2204
+window:
+  curr: 0.05
+  frame: null
+  prev: 0.05
+  speed: 0.05

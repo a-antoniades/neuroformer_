@@ -15,6 +15,49 @@ def get_emb(sin_inp):
     emb = torch.stack((sin_inp.sin(), sin_inp.cos()), dim=-1)
     return torch.flatten(emb, -2, -1)
 
+def separate_eos_tokens(eos_id_tok, eos_dt_tok, targets, id_logits, dt_logits):
+    """
+    Separates the logits and targets of the End-Of-Sequence (EOS) tokens 
+    from the non-EOS tokens.
+
+    Parameters:
+    - eos_id_tok (int): The EOS token index for 'id' targets.
+    - eos_dt_tok (int): The EOS token index for 'dt' targets.
+    - targets (dict): A dictionary containing the targets 'id' and 'dt'. Both have shape (batch_size, seq_length).
+    - id_logits (torch.Tensor): The logits for the 'id' targets. Shape (batch_size, seq_length, num_classes).
+    - dt_logits (torch.Tensor): The logits for the 'dt' targets. Shape (batch_size, seq_length, num_classes).
+
+    Returns:
+    - eos_id_logits (torch.Tensor): The logits for the EOS tokens in 'id'. Shape (num_eos, num_classes).
+    - eos_dt_logits (torch.Tensor): The logits for the EOS tokens in 'dt'. Shape (num_eos, num_classes).
+    - id_logits_no_eos (torch.Tensor): The logits for the non-EOS tokens in 'id'. Shape (num_non_eos, num_classes).
+    - dt_logits_no_eos (torch.Tensor): The logits for the non-EOS tokens in 'dt'. Shape (num_non_eos, num_classes).
+    - targets (dict): The updated targets dictionary with keys 'id_', 'dt_', 'id_eos', and 'dt_eos'.
+    """
+    # Create masks for EOS tokens
+    eos_id_mask = targets['id'] == eos_id_tok
+    eos_dt_mask = targets['dt'] == eos_dt_tok
+
+    # Create masks for non-EOS tokens
+    non_eos_id_mask = ~eos_id_mask
+    non_eos_dt_mask = ~eos_dt_mask
+
+    # Apply the mask to select elements
+    eos_id_logits = torch.masked_select(id_logits, eos_id_mask.unsqueeze(-1)).view(-1, id_logits.size(2))
+    eos_dt_logits = torch.masked_select(dt_logits, eos_dt_mask.unsqueeze(-1)).view(-1, dt_logits.size(2))
+
+    id_logits_no_eos = torch.masked_select(id_logits, non_eos_id_mask.unsqueeze(-1)).view(-1, id_logits.size(2))
+    dt_logits_no_eos = torch.masked_select(dt_logits, non_eos_dt_mask.unsqueeze(-1)).view(-1, dt_logits.size(2))
+
+    # Update targets dictionary
+    targets['id_'] = targets['id'][non_eos_id_mask]
+    targets['dt_'] = targets['dt'][non_eos_dt_mask]
+    targets['id_eos'] = targets['id'][eos_id_mask]
+    targets['dt_eos'] = targets['dt'][eos_dt_mask]
+
+    return eos_id_logits, eos_dt_logits, id_logits_no_eos, dt_logits_no_eos, targets
+        
+
 def contrastive_loss(features, temp=0.1):
     # Get the names and embeddings of all modalities
     modalities = list(features.keys())
@@ -124,7 +167,7 @@ def topk_metrics(logits, targets, k, num_classes, ignore_index, device=None):
 
 class PositionalEmbedding(nn.Module):
     """ Implement the PE function. """
-    def __init__(self, n_embd, p_drop, max_len=1500):
+    def __init__(self, n_embd, p_drop=0.1, max_len=1500):
         super().__init__()
         self.dropout = nn.Dropout(p=p_drop)
         

@@ -165,3 +165,6 @@ training/*.ipynb
 **/_rebuttal
 **/results
 **/results/finetune
+**/wandb
+**/context_general_bci
+**/V1T

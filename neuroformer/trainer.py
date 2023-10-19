@@ -19,6 +19,7 @@ from torch.utils.data.dataloader import DataLoader
 
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
+import wandb
 from datetime import datetime
 now = datetime.now()
 logger = logging.getLogger(__name__)
@@ -37,7 +38,7 @@ import torch.distributed as dist
 from torch.utils.data.distributed import DistributedSampler
 
 from utils import extract_latents
-from utils_2 import get_attr
+from utils_2 import get_attr, save_config
 
 
 
@@ -65,7 +66,7 @@ class TrainerConfig:
     save_every = 0
     loss_bprop = None
     get_latents = False
-    use_wanb = False
+    use_wandb = False
 
     def __init__(self, **kwargs):
         for k, v in kwargs.items():
@@ -82,7 +83,7 @@ class Trainer:
     def __init__(self, model, train_dataset, test_dataset, config, mconf=None):
         self.model = model
         self.criterion = torch.nn.CrossEntropyLoss()
-        self.mconf = mconf if mconf is not None else 0
+        self.mconf = mconf if mconf is not None else self.model.config
         self.train_dataset = train_dataset
         self.test_dataset = test_dataset
         self.config = config
@@ -113,20 +114,23 @@ class Trainer:
                 self.device = torch.device('cuda', torch.cuda.current_device())
                 self.model = self.model.to(self.device)
                 self.model = torch.nn.parallel.DistributedDataParallel(self.model,
-                                                                    device_ids=[torch.cuda.current_device()],
-                                                                    output_device=torch.cuda.current_device(),
-                                                                    find_unused_parameters=True)
+                                                                       device_ids=[torch.cuda.current_device()],
+                                                                       output_device=torch.cuda.current_device(),
+                                                                       find_unused_parameters=True)
                             
             else:
                 self.device = torch.device('cuda', torch.cuda.current_device())
                 self.model = self.model.to(self.device)
                 # self.model = torch.nn.DataParallel(self.model)
-
-        self.writer.add_scalar(f"model/no_parameters", sum(p.numel() for p in model.parameters()))
-        if config.use_wanb:
-            import wandb
-            wandb.init(project="neuroformer", entity="neuroformer_test")
+                self.writer.add_scalar(f"model/no_parameters", sum(p.numel() for p in model.parameters()))
+        
+        print(f"-- USE WANDB: {config.use_wandb} --")
+        if config.use_wandb:
+            wandb.init(project="neuroformer", 
+                       group=config.wandb_group,
+                       name=config.wandb_name)
             wandb.watch(self.model) 
+
 
     def save_checkpoint(self, loss, epoch=None):
         # DataParallel wrappers keep raw model object in .module attribute
@@ -142,11 +146,15 @@ class Trainer:
             logger.info("saving %s", self.config.ckpt_path)
             torch.save(raw_model.state_dict(), save_pth)
         
-        mconf = object_to_dict(self.mconf)
+        # mconf = object_to_dict(self.mconf)
+        mconf = self.mconf
         tconf = object_to_dict(self.config)
         dconf = object_to_dict(self.train_dataset)
+        print(mconf)
 
-        save_yaml(mconf, os.path.join(self.config.ckpt_path, "mconf.yaml"))
+        # save_yaml(mconf, os.path.join(self.config.ckpt_path, "mconf.yaml"))
+        # save yaml
+        save_config(mconf, os.path.join(self.config.ckpt_path, "mconf.yaml"))
         save_yaml(tconf, os.path.join(self.config.ckpt_path, "tconf.yaml"))
         save_yaml(dconf, os.path.join(self.config.ckpt_path, "dconf.yaml"))
 
@@ -299,10 +307,16 @@ class Trainer:
                 else:
                     total_losses += av_losses[key]
                 self.writer.add_scalar(f"Loss/{split}_{str(key)}", av_losses[key], epoch)
-            self.writer.add_scalar(f"Loss/{split}_total", total_losses, epoch) 
-
+                if not is_train:
+                    if config.use_wandb:
+                        wandb.log({f"Loss/{split}_{str(key)}": av_losses[key]})
+            self.writer.add_scalar(f"Loss/{split}_total", total_losses, epoch)
+            if config.use_wandb:
+                wandb.log({f"Loss/{split}_total": total_losses})
             for score in config.score_metrics:
                 self.writer.add_scalar(f"Score/{split}_{str(score)}", preds[score].mean(), epoch)
+                if config.use_wandb:
+                    wandb.log({f"Score/{split}_{str(score)}": preds[score].mean()})
              
             if not is_train:
                 # for score in config.score_metrics:
@@ -320,7 +334,10 @@ class Trainer:
         self.tokens = 0 # counter used for learning rate decay
         for epoch in range(config.max_epochs):
             if self.train_dataset is not None:
-                raw_model.config.epoch += 1
+                if hasattr(raw_model.config, "epoch"):
+                    raw_model.config.epoch += 1
+                else:
+                    raw_model.config.epoch = 1
                 run_epoch('train')
             if self.test_dataset is not None:
                 if epoch > get_attr(self, 'min_eval_epoch', 0) and \
@@ -343,21 +360,11 @@ class Trainer:
                     best_loss = test_loss
                     self.save_checkpoint(test_loss)
             if self.test_dataset is not None:
-                if 'clip' in av_losses.keys():
-                    good_model = av_losses['clip'] < best_clip_loss
+                for loss_type in av_losses.keys():
+                    good_model = av_losses[loss_type] < best_loss
                     if good_model:
-                        best_clip_loss = av_losses['clip']
-                        self.save_checkpoint(av_losses['clip'], epoch="clip")
-                if 'id' in av_losses.keys():
-                    good_model = av_losses['id'] < best_decoder_loss
-                    if good_model:
-                        best_decoder_loss = av_losses['id']
-                        self.save_checkpoint(av_losses['id'], epoch="decoder")
-                if 'speed' in av_losses.keys():
-                    good_model = av_losses['speed'] < best_decoder_loss
-                    if good_model:
-                        best_decoder_loss = av_losses['speed']
-                        self.save_checkpoint(av_losses['speed'], epoch="speed")
+                        best_loss = av_losses[loss_type]
+                        self.save_checkpoint(av_losses[loss_type], epoch=loss_type)
                 
                 # F1_score = torch.tensor(scores['F1']).mean()
                 # if F1_score > best_f1:

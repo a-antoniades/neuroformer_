@@ -5,6 +5,7 @@ from torch.nn.modules.activation import GELU, ReLU
 import math
 import numpy as np
 import itertools
+import pickle
 import logging
 from inspect import isfunction
 
@@ -32,12 +33,19 @@ import omegaconf
 from modules import (PositionalEmbedding, PositionalEncoding2D, 
                      PositionalEncodingPermute2D, PositionalEncoding3D,
                      TemporalEmbedding, LearntTemporalEmbedding,
-                     contrastive_loss, clip_loss, topk_metrics)
+                     contrastive_loss, clip_loss, topk_metrics, separate_eos_tokens)
 import collections
-from utils_2 import get_attr
+from utils_2 import get_attr, object_to_dict, load_config
 
 logger = logging.getLogger(__name__)
 
+def load_model_and_tokenizer(path):
+    config = load_config(path + "/mconf.yaml")
+    tokenizer = pickle.load(open(path + "/tokenizer.pkl", "rb"))
+    model = GPT(config, tokenizer)
+    print(f" ///// <=----- Loading model from {path} -----=> \\\\\\")
+    model.load_state_dict(torch.load(path + "/model.pt"))
+    return config, tokenizer, model
 
 def get_attr(obj, name, default=None):
     if isinstance(obj, dict):
@@ -56,19 +64,19 @@ def convert_weights(model: nn.Module):
     def _convert_weights_to_fp16(l):
         if isinstance(l, (nn.Conv1d, nn.Conv2d, nn.Linear)):    # nn.Conv3d,
             l.weight.data = l.weight.data.half()
-            if l.bias is not None:
+            if l.bias != None:
                 l.bias.data = l.bias.data.half()
 
         if isinstance(l, nn.MultiheadAttention):
             for attr in [*[f"{s}_proj_weight" for s in ["in", "q", "k", "v"]], "in_proj_bias", "bias_k", "bias_v"]:
                 tensor = getattr(l, attr)
-                if tensor is not None:
+                if tensor != None:
                     tensor.data = tensor.data.half()
 
         for name in ["text_projection", "proj"]:
             if hasattr(l, name):
                 attr = getattr(l, name)
-                if attr is not None:
+                if attr != None:
                     attr.data = attr.data.half()
 
     model.apply(_convert_weights_to_fp16)
@@ -338,22 +346,22 @@ class MultiheadAttention(nn.Module):
         # v = F.normalize(v, p=2.0, dim=-1)
 
         # # apply rotary embeddings
-        # if dtx is not None:
+        # if dtx != None:
         #     q, k = self.rotary_embedding(q, k, dtx)
 
         # causal self-attention; Self-attend: (B, nh, Tt, hs) x (B, nh, hs, Ts) -> (B, nh, Tt, Ts)
         att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
-        if tgt_mask is not None:
+        if tgt_mask != None:
             att = att.masked_fill(tgt_mask[:,:,:Tt,:Tt] == 0, float('-inf'))
             # if self.training:
             #     att = self.generate_sparse_mask(att, 0.25, self.config)
-            # if pad is not None and self.training:
+            # if pad != None and self.training:
             #     for idx, i in enumerate(pad):
             #         att[idx, :, :, Tt - i:] = float('-inf')   # only able to see first padding token
         
 
         # Explicit Sparse Attention - Use top-K qk values
-        if self.sparse_topk is not None and self.sparse_topk < att.shape[-1]:
+        if self.sparse_topk != None and self.sparse_topk < att.shape[-1]:
             top, _ = torch.topk(att, self.sparse_topk, dim=-1)
             vk = top[..., -1].unsqueeze(-1).expand_as(att)
             mask = att < vk
@@ -671,7 +679,7 @@ class FeatureEncoder(nn.Module):
     def forward(self, neural, visual):
         for mod in self.neural_state_blocks:
             neural = mod(neural, neural, neural, self.mask)
-        if self.frame_state_blocks is not None:
+        if self.frame_state_blocks != None:
             for mod in self.frame_state_blocks:
                 visual = mod(visual, visual, visual)
 
@@ -682,9 +690,6 @@ class FeatureEncoder(nn.Module):
         
         return features
         
-
-import torch.nn as nn
-
 class FeatureEncoder(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -704,7 +709,7 @@ class FeatureEncoder(nn.Module):
     def forward(self, neural, visual):
         for mod in self.neural_state_blocks:
             neural = mod(neural, neural, neural, self.mask)
-        if self.frame_state_blocks is not None:
+        if all([self.frame_state_blocks, visual]):
             for mod in self.frame_state_blocks:
                 visual = mod(visual, visual, visual)
             
@@ -720,29 +725,29 @@ class MultimodalTransformer(nn.Module):
         self.config = config
 
         # Get modalities from config
-        modalities_layers = config.layers.modalities
+        modalities_config = object_to_dict(self.config.modalities) if get_attr(self.config, 'modalities') else {}
 
         # Initialize dictionary to hold modalities and their corresponding blocks
-        self.modalities_blocks = {}
+        self.modalities_blocks = nn.ModuleDict()
 
         # Iterate over all modalities in config
-        for modality in config.layers.modalities.__dict__.keys():
+        for modality_group, modality_config in modalities_config.items():
+            self.modalities_blocks[modality_group] = nn.ModuleDict()
             
-            # Get number of layers and block size for this modality
-            n_layers = getattr(modalities_layers, modality)
+            # get the number of layers for this modality_group
+            n_layers = modality_config.get('n_layers', 1)  # default to 1 if not specified
             
-            # Initialize blocks for this modality
-            self.modalities_blocks[modality] = nn.ModuleList(
-                [_get_clones(Block(self.config), n_layers) for _ in range(n_layers)]
-            )
-        
+            for modality_group in modalities_config.keys():
+                # Initialize blocks for this variable
+                self.modalities_blocks[modality_group] = _get_clones(Block(self.config), n_layers)
+
         # initialize the standard (id) and special (frame) blocks
         self.neural_state_blocks = _get_clones(Block(config, 
                                                      sparse_topk=get_attr(config.sparse, 'topk_id')), 
                                                      config.layers.state)
         self.neural_state_history_blocks = _get_clones(Block(config,
-                                                                sparse_topk=get_attr(config.sparse, 'topk_id')), 
-                                                                config.layers.state_history)
+                                                             sparse_topk=get_attr(config.sparse, 'topk_id')), 
+                                                             config.layers.state_history)
         self.neural_state_stimulus_blocks = _get_clones(Block(config, 
                                                               sparse_topk=get_attr(config.sparse, 'topk_frame')), 
                                                               config.layers.stimulus)
@@ -798,21 +803,31 @@ class MultimodalTransformer(nn.Module):
         neural_history = features['id_prev']
         modalities = get_attr(features, 'modalities', [])
         
+        x = neural_state
         # state history
-        x = features['id']
         for mod in self.neural_state_history_blocks:
             x = mod(x, neural_history, neural_history)
+        
         # stimulus
         for mod in self.neural_state_stimulus_blocks:
             if 'frames' in features:
-                x = mod(x, features['frames'], features['frames'])
-        # For each modality and corresponding block
-        for modality, blocks in self.modalities_blocks.items():
-            if modality in modalities:
-                modality_feature = features[modality]
-                # Process feature through each block in the modality
-                for block in blocks:
-                    x = block(x, modality_feature, modality_feature)
+                if features['frames'] != None:
+                    x = mod(x, features['frames'], features['frames'])
+        
+        # Iterate across the rest of the modalities
+        # and their corresponding blocks
+        for modality_group, modality_blocks in self.modalities_blocks.items():
+            # chek if the modality has actually been given
+            # if not, it's okay, just skip the block
+            if modality_group not in features.keys():
+                continue
+            # all features of this modality_group concatenated along block dimesion
+            modality_group_feats = features[modality_group]['all']
+            blocks = self.modalities_blocks[modality_group]
+            # Process feature through each block in the modality
+            for block in blocks:
+                x = block(x, modality_group_feats, modality_group_feats)
+
         # masked self-attention
         for mod in self.neural_state_blocks:
             x = mod(x, x, x, mask)
@@ -950,6 +965,7 @@ class GPT(nn.Module):
             self.device = torch.cuda.current_device()
 
         self.config = config
+        self.modalities_config = object_to_dict(self.config.modalities) if get_attr(self.config, 'modalities') else None
         self.tokenizer = tokenizer
         self.id_vocab_size = tokenizer.ID_vocab_size
         self.dt_vocab_size = tokenizer.dt_vocab_size
@@ -958,7 +974,7 @@ class GPT(nn.Module):
         self.tok_emb = nn.Embedding(self.id_vocab_size, config.n_embd)
         if config.pos_emb:
             self.pos_emb = nn.Parameter(torch.zeros(1, config.block_size.id, config.n_embd))
-            self.pos_emb_prev = nn.Parameter(torch.zeros(1, config.prev_block_size.id, config.n_embd))
+            self.pos_emb_prev = nn.Parameter(torch.zeros(1, config.block_size.prev_id, config.n_embd))
         if config.temp_emb:
             """ Choose between learned or sinusoidal temporal embeddings"""
             if hasattr(config, 'wave_emb') and config.wave_emb:
@@ -967,22 +983,34 @@ class GPT(nn.Module):
             else:
                 self.temp_emb = LearntTemporalEmbedding(config.n_embd)
                 self.temp_emb_prev = LearntTemporalEmbedding(config.n_embd)
+        
+        # -- Modality Embeddings (if used as input) -- #
+        self.modality_embeddings = nn.ModuleDict()
+        if self.modalities_config is not None:
+            for modality_group, modality_config in self.modalities_config.items():
+                if modality_config.get('n_layers', 0) > 0:
+                    for variable_name, variable_config in modality_config['variables'].items():
+                            if modality_group not in self.modality_embeddings.keys():
+                                self.modality_embeddings[modality_group] = nn.ModuleDict()
+                            self.modality_embeddings[modality_group][variable_name] = nn.ModuleDict()
+                            self.modality_embeddings[modality_group][variable_name]['mlp'] = ProjectNorm(1, config.n_embd)
+                            self.modality_embeddings[modality_group][variable_name]['temp_emb'] = TemporalEmbedding(config.n_embd, config.dropout.id)
+                    self.modality_embeddings[modality_group]['pos_emb'] = PositionalEncoding2D(config.n_embd)
 
-        # Iterate over all modalities in config for cross-attention module
-        for name, feature in config.layers.modalities.__dict__.items():
-            if getattr(config.layers.modalities, name) > 0:
-                setattr(self, f"mlp_{name}", ProjectNorm(1, config.n_embd))
-                setattr(self, f"pos_emb_{name}", PositionalEncoding2D(config.n_embd))
-                setattr(self, f"temp_emb_{name}", TemporalEmbedding(config.n_embd, config.dropout.id))
-            
-        # Setup projection heads for all the modalities to be predicted
-        for modality in config.predict.modalities.__dict__.keys():
-            settings = getattr(config.predict.modalities, modality)
-            if settings.objective == 'regression':
-                setattr(self, f"head_{modality}", nn.Linear(config.n_embd, 1, bias=True))
-            if settings.objective == 'classification':
-                setattr(self, f"head_{modality}", nn.Linear(config.n_embd, settings.n_classes, bias=False))
 
+        # -- Modality Projection Heads (if used as prediction) -- #
+        self.modality_projection_heads = nn.ModuleDict()
+        if self.modalities_config is not None:
+            for modality_type, modality_config in self.modalities_config.items():
+                for variable_name, variable_config in modality_config['variables'].items():
+                    if variable_config.get('predict', False):
+                        if modality_type not in self.modality_projection_heads.keys():
+                            self.modality_projection_heads[modality_type] = nn.ModuleDict()
+                        if variable_config.get('objective') == 'regression':
+                            self.modality_projection_heads[modality_type][variable_name] = nn.Linear(config.n_embd, 1, bias=True)
+                        if variable_config.get('objective') == 'classification':
+                            self.modality_projection_heads[modality_type][variable_name] = nn.Linear(config.n_embd, variable_config.get('n_classes', 1), bias=False)
+                        
         # TODO: add learnt frame embedding
         # frame embeddings
         # if config.conv_layer:
@@ -1025,7 +1053,7 @@ class GPT(nn.Module):
         self.block_size = config.block_size
         self.apply(self._init_weights)
         
-        if config.class_weights is not None:
+        if config.class_weights != None:
             for key in config.class_weights.keys():
                 print(f"registering class weights for {key}")
                 self.register_buffer(f"class_weights_{key}", config.class_weights[key])
@@ -1053,12 +1081,12 @@ class GPT(nn.Module):
     def _init_weights(self, module):
         if isinstance(module, (nn.Linear, nn.Embedding)):
             module.weight.data.normal_(mean=0.0, std=0.02)
-            if isinstance(module, nn.Linear) and module.bias is not None:
+            if isinstance(module, nn.Linear) and module.bias != None:
                 module.bias.data.zero_()
         elif isinstance(module, nn.LayerNorm):
             module.bias.data.zero_()
             module.weight.data.fill_(1.0)
-        # if self.config.freeze_weights is not None:
+        # if self.config.freeze_weights != None:
         #     # freeze_weights(self, self.config.freeze_weights)
         #     for name, param in self.named_parameters():
         #         if name in self.config.freeze_weights:
@@ -1125,20 +1153,23 @@ class GPT(nn.Module):
         
         return optimizer
 
-    def process_modality(self, name, feature):
-        modality_emb = getattr(self, f"mlp_{name}")(feature['value'])
-        if modality_emb.dim() < 4:
-            modality_emb = modality_emb.unsqueeze(-2)
-        modality_pos_emb = getattr(self, f"pos_emb_{name}")(modality_emb)
-        modality_temp_emb = getattr(self, f"temp_emb_{name}")(feature['dt'].float()) if self.config.temp_emb and 'dt' in feature else 0
-        n_vars = feature['value'].size(1)
-        # we have n vars, for which we have time
-        modality_temp_emb = modality_temp_emb.repeat(1, n_vars, 1)
-        modality_emb = rearrange(modality_emb, 'b t c e -> b (t c) e')
-        # average over time for contrastive learning
-        modality_pos_emb = rearrange(modality_pos_emb, 'b t c e -> b (t c) e') if self.config.pos_emb else 0
-        modality_emb = self.id_drop(modality_emb + modality_pos_emb + modality_temp_emb)
-        return modality_emb
+    def process_all_modalities(self, x):
+        features = collections.defaultdict(lambda: collections.defaultdict())
+        for modality_group, group_features in x['modalities'].items():
+            for variable_name, variable in group_features.items():
+                modality_emb = self.modality_embeddings[modality_group][variable_name]['mlp'](variable['value'])
+                if modality_emb.dim() < 4:
+                    modality_emb = modality_emb.unsqueeze(-2)
+                modality_temp_emb = self.modality_embeddings[modality_group][variable_name]['temp_emb'](variable['dt'].float()) if self.config.temp_emb and 'dt' in variable else 0
+                n_vars = variable['value'].size(1)
+                modality_temp_emb = modality_temp_emb.repeat(1, n_vars, 1)
+                modality_emb = rearrange(modality_emb, 'b t c e -> b (t c) e')
+                modality_emb = self.id_drop(modality_emb + modality_temp_emb)
+                features[modality_group][variable_name] = modality_emb
+            features[modality_group]['all'] = torch.cat([features[modality_group][variable_name] for variable_name in features[modality_group]], dim=1).unsqueeze(-2)
+            features[modality_group]['all'] = features[modality_group]['all'] + self.modality_embeddings[modality_group]['pos_emb'](features[modality_group]['all'])
+            features[modality_group]['all'] = rearrange(features[modality_group]['all'], 'b t 1 e -> b t e')
+        return features
 
     def process_features(self, x):
         # batch, block_size, feature
@@ -1171,7 +1202,7 @@ class GPT(nn.Module):
         token_embeddings = self.id_drop(self.tok_emb(idx) + id_temporal_embeddings + id_position_embeddings) # each index maps to a (learnable) vector
 
         # Extract image features and add time embeddings
-        if 'frames' in x and frames is not None:
+        if 'frames' in x and frames != None:
             frame_embeddings = frames    # self.tok_emb(frames)
             im_3d_embeddings = self.frame_3d_emb(frames)
             frame_embeddings = frames + im_3d_embeddings
@@ -1184,12 +1215,10 @@ class GPT(nn.Module):
             frame_embeddings = None
         
         features = self.feature_encoder(token_embeddings, frame_embeddings)
-        token_embeddings, frame_embeddings = features['id'], features['frames']
-        features = dict()
-
-        for name, feature in x['modalities'].items():
-            features[name] = self.process_modality(name, feature)
-            features[f'{name}_mean'] = features[name].mean(dim=1)
+        token_embeddings = features['id']
+        frame_embeddings = features['frames'] if 'frames' != None else 0
+        if self.modalities_config is not None:
+            features = self.process_all_modalities(x)
         
         # Tidy up
         features['id_prev'] = prev_token_embeddings
@@ -1203,49 +1232,6 @@ class GPT(nn.Module):
         x_mean = x.mean(dim=1)
         logits = self.head_behavior(x_mean)
         return logits
-    
-    def separate_eos_tokens(self, eos_id_tok, eos_dt_tok, targets, id_logits, dt_logits):
-        """
-        Separates the logits and targets of the End-Of-Sequence (EOS) tokens 
-        from the non-EOS tokens.
-
-        Parameters:
-        - eos_id_tok (int): The EOS token index for 'id' targets.
-        - eos_dt_tok (int): The EOS token index for 'dt' targets.
-        - targets (dict): A dictionary containing the targets 'id' and 'dt'. Both have shape (batch_size, seq_length).
-        - id_logits (torch.Tensor): The logits for the 'id' targets. Shape (batch_size, seq_length, num_classes).
-        - dt_logits (torch.Tensor): The logits for the 'dt' targets. Shape (batch_size, seq_length, num_classes).
-
-        Returns:
-        - eos_id_logits (torch.Tensor): The logits for the EOS tokens in 'id'. Shape (num_eos, num_classes).
-        - eos_dt_logits (torch.Tensor): The logits for the EOS tokens in 'dt'. Shape (num_eos, num_classes).
-        - id_logits_no_eos (torch.Tensor): The logits for the non-EOS tokens in 'id'. Shape (num_non_eos, num_classes).
-        - dt_logits_no_eos (torch.Tensor): The logits for the non-EOS tokens in 'dt'. Shape (num_non_eos, num_classes).
-        - targets (dict): The updated targets dictionary with keys 'id_', 'dt_', 'id_eos', and 'dt_eos'.
-        """
-        # Create masks for EOS tokens
-        eos_id_mask = targets['id'] == eos_id_tok
-        eos_dt_mask = targets['dt'] == eos_dt_tok
-
-        # Create masks for non-EOS tokens
-        non_eos_id_mask = ~eos_id_mask
-        non_eos_dt_mask = ~eos_dt_mask
-
-        # Apply the mask to select elements
-        eos_id_logits = torch.masked_select(id_logits, eos_id_mask.unsqueeze(-1)).view(-1, id_logits.size(2))
-        eos_dt_logits = torch.masked_select(dt_logits, eos_dt_mask.unsqueeze(-1)).view(-1, dt_logits.size(2))
-
-        id_logits_no_eos = torch.masked_select(id_logits, non_eos_id_mask.unsqueeze(-1)).view(-1, id_logits.size(2))
-        dt_logits_no_eos = torch.masked_select(dt_logits, non_eos_dt_mask.unsqueeze(-1)).view(-1, dt_logits.size(2))
-
-        # Update targets dictionary
-        targets['id_'] = targets['id'][non_eos_id_mask]
-        targets['dt_'] = targets['dt'][non_eos_dt_mask]
-        targets['id_eos'] = targets['id'][eos_id_mask]
-        targets['dt_eos'] = targets['dt'][eos_dt_mask]
-
-        return eos_id_logits, eos_dt_logits, id_logits_no_eos, dt_logits_no_eos, targets
-        
 
     def forward(self, x, targets=None):
         idx = x['id']
@@ -1257,8 +1243,6 @@ class GPT(nn.Module):
             x = features['id']
         elif get_attr(self.config, 'gru_only', False):
             x, _ = self.gru(features['id'], features['id_prev'])
-        # elif get_attr(self.config, 'gru_tapered', False):
-            # x, _ = self.gru(features['id'], features['id_prev'])
         elif get_attr(self.config, 'gru2_only', False):
             x, _ = self.gru(features['id'], features['id_prev'])
         else:
@@ -1281,7 +1265,7 @@ class GPT(nn.Module):
         probs_id = []
         logits_modalities = {}
         torch.cuda.empty_cache()
-        if targets is not None:
+        if targets != None:
             loss = collections.defaultdict(float)
             n = float('inf') if not self.config.contrastive else 4
 
@@ -1291,33 +1275,40 @@ class GPT(nn.Module):
             eos_dt_tok = self.tokenizer.stoi['dt']['EOS']
             eos_id_logits, eos_dt_logits, \
             id_logits_no_eos, dt_logits_no_eos, \
-            targets = self.separate_eos_tokens(eos_id_tok, eos_dt_tok, 
-                                               targets, id_logits, 
-                                               dt_logits)
+            targets = separate_eos_tokens(eos_id_tok, eos_dt_tok, 
+                                          targets, id_logits, 
+                                          dt_logits)
 
-            if self.config.class_weights is not None:
+            if self.config.class_weights != None:
                 loss_id = F.cross_entropy(id_logits.view(-1, id_logits.size(-1)), targets['id'].view(-1),
-                                          gnore_index=self.config.ignore_index_id, weight=self.class_weights_id)
+                                          ignore_index=self.config.ignore_index_id, weight=self.class_weights_id)
                 loss_time = F.cross_entropy(dt_logits.view(-1, dt_logits.size(-1)), targets['dt'].view(-1), 
                                           ignore_index=self.config.ignore_index_dt, weight=self.class_weights_dt)
+            elif get_attr(self.config, 'ignore_index_pad', True):
+                loss_id =  F.cross_entropy(id_logits.view(-1, id_logits.size(-1)), targets['id'].view(-1), 
+                                           ignore_index=self.tokenizer.stoi['ID']['PAD']) 
+                loss_time = F.cross_entropy(dt_logits.view(-1, dt_logits.size(-1)), targets['dt'].view(-1), 
+                                            ignore_index=self.tokenizer.stoi['dt']['PAD'])
             else:
-                loss_id =  F.cross_entropy(id_logits.view(-1, id_logits.size(-1)), targets['id'].view(-1), ignore_index=self.tokenizer.stoi['ID']['PAD']) 
-                loss_time = F.cross_entropy(dt_logits.view(-1, dt_logits.size(-1)), targets['dt'].view(-1), ignore_index=self.tokenizer.stoi['dt']['PAD'])
+                loss_id = F.cross_entropy(id_logits.view(-1, id_logits.size(-1)), targets['id'].view(-1))
+                loss_time = F.cross_entropy(dt_logits.view(-1, dt_logits.size(-1)), targets['dt'].view(-1))
 
             # TODO: fix the ambiguity with block_type / modality
             # iterate over modalities required for prediction
-            if get_attr(self.config, 'predict', None) is not None:
-                x_mean = x.mean(dim=1)
-                for modality, settings in self.config.predict.__dict__.items():
-                    if modality in targets['modalities'].keys():
-                        modality_projection = getattr(self, f'head_{modality}')(x_mean)
-                        modality_target = targets['modalities'][modality]['value']
-                        if settings.objective == 'regression':
-                            loss_modality = F.mse_loss(modality_projection, modality_target.view(B, -1))
-                        elif settings.objective == 'classification':
-                            loss_modality = F.cross_entropy(modality_projection.view(-1, modality_projection.size(-1)), modality_target.view(-1))
-                        loss[f'{modality}'] = loss_modality
-                        preds[f'{modality}'] = modality_projection 
+            x_mean = x.mean(dim=1)
+            if 'modalities'in targets.keys():
+                for modality_type, modality_config in self.modalities_config.items():
+                    for variable_name, variable_config in modality_config['variables'].items():
+                        if variable_config.get('predict', False) and variable_name in targets['modalities'][modality_type]:
+                            modality_projection = self.modality_projection_heads[modality_type][variable_name](x_mean)
+                            modality_target = targets['modalities'][modality_type][variable_name]['value']
+                            if variable_config['objective'] == 'regression':
+                                loss_modality = F.mse_loss(modality_projection, modality_target.view(B, -1))
+                            elif variable_config['objective'] == 'classification':
+                                loss_modality = F.cross_entropy(modality_projection.view(-1, modality_projection.size(-1)), modality_target.view(-1))
+                            loss[f'{variable_name}'] = loss_modality
+                            preds[f'{variable_name}'] = modality_projection
+                            
             
             if self.config.contrastive.contrastive:
                 clip_id_feats = []
@@ -1368,7 +1359,7 @@ class GPT(nn.Module):
                     F1_score = torchmetrics.functional.f1_score(true_neurons, pred_neurons, task='multiclass', num_classes=self.id_vocab_size).to(self.device)
 
                     probs_id.append(probs_neurons)
-                    if (precision, recall, F1) is not None:
+                    if (precision, recall, F1) != None:
                         precision.append(precision_score)
                         recall.append(recall_score)
                         F1.append(F1_score)
@@ -1386,14 +1377,7 @@ class GPT(nn.Module):
             precision.append(zero_tensor)
             recall.append(zero_tensor)
             F1.append(zero_tensor) 
-
-            # # calculate precision, recall, F1
-            # precision_top1, recall_top1, F1_top1 = topk_metrics(id_logits, targets['id'], k=1, 
-            #                                                     num_classes=self.config.id_vocab_size, ignore_index=self.config.ignore_index_id)
-            # preds['precision_top1'], preds['recall_top1'], preds['F1_top1'] = precision_top1, recall_top1, F1_top1
-            # precision_top5, recall_top5, F1_top5 = topk_metrics(id_logits, targets['id'], k=5, 
-            #                                                     num_classes=self.config.id_vocab_size, ignore_index=self.config.ignore_index_id)
-            # preds['precision_top5'], preds['recall_top5'], preds['F1_top5'] = precision_top5, recall_top5, F1_top5
+            
         # check if precision, recall and f1 are all same shape
         if len(precision) > 0 and len(recall) > 0 and len(F1) > 0:
             preds['precision'] = torch.stack(precision).mean()

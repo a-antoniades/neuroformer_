@@ -13,12 +13,9 @@ import torch.nn as nn
 from torch.nn import functional as F
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
+import argparse
 
-from beam_search import beam_decode
-from SpikeVidUtils import get_interval, round_n
-from SpikeVidUtils import SpikeTimeVidData2 as SP
-from model_neuroformer import GPT
-
+# from beam_search import beam_decode
 import yaml
 
 logger = logging.getLogger(__name__)
@@ -142,6 +139,12 @@ def load_config(file_path):
         except yaml.YAMLError as exc:
             print(exc)
 
+def save_config(config, file_path):
+    if isinstance(config, SimpleNamespace):
+        config = object_to_dict(config)
+    with open(file_path, 'w') as outfile:
+        yaml.safe_dump(config, outfile, sort_keys=False)
+
 def dict_to_object(d):
     if isinstance(d, dict):
         return SimpleNamespace(**{k: dict_to_object(v) for k, v in d.items()})
@@ -162,6 +165,22 @@ def df_to_dict(df):
     d = {k: f.groupby('Interval').apply(lambda x: {'Time': np.array(x['Time']), 'ID': np.array(x['ID'])}).to_dict()
         for k, f in df.groupby('Trial')}
     return d
+
+    
+def create_modalities_dict(data, modalities_config):
+    modalities_config = object_to_dict(modalities_config)
+    modalities = {}
+    for modality_type, modality_config in modalities_config.items():
+        modalities[modality_type] = {'n_layers': modality_config['n_layers'], 'variables': {}}
+        for variable_type, variable_config in modality_config['variables'].items():
+            modalities[modality_type]['variables'][variable_type] = {
+                'data': data[variable_config['data']],
+                'dt': variable_config['dt'],
+                'window': modality_config['window'],
+                'predict': variable_config['predict'],
+                'objective': variable_config['objective']
+            }
+    return modalities
     
 def get_model_attr(mconf, tconf):
   n_head = mconf.n_head
@@ -179,17 +198,6 @@ def print_full(df, length=None):
     print(df)
     pd.reset_option('display.max_rows')
     torch.set_printoptions(threshold=1e3)
-
-# def object_to_dict(obj):
-#     d = dict()
-#     d_types = [int, float, str, bool, tuple, type(None)]
-#     for a in dir(obj):
-#         if not a.startswith('__'):
-#             if type(getattr(obj, a)) in d_types:
-#                 d[a] = getattr(obj, a)
-#     return d
-
-    # return {a: getattr(obj, a) for a in dir(obj) if not a.startswith('__')}
 
 def save_yaml(obj, filename):
     with open(filename, 'w') as outfile:
@@ -393,10 +401,10 @@ def model_ensemble(models, x):
     return logits 
 
 @torch.no_grad()
-def predict_raster_recursive_time_auto(model, dataset, window, window_prev, stoi, itos_dt, itos=None, 
-                                      get_dt=False, sample=False, top_k=0, top_p=0, top_p_t=0, temp=1, temp_t=1, 
-                                      frame_end=0, gpu=False, pred_dt=True, true_past=False,
-                                      p_bar=False, plot_probs=False):    
+def generate_spikes(model, dataset, window, window_prev, tokenizer,
+                    get_dt=False, sample=False, top_k=0, top_p=0, top_p_t=0, temp=1, temp_t=1, 
+                    frame_end=0, gpu=False, pred_dt=True, true_past=False,
+                    p_bar=False, plot_probs=False):    
     """
     predict both ID and dt recursively
     """
@@ -478,10 +486,11 @@ def predict_raster_recursive_time_auto(model, dataset, window, window_prev, stoi
     device = 'cpu' if not gpu else torch.cuda.current_device() # torch.cuda.current_device() if torch.cuda.is_available() else "cpu"
     model = [model_n.to(device) for model_n in model] if isinstance(model, list) else model.to(device) 
     model = [model_n.eval() for model_n in model] if isinstance(model, list) else model.eval()
+    stoi, itos, itos_dt = tokenizer.stoi['ID'], tokenizer.itos['ID'], tokenizer.itos['dt']
     tf = 0
     mconf = model[0].config if isinstance(model, list) else model.config
-    T_id = mconf.id_block_size
-    T_id_prev = mconf.prev_id_block_size
+    T_id = mconf.block_size.id
+    T_id_prev = mconf.block_size.prev_id
     
     context = [] # torch.tensor(0, device=device).unsqueeze(0)
     data = dict()
@@ -503,10 +512,8 @@ def predict_raster_recursive_time_auto(model, dataset, window, window_prev, stoi
         #     break
         # print(f"it = {it}, interval: {x['interval']}, window_prev: {window_prev}, window: {window}")
 
-        for key, value in x.items():
-            x[key] = x[key].to(device)
-        for key, value in y.items():
-            y[key] = y[key].to(device)
+        x = all_device(x, device)
+        y = all_device(y, device)
         
         # feed predicted IDs from buffer into past state
         # count how many steps 
@@ -559,6 +566,9 @@ def predict_raster_recursive_time_auto(model, dataset, window, window_prev, stoi
             else:
                 logits, features, _ = model(x, y)
             
+            logits = all_device(logits, device)
+            features = all_device(features, device)
+            
             logits['id'] = logits['id'][:, i]
             logits['dt'] = logits['dt'][:, i]
             # optionally crop probabilities to only the top k / p options
@@ -580,6 +590,8 @@ def predict_raster_recursive_time_auto(model, dataset, window, window_prev, stoi
                 # choose highest topk (1) sample
                 _, ix = torch.topk(probs, k=1, dim=-1)
                 _, ix_dt = torch.topk(probs_dt, k=1, dim=-1)
+            
+            # print(f"Step {it}, i: {i} ix: {ix}, x_true: {y['id'][0, i]}")
 
             if plot_probs:
                 probs_n = np.array(probs)[0]
@@ -622,7 +634,7 @@ def predict_raster_recursive_time_auto(model, dataset, window, window_prev, stoi
             x['id'][:, i + 1] = ix.flatten()
             x['dt'][:, i + 1] = ix_dt.flatten() if pred_dt else x['dt']
            
-            if ix >= stoi['EOS']:  # ix >= stoi['EOS']:   # or i > T_id - int(x['pad']):   # or len(current_id_stoi) == T_id: # and dtx == 0.5:    # dtx >= window:   # ix == stoi['EOS']:
+            if ix.flatten() >= stoi['EOS']:  # ix >= stoi['EOS']:   # or i > T_id - int(x['pad']):   # or len(current_id_stoi) == T_id: # and dtx == 0.5:    # dtx >= window:   # ix == stoi['EOS']:
                 # print(f"n_regres_block: {i}")
                 break
                         
@@ -731,7 +743,10 @@ def predict_beam_search(model, loader, stoi, frame_end=0):
 #     return behavior_preds
 
 @torch.no_grad()
-def predict_modality(model, dataset, modality, block_type='modalities', objective='classification', sample=False, top_k=0, top_p=0):
+def predict_modality(model, dataset, modality, 
+                     block_type='modalities', objective='classification', 
+                     sample=False, top_k=0, top_p=0):
+    
     device = torch.cuda.current_device() if torch.cuda.is_available() else "cpu"
     tokenizer = model.tokenizer
     block_type_modality = f'{block_type}_{modality}_value'
@@ -739,7 +754,7 @@ def predict_modality(model, dataset, modality, block_type='modalities', objectiv
     model.eval()
     model.to(device)
     
-    loader = DataLoader(dataset, batch_size=4, shuffle=False, pin_memory=False)
+    loader = DataLoader(dataset, batch_size=50, shuffle=False, pin_memory=False)
     pbar = tqdm(enumerate(loader), total=len(loader))
     
     modality_preds = []
@@ -769,7 +784,7 @@ def predict_modality(model, dataset, modality, block_type='modalities', objectiv
         elif objective == 'regression':
             ix = logits[modality].flatten()
             ix_itos = ix
-            y_modality = y[block_type][modality]['value'].flatten()
+            y_modality = y["modalities"][block_type][modality]['value'].flatten()
         
         interval = x['interval'].flatten().tolist()
         trial = x['trial'].flatten().tolist()
@@ -975,44 +990,44 @@ def check_common_attrs(*objects):
 
     return common_attrs
 
-def update_config(config, modalities, tokenizer, x=None, y=None, default_layer_size=4):
-    if isinstance(config, SimpleNamespace):
-        config = object_to_dict(config)
-    # Ensure 'block_size' and 'layers' are in config
-    if 'block_size' not in config:
-        config['block_size'] = {}
-    if 'layers' not in config:
-        config['layers'] = {}
+# def update_config(config, modalities, tokenizer, x=None, y=None, default_layer_size=4):
+#     if isinstance(config, SimpleNamespace):
+#         config = object_to_dict(config)
+#     # Ensure 'block_size' and 'layers' are in config
+#     if 'block_size' not in config:
+#         config['block_size'] = {}
+#     if 'layers' not in config:
+#         config['layers'] = {}
 
-    # Iterate over modalities
-    if x is not None:
-        for modality, details in x['modalities'].items():
-            for key, value in details.items():
-                new_key = f'{modality}'
-                config['layers']['modalities'][new_key] = default_layer_size
-    if y is not None:
-        for modality_group in modalities.values():
-            for modality, values in modality_group.items():
-                new_key = f'{modality}'
-                if config['predict'] is None:
-                    config['predict'] = {}
-                config['predict']['modalities'] = {}
-                if get_attr(tokenizer.stoi, modality) is not None:
-                    # if tokenizer, classification objective
-                    config['predict']['modalities'][new_key] = {
-                                        'objective': values['objective'],
-                                        'n_classes': len(tokenizer.stoi[modality])
-                    }
-                else:
-                    # if no tokenizer, regression objective
-                    config['predict']['modalities'][new_key] = {
-                                        'objective': 'regression',
-                                        'n_classes': 1
-                    }
+#     # # Iterate over modalities
+#     # if x is not None:
+#     #     for modality, details in x['modalities'].items():
+#     #         for key, value in details.items():
+#     #             new_key = f'{modality}'
+#     #             config['layers']['modalities'][new_key] = default_layer_size
+#     if y is not None:
+#         for modality_group in modalities.values():
+#             for modality, values in modality_group.items():
+#                 new_key = f'{modality}'
+#                 if config['predict'] is None:
+#                     config['predict'] = {}
+#                 config['predict']['modalities'] = {}
+#                 if get_attr(tokenizer.stoi, modality) is not None:
+#                     # if tokenizer, classification objective
+#                     config['predict']['modalities'][new_key] = {
+#                                         'objective': values['objective'],
+#                                         'n_classes': len(tokenizer.stoi[modality])
+#                     }
+#                 else:
+#                     # if no tokenizer, regression objective
+#                     config['predict']['modalities'][new_key] = {
+#                                         'objective': 'regression',
+#                                         'n_classes': 1
+#                     }
 
-    if isinstance(config, dict):
-        config = dict_to_object(config)
-    return config
+#     if isinstance(config, dict):
+#         config = dict_to_object(config)
+#     return config
 
 # # precision_score = collections.defaultdict(list)
 # # recall_score = collections.defaultdict(list)
