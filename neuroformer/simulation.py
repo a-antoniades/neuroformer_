@@ -50,7 +50,7 @@ set_plot_params()
 # parent_path = os.path.dirname(os.path.dirname(os.getcwd())) + "/"
 
 
-from model_neuroformer import GPT, GPTConfig, neuralGPTConfig, Decoder
+from neuroformer.model_neuroformer_ import GPT, GPTConfig, neuralGPTConfig, Decoder
 from trainer import Trainer, TrainerConfig
 
 # for i in {1..10}; do python3 -m gather_atts.py; done

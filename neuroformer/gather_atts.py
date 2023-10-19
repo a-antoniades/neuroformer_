@@ -133,7 +133,7 @@ small_dataset = SpikeTimeVidData2(small_data, None, block_size, id_block_size, f
 print(f'train: {len(train_dataset)}, test: {len(test_dataset)}')
 
 # for isconv in [True, False]:
-from model_neuroformer import GPT, GPTConfig, neuralGPTConfig, Decoder
+from neuroformer.model_neuroformer_ import GPT, GPTConfig, neuralGPTConfig, Decoder
 # initialize config class and model (holds hyperparameters)
 # for is_conv in [True, False]:    
 conv_layer = True

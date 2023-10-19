@@ -25,7 +25,7 @@ from torch.utils.data.dataloader import DataLoader
 
 import math
 
-from neuroformer.model_neuroformer_2 import GPT, GPTConfig, get_attr
+from neuroformer.model_neuroformer_2 import Neuroformer, NeuroformerConfig, get_attr
 from neuroformer.utils import get_attr
 from neuroformer.trainer import Trainer, TrainerConfig
 from neuroformer.utils_2 import (set_seed, update_object, running_jupyter, 
@@ -255,7 +255,7 @@ recursive_print(x)
 
 # Update the config
 config.id_vocab_size = tokenizer.ID_vocab_size
-model = GPT(config, tokenizer)
+model = Neuroformer(config, tokenizer)
 
 # Create a DataLoader
 loader = DataLoader(test_dataset, batch_size=2, shuffle=True, num_workers=0)

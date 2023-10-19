@@ -49,7 +49,7 @@ set_plot_params()
 parent_path = os.path.dirname(os.path.dirname(os.getcwd())) + "/"
 
 
-from model_neuroformer import GPT, GPTConfig, neuralGPTConfig
+from neuroformer.model_neuroformer_ import GPT, GPTConfig, neuralGPTConfig
 from trainer import Trainer, TrainerConfig
 
 import json
@@ -224,7 +224,7 @@ def load_natmovie(data_dir, response_path, stimulus_path, base_path):
     # df = df.reset_index(drop=True)
 
     # %%
-    from model_neuroformer import GPT, GPTConfig
+    from neuroformer.model_neuroformer_ import GPT, GPTConfig
 
     layers = (mconf.n_state_layers, mconf.n_state_history_layers, mconf.n_stimulus_layers)   
     max_epochs = 300

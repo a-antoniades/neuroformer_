@@ -24,13 +24,15 @@ def parse_args():
     parser.add_argument("--clip_vars", nargs="+", default=['id','frames'], help="Clip variables")
     parser.add_argument("--class_weights", action="store_true", default=False, help="Class weights")
     parser.add_argument("--resample", action="store_true", default=False, help="Resample")
-    parser.add_argument("--loss_bprop", type=str, default=None, help="Loss type to backpropagate")
+    parser.add_argument("--loss_bprop", action="+", default=None, help="Loss type to backpropagate")
     parser.add_argument("--config", type=str, default=None, help="Config file")
     parser.add_argument("--sweep_id", type=str, default=None, help="Sweep ID")
     parser.add_argument("--ckpt_path", type=str, default=None, help="Checkpoint path")
     parser.add_argument("--true_past", action="store_true", default=False, help="True past")
     parser.add_argument("--predict_modes", nargs='+', default=None, help="List of modes to predict")
-    parser.add_agument("--finetune", action="store_true", default=False, help="Finetune")
+    parser.add_argument("--finetune", action="store_true", default=False, help="Finetune")
+    parser.add_argument("--batch_size", type=int, default=32, help="Batch size")
+    parser.add_argument("--n_epochs", type=int, default=250, help="Number of epochs")
     return parser.parse_args()
 
 class DefaultArgs:
@@ -63,3 +65,5 @@ class DefaultArgs:
         self.true_past = False
         self.predict_modes = None
         self.finetune = False
+        self.batch_size = 32
+        self.n_epochs = 250

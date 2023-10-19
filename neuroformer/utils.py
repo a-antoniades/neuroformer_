@@ -16,7 +16,7 @@ from tqdm import tqdm
 from beam_search import beam_decode
 from SpikeVidUtils import get_interval, round_n
 from SpikeVidUtils import SpikeTimeVidData2 as SP
-from model_neuroformer import GPT
+from neuroformer.model_neuroformer_ import GPT
 
 import yaml
 

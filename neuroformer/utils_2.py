@@ -21,8 +21,6 @@ import yaml
 logger = logging.getLogger(__name__)
 
 
-
-
 def set_seed(seed):
     random.seed(seed)
     np.random.seed(seed)
@@ -990,162 +988,31 @@ def check_common_attrs(*objects):
 
     return common_attrs
 
-# def update_config(config, modalities, tokenizer, x=None, y=None, default_layer_size=4):
-#     if isinstance(config, SimpleNamespace):
-#         config = object_to_dict(config)
-#     # Ensure 'block_size' and 'layers' are in config
-#     if 'block_size' not in config:
-#         config['block_size'] = {}
-#     if 'layers' not in config:
-#         config['layers'] = {}
 
-#     # # Iterate over modalities
-#     # if x is not None:
-#     #     for modality, details in x['modalities'].items():
-#     #         for key, value in details.items():
-#     #             new_key = f'{modality}'
-#     #             config['layers']['modalities'][new_key] = default_layer_size
-#     if y is not None:
-#         for modality_group in modalities.values():
-#             for modality, values in modality_group.items():
-#                 new_key = f'{modality}'
-#                 if config['predict'] is None:
-#                     config['predict'] = {}
-#                 config['predict']['modalities'] = {}
-#                 if get_attr(tokenizer.stoi, modality) is not None:
-#                     # if tokenizer, classification objective
-#                     config['predict']['modalities'][new_key] = {
-#                                         'objective': values['objective'],
-#                                         'n_classes': len(tokenizer.stoi[modality])
-#                     }
-#                 else:
-#                     # if no tokenizer, regression objective
-#                     config['predict']['modalities'][new_key] = {
-#                                         'objective': 'regression',
-#                                         'n_classes': 1
-#                     }
+def bin_spikes(data, dt):
+    """
+    spikerates = bin_spikes(response, 0.1)
+    """
+    # Compute the maximum time across all spike times
+    max_time = max(neuron[0].max() for neuron in data if neuron[0].size != 0)
 
-#     if isinstance(config, dict):
-#         config = dict_to_object(config)
-#     return config
+    # Compute the number of intervals
+    N_intervals = int(np.ceil(max_time / dt))
 
-# # precision_score = collections.defaultdict(list)
-# # recall_score = collections.defaultdict(list)
-# # f1_score = collections.defaultdict(list)
-# device = 'cuda'
-# width = 1
-# trials = test_data['Trial'].unique()
+    # Create a 2D matrix of zeros
+    N_Neurons = len(data)
+    spike_matrix = np.zeros((N_Neurons, N_intervals))
 
-# precision = []
-# recall = []
-# f1 = []
-# df_1 = []
-# df_2 = []
-# for n, trial in enumerate(trials):
-#     trial_2 = int(20 * (trial // 20) + np.random.choice([i for i in range(1, 21)], 1))
-#     if trial_2 == trial:
-#         trial_2 = trial + 1
-#     df_data_trial = df[df['Trial'] == trial]
-#     df_data_2_trial = df[df['Trial'] == trial_2]
-#     df_1.append(df_data_trial)
-#     df_2.append(df_data_2_trial)
-#     if n > 0 and n % 4 == 0:
-#         df_1 = pd.concat(df_1).sort_values(by=['Trial', 'Time'])
-#         df_2 = pd.concat(df_2).sort_values(by=['Trial', 'Time'])
-#         for n_id in df_data_trial['ID'].unique():
-#             spikes_true = df_1['Time'][df_1['ID'] == n_id]
-#             spikes_pred = df_2['Time'][df_2['ID'] == n_id]
-#             if len(spikes_pred) > 0:
-#                 [cos_score, cos_prec, cos_call, y, y_hat, t_y] = compute_score(width, spikes_true, spikes_pred)
-#             else:
-#                 continue
-#             # scores = compute_scores(df_trial_true, df_trial_pred)
-            
-#             precision.append(cos_prec)
-#             recall.append(cos_call)
-#             f1.append(cos_score)
-#         df_1 = []
-#         df_2 = []
-#     # for n_id in df_data_trial['ID'].unique():
-#     #     # spikes_true = np.array(df_true_trial[df_true_trial['ID'] == n_id]['Time'])
-#     #     # spikes_pred = np.array(df_pred_trial[df_pred_trial['ID'] == n_id]['Time'])
-#     #     spikes_true = df_data_trial['Time'][df_data_trial['ID'] == n_id]
-#     #     spikes_pred = df_data_2_trial['Time'][df_data_2_trial['ID'] == n_id]
-#     #     if len(spikes_pred) > 0:
-#     #         [cos_score, cos_prec, cos_call, y, y_hat, t_y] = compute_score(width, spikes_true, spikes_pred)
-#     #     else:
-#     #         cos_score = 0
-#     #         cos_prec = 0
-#     #         cos_call = 0
-#         # precision.append(cos_prec)
-#         # recall.append(cos_call)
-#         # f1.append(cos_score)
-# # precision_score[len(precision_score.keys())].append(np.mean(np.nan_to_num(precision)))
-# # recall_score[len(recall_score.keys())].append(np.mean(np.nan_to_num(recall)))
-# # f1_score[len(f1_score.keys())].append(np.mean(np.nan_to_num(f1)))
+    # Iterate over the neurons and their spike times
+    for i, neuron in enumerate(data):
+        # Remove NaN values
+        spike_times = neuron[0][~np.isnan(neuron[0])]
+        # Iterate over the spike times
+        for spike_time in spike_times:
+            # Compute the interval index for the spike time
+            interval_index = int(spike_time // dt)
 
-# precision_score['Ground Truth'] = np.mean(np.nan_to_num(precision))
-# recall_score['Ground Truth'] = np.mean(np.nan_to_num(recall))
-# f1_score['Ground Truth'] = np.mean(np.nan_to_num(f1))
+            # Increment the spike count for the neuron and interval
+            spike_matrix[i, interval_index] += 1
 
-# import cv2
-# import numpy as np
-
-# def draw_grid(image, n, m, color=(0, 255, 0), thickness=1):
-#     """
-#     Draw an n x m grid on an image.
-
-#     Args:
-#         image (np.array): Input image. (height, width, channels)
-#         n (int): Number of horizontal grid lines.
-#         m (int): Number of vertical grid lines.
-#         color (tuple, optional): Color of the grid lines. Default is green (0, 255, 0).
-#         thickness (int, optional): Thickness of the grid lines. Default is 1.
-
-#     Returns:
-#         np.array: Image with the grid drawn.
-#     """
-#     height, width, _ = image.shape
-
-#     # Calculate the step size for the grid lines
-#     step_x = width // (m + 1)
-#     step_y = height // (n + 1)
-
-#     # Draw the vertical grid lines
-#     for i in range(1, m + 1):
-#         cv2.line(image, (i * step_x, 0), (i * step_x, height), color, thickness)
-
-#     # Draw the horizontal grid lines
-#     for j in range(1, n + 1):
-#         cv2.line(image, (0, j * step_y), (width, j * step_y), color, thickness)
-
-#     return image
-
-
-
-# def bin_spikes(data, dt):
-#     # Compute the maximum time across all spike times
-#     max_time = max(neuron[0].max() for neuron in data if neuron[0].size != 0)
-
-#     # Compute the number of intervals
-#     N_intervals = int(np.ceil(max_time / dt))
-
-#     # Create a 2D matrix of zeros
-#     N_Neurons = len(data)
-#     spike_matrix = np.zeros((N_Neurons, N_intervals))
-
-#     # Iterate over the neurons and their spike times
-#     for i, neuron in enumerate(data):
-#         # Remove NaN values
-#         spike_times = neuron[0][~np.isnan(neuron[0])]
-#         # Iterate over the spike times
-#         for spike_time in spike_times:
-#             # Compute the interval index for the spike time
-#             interval_index = int(spike_time // dt)
-
-#             # Increment the spike count for the neuron and interval
-#             spike_matrix[i, interval_index] += 1
-
-#     return spike_matrix
-
-# spikerates = bin_spikes(response, 0.1)
+    return spike_matrix

@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 def load_model_and_tokenizer(path):
     config = load_config(path + "/mconf.yaml")
     tokenizer = pickle.load(open(path + "/tokenizer.pkl", "rb"))
-    model = GPT(config, tokenizer)
+    model = Neuroformer(config, tokenizer)
     print(f" ///// <=----- Loading model from {path} -----=> \\\\\\")
     model.load_state_dict(torch.load(path + "/model.pt"))
     return config, tokenizer, model
@@ -99,8 +99,8 @@ def get_emb(sin_inp):
     emb = torch.stack((sin_inp.sin(), sin_inp.cos()), dim=-1)
     return torch.flatten(emb, -2, -1)
 
-class GPTConfig:
-    """ base GPT config, params common to all GPT versions """
+class NeuroformerConfig:
+    """ base Neuroformer config, params common to all Neuroformer versions """
     embd_pdrop = 0.2
     resid_pdrop = 0.2 
     attn_pdrop = 0.2
@@ -131,8 +131,8 @@ class GPTConfig:
             else:
                 setattr(self, k, v)
 
-class neuralGPTConfig:
-    """ base GPT config, params common to all GPT versions """
+class NeuroformerConfig:
+    """ base Neuroformer config, params common to all Neuroformer versions """
     n = 0.4
     im_drop = 0.4
     id_drop = n
@@ -157,7 +157,7 @@ class neuralGPTConfig:
             setattr(self, k, v)
 
 
-class GPT1Config(GPTConfig):
+class Neuroformer1Config(NeuroformerConfig):
     """ GPT-1 like network roughly 125M params """
     n_layer = 12
     n_head = 12
@@ -954,8 +954,10 @@ class ImprovedGRU(nn.Module):
         return torch.stack(outputs, dim=1), h
 
 
-class GPT(nn.Module):
-    """ the full GPT language model, with a context size of block_size """
+class Neuroformer(nn.Module):
+    """ The full Neuroformer Model
+    
+    """
 
     def __init__(self, config, tokenizer):
         super().__init__()
@@ -1118,7 +1120,7 @@ class GPT(nn.Module):
                         no_decay.add(fpn)
                     else: no_decay.add(fpn)
 
-            # special case the position embedding parameter in the root GPT module as not decayed
+            # special case the position embedding parameter in the root Neuroformer module as not decayed
             black_list_mods = ['pos_emb', 'temp_emb']
             for mods in black_list_mods:
                 for name, param in self.named_parameters():
@@ -1184,7 +1186,7 @@ class GPT(nn.Module):
         pad = x['pad']
         features = dict()
 
-        # forward the GPT model
+        # forward the Neuroformer model
         ''' 
         positional and temporal embeddings implemented in multiple ways, learnt, 
         fourrier decomposition and in the case of time, just passed as is. 

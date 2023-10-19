@@ -25,7 +25,7 @@ from torch.utils.data.dataloader import DataLoader
 
 import math
 
-from neuroformer.model_neuroformer import GPT, GPTConfig
+from neuroformer.model_neuroformer_ import GPT, GPTConfig
 from neuroformer.trainer import Trainer, TrainerConfig
 from neuroformer.utils_2 import (set_seed, update_object, 
                                  check_common_attrs, running_jupyter, 

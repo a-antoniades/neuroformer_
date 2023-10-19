@@ -48,7 +48,7 @@ set_plot_params()
 parent_path = os.path.dirname(os.path.dirname(os.getcwd())) + "/"
 
 
-from neuroformer.model_neuroformer import GPT, GPTConfig, neuralGPTConfig
+from neuroformer.model_neuroformer_ import GPT, GPTConfig, neuralGPTConfig
 from neuroformer.trainer import Trainer, TrainerConfig
 
 from attention.LRN_attention import *
