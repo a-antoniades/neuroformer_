@@ -11,8 +11,9 @@
 </p> -->
 
 
-
-![Model Architecture](images/model_arch_2_5.jpg)
+<p align="center">
+  <img width="100%" src="images/model_arch_2_5.jpg">
+</p>
 
 A GPT based multi-modal, multi-task transformer model for pretraining and downstream inference involving brain data.
 
@@ -71,18 +72,20 @@ python neuroformer_train.py --lateral --config configs/NF/pretrain_visnav.yaml
 
 
 ## Pretraining
-
-<img src="images/real_data_v2.jpg" alt="Model Architecture" width="90%"/>
+<p align="center">
+  <img src="images/real_data_v2.jpg" alt="Model Architecture" width="90%"/>
+</p>
 
 You can jointly pretrain the model using the spike causal masking (SCLM) objective and any other downstream task. The trainer will automatically save the model that does best for each corresponding objective (if you also include a holdout dataset). For example model.pt (normal pretraining objective), model_speed.pt, etc.
 
 
 ## Finetuning
-
 <div style="text-align: center;">
-    <img src="images/regression_2.jpg" alt="finetuning"/>
-    <br>
-    <figcaption style="font-size: 0.9em; color: grey;">Holdout predictions of Neuroformer jointly Trained on <strong>Speed</strong> and <strong>Gaze (phi, thi)</strong></figcaption>
+    <p align="center">
+      <img src="images/regression_2.jpg" alt="finetuning"/>
+      <br>
+      <figcaption style="font-size: 0.9em; color: grey;">Holdout predictions of Neuroformer jointly Trained on <strong>Speed</strong> and <strong>Gaze (phi, thi)</strong></figcaption>
+    </p>
 </div>
 
 
