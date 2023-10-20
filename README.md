@@ -1,7 +1,7 @@
 # Neuroformer 
 
 <p align="center">
-  <img width="65%" src="images/_7fef7456-b2dd-4ef4-bc00-2a15d401e51b.jpg">
+  <img width="55%" src="images/_7fef7456-b2dd-4ef4-bc00-2a15d401e51b.jpg">
 </p>
 
 <!-- ![Model Architecture](images/_7fef7456-b2dd-4ef4-bc00-2a15d401e51b.jpg) -->
