@@ -1,14 +1,14 @@
 # Neuroformer 
-
+### A GPT based multi-modal, multi-task transformer model for pretraining and downstream inference involving brain data.
 <p align="center">
   <img width="55%" src="images/_7fef7456-b2dd-4ef4-bc00-2a15d401e51b.jpg">
 </p>
 
 <!-- ![Model Architecture](images/_7fef7456-b2dd-4ef4-bc00-2a15d401e51b.jpg) -->
 
-<center>
-    <h3>A GPT based multi-modal, multi-task transformer model for pretraining and downstream inference involving brain data.</h3>
-</center>
+<!-- <p align="center">
+### A GPT based multi-modal, multi-task transformer model for pretraining and downstream inference involving brain data.
+</p> -->
 
 
 
@@ -26,17 +26,33 @@ conda activate neuroformer
 pip install -r requirements.txt
 ```
 
-## Data
+The Smith Lab has open-sourced two datasets for use with this model. Special thanks to Yiyi Yu and Joe Canzano 🙂
 
-The Smith Lab has open-sourced two datasets for use with this model:
+- **V1AL**: Neuronal activity from the primary visual cortex and a higher visual area (V1 + AL), recorded from awake mice viewing visual stimuli.
 
-- **V1AL**: This dataset includes neuronal activity from the primary visual cortex and a higher visual area (V1 + AL), recorded from awake mice viewing visual stimuli.
+- **Visnav (lateral)**: Recordings from the lateral visual cortex, spanning V1 and multiple higher visual areas, from mice engaged in a visually-guided navigation task. This dataset includes additional behavioral variables such as speed, and eye gaze (phi, th).
 
-- **Visnav (lateral)**: This dataset contains recordings from the lateral visual cortex, spanning V1 and multiple higher visual areas, from mice engaged in a visually-guided navigation task. This dataset contains additional behavioral variables, speed, and eye gaze (phi, th).
+### Integrating your own data
+
+For a closer look at the data format, refer to the `neuroformer.datasets.load_visnav()` function (used for example in the `neuroformer_train.py`). 
+
+The function needs to return:
+
+- `data`: A dictionary with:
+  - Required key: `'spikes'` of shape N_neurons x N_timesteps (bins) of size dt.
+  - Optional keys:
+    - `'frames'` of shape N_frames x N_timesteps (bins) of size dt. If your trial structure/stimulus format differs from the ones provided in the script, you can write your own `callback` function.
+    - `'behavior variables'` of shape N_timepoints, denoting the behavioral variable of interest (e.g. speed, phi, thi, etc). This key can be anything you want, as long as you specify it in the config file.
+- `intervals`: An array of shape N_timepoints denoting all intervals/time bins of the data. This is used to split the data into train/val/test sets.
+- `train_intervals`: The corresponding train intervals.
+- `test_intervals`: The corresponding test intervals.
+- `finetune_intervals`: The corresponding finetune intervals (very small amount).
+- `callback`: This function is passed to the dataloader, and parses your stimulus according to the relationship it has to your response (spikes). This enables the integration of virtually any stimulus/response experiment structure. Most callbacks only require 4-5 lines of code, see the existing ones to get an idea.
+
 
 ## Modalities and Task Configuration
 
-In the `mconf.yaml` file, you can specify additional modalities other than spikes and frames. For example behavioral features. The model will automatically create add/remove the necessary layers to the model. Additionally, you can specify any downstream objective, and choose between a 
+In the `mconf.yaml` file, you can specify additional modalities other than spikes and frames. For example behavioral features. The model will *automagically* create add/remove the necessary layers to the model. Additionally, you can specify any downstream objective, and choose between a 
 
 Here's what each field represents:
 
@@ -66,7 +82,7 @@ You can jointly pretrain the model using the spike causal masking (SCLM) objecti
 <div style="text-align: center;">
     <img src="images/regression_2.jpg" alt="finetuning"/>
     <br>
-    <figcaption style="font-size: 0.9em; color: grey;">Holdout predictions of Neuroformer jointly Trained on Speed and Gaze (phi, thi)</figcaption>
+    <figcaption style="font-size: 0.9em; color: grey;">Holdout predictions of Neuroformer jointly Trained on <strong>Speed</strong> and <strong>Gaze (phi, thi)</strong></figcaption>
 </div>
 
 
