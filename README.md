@@ -15,9 +15,7 @@
   <img width="100%" src="images/model_arch_2_5.jpg">
 </p>
 
-A GPT based multi-modal, multi-task transformer model for pretraining and downstream inference involving brain data.
-
-For questions regarding use of the model, feel free to contact antonis@ucsb.edu.
+**For questions regarding use of the model, feel free to contact antonis@ucsb.edu.**
 
 ## Installation
 
