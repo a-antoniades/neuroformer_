@@ -1,6 +1,6 @@
 # Neuroformer 
 <div style="text-align: center;">
-    <img src="images/_7fef7456-b2dd-4ef4-bc00-2a15d401e51b.jpg" alt="Model Architecture" width="75%"/>
+    <img src="images/_7fef7456-b2dd-4ef4-bc00-2a15d401e51b.jpg" alt="Model Architecture" width="70%"/>
 </div>
 
 
