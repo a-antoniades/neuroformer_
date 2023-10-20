@@ -286,18 +286,3 @@ print(f"Saving inference results in {os.path.join(save_inference_path, filename)
 with open(os.path.join(save_inference_path, filename), "wb") as f:
     pickle.dump(results_trial, f)
 
-# %%
-def check_model_on_gpu(model):
-    return all(param.device.type == 'cuda' for param in model.parameters())
-
-if check_model_on_gpu(model):
-    print("All model parameters are on the GPU")
-else:
-    print("Not all model parameters are on the GPU")
-
-# %%
-device = "cuda" if torch.cuda.is_available() else "cpu"
-x = all_device(x, device)
-y = all_device(y, device)
-
-features, preds, loss = model(x, y)

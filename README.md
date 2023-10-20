@@ -1,5 +1,5 @@
 # Neuroformer 
-<img src="images/_7fef7456-b2dd-4ef4-bc00-2a15d401e51b.jpg" alt="Model Architecture" width="25%"/>
+<img src="images/_7fef7456-b2dd-4ef4-bc00-2a15d401e51b.jpg" alt="Model Architecture" width="100%"/>
 
 
 <!-- ![Model Architecture](images/_7fef7456-b2dd-4ef4-bc00-2a15d401e51b.jpg) -->
@@ -52,21 +52,33 @@ python neuroformer_train.py --lateral --config configs/NF/pretrain_visnav.yaml
 
 ## Pretraining
 
-![real_data](images/real_data_v2.jpg)
+<img src="images/real_data_v2.jpg" alt="Model Architecture" width="90%"/>
 
 You can jointly pretrain the model using the spike causal masking (SCLM) objective and any other downstream task. The trainer will automatically save the model that does best for each corresponding objective (if you also include a holdout dataset). For example model.pt (normal pretraining objective), model_speed.pt, etc.
 
 
 ## Finetuning
 
-![finetuning](images/regression_2.jpg)
+<div style="text-align: center;">
+    <img src="images/regression_2.jpg" alt="finetuning"/>
+    <br>
+    <figcaption style="font-size: 0.9em; color: grey;">Holdout predictions of Neuroformer jointly Trained on Speed and Gaze (phi, thi)</figcaption>
+</div>
 
 
 To finetune the model on one of the behavioral variables (speed, phi, thi), you can run the following code:
 ```
 python neuroformer_train.py --lateral --finetune --loss_brop speed phi th --config configs/NF/finetune_visnav_all.yaml
 ```
+
 `--loss_bprop` tells the optimizer which losses to backpropagate.  
 `--config` Here only difference between the two is adding Modalities.Behavior.Variables.(Data, dt, Predict, Objective) to the config file.
 
+## Inference
 
+To generate new spikes:
+```
+python neuroformer_inference.py --dataset lateral --ckpt_path "model_directory" --predict_modes speed phi th
+```
+
+The `behavior_preds()` function in `neuroformer_inference.py` can be used to generate predictions for any of the behavioral variables, by setting `block_type` and `objecttive`, which is automatically inferred by the config file and the `args.predict_mode` options. Note that if you want to generate predictions for a variable that was not used in the pretraining, you will need to add it to the config file (and preferably **finetune** on it first).
