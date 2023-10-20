@@ -80,7 +80,7 @@ You can jointly pretrain the model using the spike causal masking (SCLM) objecti
 ## Finetuning
 <div style="text-align: center;">
     <p align="center">
-      <img src="images/regression_2.jpg" alt="finetuning"/>
+      <img src="images/regression.jpg" alt="finetuning"/>
       <br>
       <figcaption style="font-size: 0.9em; color: grey;">Holdout predictions of Neuroformer jointly Trained on <strong>Speed</strong> and <strong>Gaze (phi, thi)</strong></figcaption>
     </p>
