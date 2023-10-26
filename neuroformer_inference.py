@@ -26,10 +26,10 @@ from torch.utils.data.dataloader import DataLoader
 
 import math
 
-from neuroformer.model_neuroformer_2 import Neuroformer, NeuroformerConfig, load_model_and_tokenizer
+from neuroformer.model_neuroformer import Neuroformer, NeuroformerConfig, load_model_and_tokenizer
 from neuroformer.utils import get_attr
 from neuroformer.trainer import Trainer, TrainerConfig
-from neuroformer.utils_2 import (set_seed, update_object, running_jupyter, 
+from neuroformer.utils import (set_seed, update_object, running_jupyter, 
                                  all_devicmodele, load_config, 
                                  dict_to_object, object_to_dict, recursive_print,
                                  create_modalities_dict, generate_spikes)

@@ -27,34 +27,50 @@ pip install -r requirements.txt
 
 The Smith Lab has open-sourced two datasets for use with this model. Special thanks to Yiyi Yu and Joe Canzano 🙂
 
-- **V1AL**: Neuronal activity from the primary visual cortex and a higher visual area (V1 + AL), recorded from awake mice viewing visual stimuli.
+- `V1AL`: Neuronal activity from the primary visual cortex and a higher visual area (V1 + AL), recorded from awake mice viewing visual stimuli.
 
-- **Visnav (lateral)**: Recordings from the lateral visual cortex, spanning V1 and multiple higher visual areas, from mice engaged in a visually-guided navigation task. This dataset includes additional behavioral variables such as speed, and eye gaze (phi, th).
+- `lateral` *(visnav)*: Recordings from the lateral visual cortex, spanning V1 and multiple higher visual areas, from mice engaged in a visually-guided navigation task. This dataset includes additional behavioral variables such as speed, and eye gaze (phi, th).
+
+
+## Pretraining
+**To pretrain on the visnav dataset, you can run the following code:**
+
+```
+python neuroformer_train.py --lateral --config configs/NF/pretrain_visnav.yaml
+``` 
 
 ## Integrating your own data
 
-For a closer look at the data format, refer to the `neuroformer.datasets.load_visnav()` function (used for example in the `neuroformer_train.py`). 
+For a closer look at the data format, refer to the [`neuroformer.datasets.load_visnav()`] function (used for example in the [`neuroformer_train.py`](./neuroformer_train.py)). 
 
-The function needs to return:
-
-The data is organized in a dictionary format with the following structure:
-
-## Data Dictionary
+### Data Dictionary
 
 ```python
 {
     'data': {
-        'spikes': (N_neurons, N_timesteps),  # Shape, required key
-        'frames': (N_frames, N_timesteps),   # Shape, optional key
-        'behavior variables': (N_timepoints,),  # Shape, optional key; denoting the behavioral variable of interest (e.g. speed, phi, thi, etc). You can name this key as per your requirements and specify its usage in the config file.
-    },
-    'intervals': (N_timepoints,),  # Denoting all intervals/time bins of the data. Used to split the data into train/val/test sets.
-    'train_intervals': ... ,  # The corresponding train intervals.
-    'test_intervals': ... ,   # The corresponding test intervals.
-    'finetune_intervals': ... ,  # The corresponding finetune intervals (very small amount).
-    'callback': callback() 'This function is passed to the dataloader and parses your stimulus according to the relationship it has to your response (spikes). It is designed to integrate any stimulus/response experiment structure. Typically requires only 4-5 lines of code; refer to existing ones for a clearer understanding.'
+        'spikes': (N_neurons, N_timesteps),  # np.ndarray, required key
+        'frames': (N_frames, N_timesteps),   # np.ndarray, optional key
+        'behavior variables': (N_timepoints,),  # np.ndarray,
+    'intervals': (N_timepoints,),  # np.ndarray, Denoting all intervals/time bins of the data. Used to split the data into train/val/test sets.
+    'train_intervals': (N_timepoints,) ,  # np.ndarray, The corresponding train intervals.
+    'test_intervals': (N_timepoints,) ,   # np.ndarray, The corresponding test intervals.
+    'finetune_intervals': (N_timepoints,) ,  # np.ndarray, The corresponding finetune intervals (very small amount).
+    'callback': callback() # function
 }
 ```
+
+`data['spikes']`: Represents neuronal spiking data with dimensions corresponding to the number of neurons and timesteps.
+
+`data['frames']`: If provided, it denotes stimulus frames that align with the neuronal spiking data.
+data['behavior variables']: Optional key that represents behavioral variables of interest. The naming for this key can be customized as required.
+
+`data['behavior']`: If provided, denotes the behavioral variable of interest (e.g. speed, phi, thi, etc). You can name this key as per your requirements and specify its usage in the config file [(see below)](#modalities-and-task-configuration).
+
+`intervals`: Provides a breakdown of time intervals or bins in the dataset.
+train_intervals, test_intervals, finetune_intervals: Represent the segments of the dataset that will be used for training, testing, and fine-tuning respectively.
+
+`callback`: This function is passed to the dataloader and parses your stimulus (for example how to index the video frames) according to the relationship it has to your response (spikes). It is designed to integrate any stimulus/response experiment structure. Typically requires only 4-5 lines of code; refer to comments inside `visnav_callback()` and `combo3_V1AL_callback` inside [`datasets.py`](neuroformer/datasets.py) for an example.
+
 
 ## Modalities and Task Configuration
 
@@ -65,21 +81,15 @@ Here's what each field represents:
 ```yaml
 Modalities: Any additional modalities other than spikes and frames.
 
-Behavior: The name of the modality type.
+Modality Type: The name of the modality type. (for example behavior)
 
 Variables: The name of the modality.
+
   Data: The data of the modality in shape (n_samples, n_features).
   dt: The time resolution of the modality, used to index n_samples.
   Predict: Whether to predict this modality or not. If you set predict to false, then it will not be used as an input in the model, but rather to be predicted as an output.
   Objective: Choose between regression or classification. If classification is chosen, the data will be split into classes according to dt.
 ```
-
-
-
-To pretrain on the visnav dataset, you can run the following code:
-```
-python neuroformer_train.py --lateral --config configs/NF/pretrain_visnav.yaml
-``` 
 
 
 ## Pretraining
@@ -95,7 +105,7 @@ You can jointly pretrain the model using the spike causal masking (SCLM) objecti
     <p align="center">
       <img src="images/regression.jpg" alt="finetuning"/>
       <br>
-      <figcaption style="font-size: 0.9em; color: grey;">Holdout predictions of Neuroformer jointly Trained on <strong>Speed</strong> and <strong>Gaze (phi, thi)</strong></figcaption>
+      <figcaption style="font-size: 0.9em; color: grey;">Speed decoding of Neuroformer (green) vs. baseline models. </figcaption>
     </p>
 </div>
 
@@ -110,23 +120,29 @@ python neuroformer_train.py --lateral --finetune --loss_brop speed phi th --conf
 
 ## Inference
 
-<p align="center">
-  <img src="images/regression_2.jpg" alt="Model Architecture" width="95%"/>
-</p>
-
-
 To generate new spikes:
 ```
 python neuroformer_inference.py --dataset lateral --ckpt_path "model_directory" --predict_modes speed phi th
 ```
 
-The `behavior_preds()` function in `neuroformer_inference.py` can be used to generate predictions for any of the behavioral variables, by setting `block_type` and `objective`, which is automatically inferred by the mconf.yaml file and the `args.predict_mode` options. For example, to predict a new modality named ***reward*** inside the `behavior` block:
+<div style="text-align: center;">
+    <p align="center">
+      <img src="images/regression_2.jpg" alt="finetuning"/>
+      <br>
+      <figcaption style="font-size: 0.9em; color: grey;">Multitask decoding of single Neuroformer jointly Trained on <strong>Speed</strong> and <strong>Gaze (phi, thi).</strong></figcaption>
+    </p>
+</div>
+
+
+The [`neuroformer.utils.predict_modality()`](neuroformer/utils_2.py) function can be used to generate predictions for any of the behavioral variables. *See [`neuroformer_inference.py`](./neuroformer_inference.py) for an example*.
 
 ```python
-predict_modality(model, dataset, 
-                 modality='reward',
+# block_type = behavior, modality = speed
+preds = predict_modality(model, dataset, 
+                 modality='speed', 
                  block_type='behavior',
-                 objective=config.modalities.behavior.reward.objective)
+                 objective=config.modalities.behavior.speed.objective)
+                           # 'regression' or 'classification'
 ```
 
 

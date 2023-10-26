@@ -1,18 +1,11 @@
-import math
+import sys
+sys.path.append('./neuroformer')
+
 import itertools
 import torch
-from scipy import io as scipyio
-from scipy.special import softmax
-import skimage
-from scipy.ndimage.filters import gaussian_filter, uniform_filter
-
-import sys
-sys.path.append('/local/home/antonis/neuroformer/neuroformer')
-from SpikeVidUtils import image_dataset, r3d_18_dataset, make_intervals
-from PIL import Image
-from analysis import *
-from utils import *
-from SpikeVidUtils import create_full_trial
+import numpy as np
+import pandas as pd
+import pickle
 
 
 def split_data_by_interval(intervals, r_split=0.8, r_split_ft=0.1):
@@ -25,6 +18,10 @@ def split_data_by_interval(intervals, r_split=0.8, r_split_ft=0.1):
 def combo3_V1AL_callback(frames, frame_idx, n_frames, **kwargs):
     """
     Shape of frames: [3, 640, 64, 112]
+                     (3 = number of stimuli)
+                     (0-20 = n_stim 0,
+                      20-40 = n_stim 1,
+                      40-60 = n_stim 2)
     frame_idx: the frame_idx in question
     n_frames: the number of frames to be returned
     """
@@ -37,6 +34,19 @@ def combo3_V1AL_callback(frames, frame_idx, n_frames, **kwargs):
     f_idx_0 = max(0, frame_idx - n_frames)
     f_idx_1 = f_idx_0 + n_frames
     chosen_frames = frames[n_stim, f_idx_0:f_idx_1].type(torch.float32).unsqueeze(0)
+    return chosen_frames
+
+def visnav_callback(frames, frame_idx, n_frames, **kwargs):
+    """
+    frames: [n_frames, 1, 64, 112]
+    frame_idx: the frame_idx in question
+    n_frames: the number of frames to be returned
+    """
+    if isinstance(frames, np.ndarray):
+        frames = torch.from_numpy(frames)
+    f_idx_0 = max(0, frame_idx - n_frames)
+    f_idx_1 = f_idx_0 + n_frames
+    chosen_frames = frames[f_idx_0:f_idx_1].type(torch.float32).unsqueeze(0)
     return chosen_frames
 
 def load_V1AL(config, stimulus_path=None, response_path=None, top_p_ids=None):
@@ -87,14 +97,6 @@ def load_natural_movie(stimulus_path=None, response_path=None, top_p_ids=None):
     n_trials = n
 
     return video_stack, df, n_trials
-
-def visnav_callback(frames, frame_idx, n_frames, **kwargs):
-    if isinstance(frames, np.ndarray):
-        frames = torch.from_numpy(frames)
-    f_idx_0 = max(0, frame_idx - n_frames)
-    f_idx_1 = f_idx_0 + n_frames
-    chosen_frames = frames[f_idx_0:f_idx_1].type(torch.float32).unsqueeze(0)
-    return chosen_frames
 
 def load_visnav(version, config, selection=None):
     if version not in ["medial", "lateral"]:

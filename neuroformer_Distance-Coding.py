@@ -358,7 +358,7 @@ updated_dict_object = dict_to_object(updated_config)
 config = updated_dict_object
 
 # %%
-from neuroformer.model_neuroformer_2 import GPT, GPTConfig
+from neuroformer.model_neuroformer import GPT, GPTConfig
 
 config = updated_dict_object
 config.id_vocab_size = tokenizer.ID_vocab_size

@@ -1,4 +1,5 @@
 import glob
+from types import SimpleNamespace
 import os
 import logging
 import pickle
@@ -12,17 +13,12 @@ import torch.nn as nn
 from torch.nn import functional as F
 from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
+import argparse
 
-from beam_search import beam_decode
-from SpikeVidUtils import get_interval, round_n
-from SpikeVidUtils import SpikeTimeVidData2 as SP
-from neuroformer.model_neuroformer_ import GPT
-
+# from beam_search import beam_decode
 import yaml
 
 logger = logging.getLogger(__name__)
-
-
 
 
 def set_seed(seed):
@@ -30,6 +26,22 @@ def set_seed(seed):
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
+
+def recursive_print(x, keys=None):
+    if keys is None:
+        keys = []
+        
+    if isinstance(x, dict):
+        for key, value in x.items():
+            recursive_print(value, keys + [str(key)])
+    elif isinstance(x, (list, tuple)):
+        for idx, value in enumerate(x):
+            recursive_print(value, keys + [str(idx)])
+    elif isinstance(x, torch.Tensor):
+        print("_".join(keys), x.shape, x.dtype)
+    else:
+        print("_".join(keys), type(x))
+
 
 def get_attr(obj, name, default=None):
     if isinstance(obj, dict):
@@ -118,10 +130,55 @@ def update_object(obj1, obj2):
             # print(f"Setting {attr_name} to {attr_value}")
             setattr(obj1, attr_name, attr_value)
 
+def load_config(file_path):
+    with open(file_path, 'r') as stream:
+        try:
+            return dict_to_object(yaml.safe_load(stream))
+        except yaml.YAMLError as exc:
+            print(exc)
+
+def save_config(config, file_path):
+    if isinstance(config, SimpleNamespace):
+        config = object_to_dict(config)
+    with open(file_path, 'w') as outfile:
+        yaml.safe_dump(config, outfile, sort_keys=False)
+
+def dict_to_object(d):
+    if isinstance(d, dict):
+        return SimpleNamespace(**{k: dict_to_object(v) for k, v in d.items()})
+    else:
+        return d
+
+def object_to_dict(o):
+    if isinstance(o, dict):
+        return {k: object_to_dict(v) for k, v in o.items()}
+    elif isinstance(o, SimpleNamespace):
+        return {k: object_to_dict(v) for k, v in vars(o).items()}
+    elif isinstance(o, list):
+        return [object_to_dict(v) for v in o]
+    else:
+        return o
+    
 def df_to_dict(df):
     d = {k: f.groupby('Interval').apply(lambda x: {'Time': np.array(x['Time']), 'ID': np.array(x['ID'])}).to_dict()
         for k, f in df.groupby('Trial')}
     return d
+
+    
+def create_modalities_dict(data, modalities_config):
+    modalities_config = object_to_dict(modalities_config)
+    modalities = {}
+    for modality_type, modality_config in modalities_config.items():
+        modalities[modality_type] = {'n_layers': modality_config['n_layers'], 'variables': {}}
+        for variable_type, variable_config in modality_config['variables'].items():
+            modalities[modality_type]['variables'][variable_type] = {
+                'data': data[variable_config['data']],
+                'dt': variable_config['dt'],
+                'window': modality_config['window'],
+                'predict': variable_config['predict'],
+                'objective': variable_config['objective']
+            }
+    return modalities
     
 def get_model_attr(mconf, tconf):
   n_head = mconf.n_head
@@ -140,28 +197,13 @@ def print_full(df, length=None):
     pd.reset_option('display.max_rows')
     torch.set_printoptions(threshold=1e3)
 
-def object_to_dict(obj):
-    d = dict()
-    d_types = [int, float, str, bool, tuple, type(None)]
-    for a in dir(obj):
-        if not a.startswith('__'):
-            if type(getattr(obj, a)) in d_types:
-                d[a] = getattr(obj, a)
-    return d
-
-    # return {a: getattr(obj, a) for a in dir(obj) if not a.startswith('__')}
-
 def save_yaml(obj, filename):
     with open(filename, 'w') as outfile:
         yaml.dump(obj, outfile)
 
-def save_yaml(data, filename):
-    # Create the directory if it doesn't exist
-    os.makedirs(os.path.dirname(filename), exist_ok=True)
-    
-    with open(filename, 'w') as outfile:
-        yaml.dump(data, outfile, default_flow_style=False)
-
+def save_object(obj, filename):
+    with open(filename, 'wb') as outp:  # Overwrites any existing file.
+        pickle.dump(obj, outp, pickle.HIGHEST_PROTOCOL)
 
 def set_model_attributes(mconf):
     for a in dir(mconf):
@@ -357,10 +399,10 @@ def model_ensemble(models, x):
     return logits 
 
 @torch.no_grad()
-def predict_raster_recursive_time_auto(model, dataset, window, window_prev, stoi, itos_dt, itos=None, 
-                                      get_dt=False, sample=False, top_k=0, top_p=0, top_p_t=0, temp=1, temp_t=1, 
-                                      frame_end=0, gpu=False, pred_dt=True, true_past=False,
-                                      p_bar=False, plot_probs=False):    
+def generate_spikes(model, dataset, window, window_prev, tokenizer,
+                    get_dt=False, sample=False, top_k=0, top_p=0, top_p_t=0, temp=1, temp_t=1, 
+                    frame_end=0, gpu=False, pred_dt=True, true_past=False,
+                    p_bar=False, plot_probs=False):    
     """
     predict both ID and dt recursively
     """
@@ -442,10 +484,11 @@ def predict_raster_recursive_time_auto(model, dataset, window, window_prev, stoi
     device = 'cpu' if not gpu else torch.cuda.current_device() # torch.cuda.current_device() if torch.cuda.is_available() else "cpu"
     model = [model_n.to(device) for model_n in model] if isinstance(model, list) else model.to(device) 
     model = [model_n.eval() for model_n in model] if isinstance(model, list) else model.eval()
+    stoi, itos, itos_dt = tokenizer.stoi['ID'], tokenizer.itos['ID'], tokenizer.itos['dt']
     tf = 0
     mconf = model[0].config if isinstance(model, list) else model.config
-    T_id = mconf.id_block_size
-    T_id_prev = mconf.prev_id_block_size
+    T_id = mconf.block_size.id
+    T_id_prev = mconf.block_size.prev_id
     
     context = [] # torch.tensor(0, device=device).unsqueeze(0)
     data = dict()
@@ -467,10 +510,8 @@ def predict_raster_recursive_time_auto(model, dataset, window, window_prev, stoi
         #     break
         # print(f"it = {it}, interval: {x['interval']}, window_prev: {window_prev}, window: {window}")
 
-        for key, value in x.items():
-            x[key] = x[key].to(device)
-        for key, value in y.items():
-            y[key] = y[key].to(device)
+        x = all_device(x, device)
+        y = all_device(y, device)
         
         # feed predicted IDs from buffer into past state
         # count how many steps 
@@ -523,6 +564,9 @@ def predict_raster_recursive_time_auto(model, dataset, window, window_prev, stoi
             else:
                 logits, features, _ = model(x, y)
             
+            logits = all_device(logits, device)
+            features = all_device(features, device)
+            
             logits['id'] = logits['id'][:, i]
             logits['dt'] = logits['dt'][:, i]
             # optionally crop probabilities to only the top k / p options
@@ -544,6 +588,8 @@ def predict_raster_recursive_time_auto(model, dataset, window, window_prev, stoi
                 # choose highest topk (1) sample
                 _, ix = torch.topk(probs, k=1, dim=-1)
                 _, ix_dt = torch.topk(probs_dt, k=1, dim=-1)
+            
+            # print(f"Step {it}, i: {i} ix: {ix}, x_true: {y['id'][0, i]}")
 
             if plot_probs:
                 probs_n = np.array(probs)[0]
@@ -586,7 +632,7 @@ def predict_raster_recursive_time_auto(model, dataset, window, window_prev, stoi
             x['id'][:, i + 1] = ix.flatten()
             x['dt'][:, i + 1] = ix_dt.flatten() if pred_dt else x['dt']
            
-            if ix >= stoi['EOS']:  # ix >= stoi['EOS']:   # or i > T_id - int(x['pad']):   # or len(current_id_stoi) == T_id: # and dtx == 0.5:    # dtx >= window:   # ix == stoi['EOS']:
+            if ix.flatten() >= stoi['EOS']:  # ix >= stoi['EOS']:   # or i > T_id - int(x['pad']):   # or len(current_id_stoi) == T_id: # and dtx == 0.5:    # dtx >= window:   # ix == stoi['EOS']:
                 # print(f"n_regres_block: {i}")
                 break
                         
@@ -695,19 +741,24 @@ def predict_beam_search(model, loader, stoi, frame_end=0):
 #     return behavior_preds
 
 @torch.no_grad()
-def predict_behavior(model, dataset, itos, sample=False, top_k=0, top_p=0):
+def predict_modality(model, dataset, modality, 
+                     block_type='modalities', objective='classification', 
+                     sample=False, top_k=0, top_p=0):
+    
     device = torch.cuda.current_device() if torch.cuda.is_available() else "cpu"
+    tokenizer = model.tokenizer
+    block_type_modality = f'{block_type}_{modality}_value'
     
     model.eval()
     model.to(device)
     
-    loader = DataLoader(dataset, batch_size=64, shuffle=False, pin_memory=False)
+    loader = DataLoader(dataset, batch_size=50, shuffle=False, pin_memory=False)
     pbar = tqdm(enumerate(loader), total=len(loader))
     
-    behavior_preds = []
+    modality_preds = []
     intervals = []
     trials = []
-    behavior_true = []
+    modality_true = []
     for it, (x, y) in pbar:
         x = all_device(x, device)
         y = all_device(y, device)
@@ -717,42 +768,48 @@ def predict_behavior(model, dataset, itos, sample=False, top_k=0, top_p=0):
         features = all_device(features, 'cpu')
         loss = all_device(loss, 'cpu')
         
-        if top_k or top_p != 0:
-            logits['behavior'] = top_k_top_p_filtering(logits['behavior'], top_k=top_k, top_p=top_p)
-        probs = F.softmax(logits['behavior'], dim=-1)
-        if sample:
-            ix = torch.multinomial(probs, 1).flatten()
-        else:
-            ix = torch.argmax(probs, dim=-1).flatten()
+        if objective == 'classification':
+            if top_k or top_p != 0:
+                logits[modality] = top_k_top_p_filtering(logits[modality], top_k=top_k, top_p=top_p)
+            probs = F.softmax(logits[modality], dim=-1)
+            if sample:
+                ix = torch.multinomial(probs, 1).flatten()
+            else:
+                ix = torch.argmax(probs, dim=-1).flatten()
         
-        ix_itos = [itos[int(i)] for i in ix]
+            ix_itos = tokenizer.decode(ix, modality)
+            y_modality = tokenizer.decode(y[block_type][modality]['value'], modality)
+        elif objective == 'regression':
+            ix = logits[modality].flatten()
+            ix_itos = ix
+            y_modality = y["modalities"][block_type][modality]['value'].flatten()
+        
         interval = x['interval'].flatten().tolist()
         trial = x['trial'].flatten().tolist()
-        y_behavior = [itos[int(i)] for i in y['behavior']]
-        behavior_preds.extend(ix_itos)
+        modality_preds.extend([float(ix_t) for ix_t in ix_itos])
         intervals.extend(interval)
         trials.extend(trial)
-        behavior_true.extend(y_behavior)
-    
-    # make behavior preds, intervals etc into dataframe
-    behavior_preds = pd.DataFrame(behavior_preds)
-    behavior_preds.columns = ['behavior']
-    behavior_preds['interval'] = intervals
-    behavior_preds['trial'] = trials
-    behavior_preds['true'] = behavior_true
+        modality_true.extend([float(y_t) for y_t in y_modality])
+
+    # make modality preds, intervals etc into dataframe=
+    modality_preds = pd.DataFrame(modality_preds)
+    modality_preds.columns = [block_type_modality]
+    modality_preds['interval'] = intervals
+    modality_preds['trial'] = trials
+    modality_preds['true'] = modality_true
 
     # make cum interval
-    behavior_preds['cum_interval'] = behavior_preds['interval'].copy()
+    modality_preds['cum_interval'] = modality_preds['interval'].copy()
     prev_trial = None
-    for trial in behavior_preds['trial'].unique():
+    for trial in modality_preds['trial'].unique():
         if prev_trial is None:
             prev_trial = trial
             continue
         else:
-            max_interval = behavior_preds[behavior_preds['trial'] == prev_trial]['interval'].max()
-            behavior_preds.loc[behavior_preds['trial'] >= trial, 'cum_interval'] += max_interval
+            max_interval = modality_preds[modality_preds['trial'] == prev_trial]['interval'].max()
+            modality_preds.loc[modality_preds['trial'] >= trial, 'cum_interval'] += max_interval
 
-    return behavior_preds
+    return modality_preds
 
 @torch.no_grad()
 def extract_latents(model, dataset):
@@ -931,130 +988,31 @@ def check_common_attrs(*objects):
 
     return common_attrs
 
-def update_config(config, modalities, tokenizer, x=None, y=None, default_layer_size=4):
-    # Ensure 'block_size' and 'layers' are in config
-    if 'block_size' not in config:
-        config['block_size'] = {}
-    if 'layers' not in config:
-        config['layers'] = {}
 
-    # Iterate over modalities
-    if x is not None:
-        for modality, details in x['modalities'].items():
-            for key, value in details.items():
-                new_key = f'{modality}'
-                config['layers']['modalities'][new_key] = default_layer_size
-    if y is not None:
-        for modality_group in modalities.values():
-            for modality, values in modality_group.items():
-                new_key = f'{modality}'
-                if config['predict'] is None:
-                    config['predict'] = {}
-                config['predict']['modalities'] = {}
-                if get_attr(tokenizer.stoi, modality) is not None:
-                    # if tokenizer, classification objective
-                    config['predict']['modalities'][new_key] = {
-                                        'objective': 'classification',
-                                        'n_classes': len(tokenizer.stoi[modality])
-                    }
-                else:
-                    # if no tokenizer, regression objective
-                    config['predict']['modalities'][new_key] = {
-                                        'objective': 'regression',
-                                        'n_classes': 1
-                    }
+def bin_spikes(data, dt):
+    """
+    spikerates = bin_spikes(response, 0.1)
+    """
+    # Compute the maximum time across all spike times
+    max_time = max(neuron[0].max() for neuron in data if neuron[0].size != 0)
 
+    # Compute the number of intervals
+    N_intervals = int(np.ceil(max_time / dt))
 
-    return config
+    # Create a 2D matrix of zeros
+    N_Neurons = len(data)
+    spike_matrix = np.zeros((N_Neurons, N_intervals))
 
-# # precision_score = collections.defaultdict(list)
-# # recall_score = collections.defaultdict(list)
-# # f1_score = collections.defaultdict(list)
-# device = 'cuda'
-# width = 1
-# trials = test_data['Trial'].unique()
+    # Iterate over the neurons and their spike times
+    for i, neuron in enumerate(data):
+        # Remove NaN values
+        spike_times = neuron[0][~np.isnan(neuron[0])]
+        # Iterate over the spike times
+        for spike_time in spike_times:
+            # Compute the interval index for the spike time
+            interval_index = int(spike_time // dt)
 
-# precision = []
-# recall = []
-# f1 = []
-# df_1 = []
-# df_2 = []
-# for n, trial in enumerate(trials):
-#     trial_2 = int(20 * (trial // 20) + np.random.choice([i for i in range(1, 21)], 1))
-#     if trial_2 == trial:
-#         trial_2 = trial + 1
-#     df_data_trial = df[df['Trial'] == trial]
-#     df_data_2_trial = df[df['Trial'] == trial_2]
-#     df_1.append(df_data_trial)
-#     df_2.append(df_data_2_trial)
-#     if n > 0 and n % 4 == 0:
-#         df_1 = pd.concat(df_1).sort_values(by=['Trial', 'Time'])
-#         df_2 = pd.concat(df_2).sort_values(by=['Trial', 'Time'])
-#         for n_id in df_data_trial['ID'].unique():
-#             spikes_true = df_1['Time'][df_1['ID'] == n_id]
-#             spikes_pred = df_2['Time'][df_2['ID'] == n_id]
-#             if len(spikes_pred) > 0:
-#                 [cos_score, cos_prec, cos_call, y, y_hat, t_y] = compute_score(width, spikes_true, spikes_pred)
-#             else:
-#                 continue
-#             # scores = compute_scores(df_trial_true, df_trial_pred)
-            
-#             precision.append(cos_prec)
-#             recall.append(cos_call)
-#             f1.append(cos_score)
-#         df_1 = []
-#         df_2 = []
-#     # for n_id in df_data_trial['ID'].unique():
-#     #     # spikes_true = np.array(df_true_trial[df_true_trial['ID'] == n_id]['Time'])
-#     #     # spikes_pred = np.array(df_pred_trial[df_pred_trial['ID'] == n_id]['Time'])
-#     #     spikes_true = df_data_trial['Time'][df_data_trial['ID'] == n_id]
-#     #     spikes_pred = df_data_2_trial['Time'][df_data_2_trial['ID'] == n_id]
-#     #     if len(spikes_pred) > 0:
-#     #         [cos_score, cos_prec, cos_call, y, y_hat, t_y] = compute_score(width, spikes_true, spikes_pred)
-#     #     else:
-#     #         cos_score = 0
-#     #         cos_prec = 0
-#     #         cos_call = 0
-#         # precision.append(cos_prec)
-#         # recall.append(cos_call)
-#         # f1.append(cos_score)
-# # precision_score[len(precision_score.keys())].append(np.mean(np.nan_to_num(precision)))
-# # recall_score[len(recall_score.keys())].append(np.mean(np.nan_to_num(recall)))
-# # f1_score[len(f1_score.keys())].append(np.mean(np.nan_to_num(f1)))
+            # Increment the spike count for the neuron and interval
+            spike_matrix[i, interval_index] += 1
 
-# precision_score['Ground Truth'] = np.mean(np.nan_to_num(precision))
-# recall_score['Ground Truth'] = np.mean(np.nan_to_num(recall))
-# f1_score['Ground Truth'] = np.mean(np.nan_to_num(f1))
-
-# import cv2
-# import numpy as np
-
-# def draw_grid(image, n, m, color=(0, 255, 0), thickness=1):
-#     """
-#     Draw an n x m grid on an image.
-
-#     Args:
-#         image (np.array): Input image. (height, width, channels)
-#         n (int): Number of horizontal grid lines.
-#         m (int): Number of vertical grid lines.
-#         color (tuple, optional): Color of the grid lines. Default is green (0, 255, 0).
-#         thickness (int, optional): Thickness of the grid lines. Default is 1.
-
-#     Returns:
-#         np.array: Image with the grid drawn.
-#     """
-#     height, width, _ = image.shape
-
-#     # Calculate the step size for the grid lines
-#     step_x = width // (m + 1)
-#     step_y = height // (n + 1)
-
-#     # Draw the vertical grid lines
-#     for i in range(1, m + 1):
-#         cv2.line(image, (i * step_x, 0), (i * step_x, height), color, thickness)
-
-#     # Draw the horizontal grid lines
-#     for j in range(1, n + 1):
-#         cv2.line(image, (0, j * step_y), (width, j * step_y), color, thickness)
-
-#     return image
+    return spike_matrix

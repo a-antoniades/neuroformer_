@@ -13,27 +13,22 @@ sys.path.append('neuroformer')
 sys.path.append('.')
 sys.path.append('../')
 
-import pandas as pd
 import numpy as np
-
-import numpy as np
-import torch
 import pandas as pd
-import matplotlib.pyplot as plt
 
 from torch.utils.data.dataloader import DataLoader
 
 import math
 
-from neuroformer.model_neuroformer_2 import GPT, GPTConfig
+from neuroformer.model_neuroformer import GPT, GPTConfig
 from neuroformer.utils import get_attr
 from neuroformer.trainer import Trainer, TrainerConfig
-from neuroformer.utils_2 import (set_seed, update_object, running_jupyter, 
+from neuroformer.utils import (set_seed, update_object, running_jupyter, 
                                  all_device, load_config, 
                                  dict_to_object, object_to_dict, recursive_print,
                                  create_modalities_dict)
 from neuroformer.visualize import set_plot_params
-from neuroformer.SpikeVidUtils import make_intervals, round_n, SpikeTimeVidData2
+from neuroformer.SpikeVidUtils import round_n
 from neuroformer.DataUtils import round_n, Tokenizer
 from neuroformer.datasets import load_visnav, load_V1AL
 
@@ -265,7 +260,7 @@ else:
 
 
 # # %%
-# from neuroformer.utils_2 import predict_modality
+# from neuroformer.utils import predict_modality
 # import pickle
 
 # # CKPT_PATH = "/share/edc/home/antonis/neuroformer/models/NF.15/Visnav_VR_Expt/medial/speed_regression/69/"
@@ -289,7 +284,7 @@ else:
 
 
 # # %%
-# from neuroformer.utils_2 import predict_modality
+# from neuroformer.utils import predict_modality
 
 
 # modality = 'speed'

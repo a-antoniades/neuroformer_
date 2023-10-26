@@ -25,7 +25,7 @@ from torch.utils.data.dataloader import DataLoader
 
 import math
 
-from neuroformer.model_neuroformer_2 import Neuroformer, NeuroformerConfig, get_attr
+from neuroformer.model_neuroformer import Neuroformer, NeuroformerConfig, get_attr
 from neuroformer.utils import get_attr
 from neuroformer.trainer import Trainer, TrainerConfig
 from neuroformer.utils_2 import (set_seed, update_object, running_jupyter, 
