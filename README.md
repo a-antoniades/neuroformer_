@@ -1,13 +1,13 @@
 # Neuroformer 
 ### A GPT based multi-modal, multi-task transformer model for pretraining and downstream inference involving brain data.
-<p align="center">
+<!-- <p align="center">
   <img width="55%" src="images/_7fef7456-b2dd-4ef4-bc00-2a15d401e51b.jpg">
-</p>
+</p> -->
 
 <!-- ![Model Architecture](images/_7fef7456-b2dd-4ef4-bc00-2a15d401e51b.jpg) -->
 
 <!-- <p align="center">
-### A GPT based multi-modal, multi-task transformer model for pretraining and downstream inference involving brain data.
+### A GPT based multi-modal, multi-task transformer model for generative pretraining and downstream inference involving brain data.
 </p> -->
 
 
@@ -15,7 +15,7 @@
   <img width="100%" src="images/model_arch_2_5.jpg">
 </p>
 
-**For questions regarding use of the model, feel free to contact antonis@ucsb.edu.**
+**Need help using the model with your data, or have general questions? Feel free to contact antonis@ucsb.edu.**
 
 ## Installation
 
@@ -31,7 +31,7 @@ The Smith Lab has open-sourced two datasets for use with this model. Special tha
 
 - **Visnav (lateral)**: Recordings from the lateral visual cortex, spanning V1 and multiple higher visual areas, from mice engaged in a visually-guided navigation task. This dataset includes additional behavioral variables such as speed, and eye gaze (phi, th).
 
-### Integrating your own data
+## Integrating your own data
 
 For a closer look at the data format, refer to the `neuroformer.datasets.load_visnav()` function (used for example in the `neuroformer_train.py`). 
 
@@ -55,13 +55,19 @@ In the `mconf.yaml` file, you can specify additional modalities other than spike
 
 Here's what each field represents:
 
-- **Modalities**: Any additional modalities other than spikes and frames.
-- **Behavior**: The name of the modality type.
-- **Variables**: The name of the modality.
-  - **Data**: The data of the modality in shape (n_samples, n_features).
-  - **dt**: The time resolution of the modality, used to index n_samples.
-  - **Predict**: Whether to predict this modality or not. If you set predict to false, then it will not be used as an input in the model, but rather to be predicted as an output.
-  - **Objective**: Choose between *regression* or *classification*. If classification is chosen, the data will be split into classes according to **dt**.
+```yaml
+Modalities: Any additional modalities other than spikes and frames.
+
+Behavior: The name of the modality type.
+
+Variables: The name of the modality.
+  Data: The data of the modality in shape (n_samples, n_features).
+  dt: The time resolution of the modality, used to index n_samples.
+  Predict: Whether to predict this modality or not. If you set predict to false, then it will not be used as an input in the model, but rather to be predicted as an output.
+  Objective: Choose between regression or classification. If classification is chosen, the data will be split into classes according to dt.
+```
+
+
 
 To pretrain on the visnav dataset, you can run the following code:
 ```
@@ -97,9 +103,26 @@ python neuroformer_train.py --lateral --finetune --loss_brop speed phi th --conf
 
 ## Inference
 
+<p align="center">
+  <img src="images/regression_2.jpg" alt="Model Architecture" width="95%"/>
+</p>
+
+
 To generate new spikes:
 ```
 python neuroformer_inference.py --dataset lateral --ckpt_path "model_directory" --predict_modes speed phi th
 ```
 
-The `behavior_preds()` function in `neuroformer_inference.py` can be used to generate predictions for any of the behavioral variables, by setting `block_type` and `objecttive`, which is automatically inferred by the config file and the `args.predict_mode` options. Note that if you want to generate predictions for a variable that was not used in the pretraining, you will need to add it to the config file (and preferably **finetune** on it first).
+The `behavior_preds()` function in `neuroformer_inference.py` can be used to generate predictions for any of the behavioral variables, by setting `block_type` and `objective`, which is automatically inferred by the mconf.yaml file and the `args.predict_mode` options. For example, to predict a new modality named ***reward*** inside the `behavior` block:
+
+```python
+predict_modality(model, dataset, 
+                 modality='reward',
+                 block_type='behavior',
+                 objective=config.modalities.behavior.reward.objective)
+```
+
+
+
+
+Note that if you want to generate predictions for a variable that was not used in the pretraining, you will need to add it to the config file (and preferably **finetune** on it first).

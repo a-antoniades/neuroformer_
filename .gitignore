@@ -168,3 +168,4 @@ training/*.ipynb
 **/wandb
 **/context_general_bci
 **/V1T
+**/envs
