@@ -37,17 +37,24 @@ For a closer look at the data format, refer to the `neuroformer.datasets.load_vi
 
 The function needs to return:
 
-- `data`: A dictionary with:
-  - Required key: `'spikes'` of shape N_neurons x N_timesteps (bins) of size dt.
-  - Optional keys:
-    - `'frames'` of shape N_frames x N_timesteps (bins) of size dt. If your trial structure/stimulus format differs from the ones provided in the script, you can write your own `callback` function.
-    - `'behavior variables'` of shape N_timepoints, denoting the behavioral variable of interest (e.g. speed, phi, thi, etc). This key can be anything you want, as long as you specify it in the config file.
-- `intervals`: An array of shape N_timepoints denoting all intervals/time bins of the data. This is used to split the data into train/val/test sets.
-- `train_intervals`: The corresponding train intervals.
-- `test_intervals`: The corresponding test intervals.
-- `finetune_intervals`: The corresponding finetune intervals (very small amount).
-- `callback`: This function is passed to the dataloader, and parses your stimulus according to the relationship it has to your response (spikes). This enables the integration of virtually any stimulus/response experiment structure. Most callbacks only require 4-5 lines of code, see the existing ones to get an idea.
+The data is organized in a dictionary format with the following structure:
 
+## Data Dictionary
+
+```python
+{
+    'data': {
+        'spikes': (N_neurons, N_timesteps),  # Shape, required key
+        'frames': (N_frames, N_timesteps),   # Shape, optional key
+        'behavior variables': (N_timepoints,),  # Shape, optional key; denoting the behavioral variable of interest (e.g. speed, phi, thi, etc). You can name this key as per your requirements and specify its usage in the config file.
+    },
+    'intervals': (N_timepoints,),  # Denoting all intervals/time bins of the data. Used to split the data into train/val/test sets.
+    'train_intervals': ... ,  # The corresponding train intervals.
+    'test_intervals': ... ,   # The corresponding test intervals.
+    'finetune_intervals': ... ,  # The corresponding finetune intervals (very small amount).
+    'callback': callback() 'This function is passed to the dataloader and parses your stimulus according to the relationship it has to your response (spikes). It is designed to integrate any stimulus/response experiment structure. Typically requires only 4-5 lines of code; refer to existing ones for a clearer understanding.'
+}
+```
 
 ## Modalities and Task Configuration
 
